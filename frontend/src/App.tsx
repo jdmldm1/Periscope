@@ -1593,7 +1593,28 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <img src="/logo.png" className="brand-logo" alt="logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-          Periscope
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#fff', lineHeight: 1.1 }}>Periscope</span>
+            <span style={{ 
+              fontSize: '0.62rem', 
+              color: '#60a5fa', 
+              fontWeight: 600, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '4px', 
+              marginTop: '4px',
+              letterSpacing: '0.5px',
+              textTransform: 'uppercase'
+            }}>
+              <svg viewBox="0 0 256 250" width="11" height="11" style={{ display: 'inline-block', flexShrink: 0 }}>
+                <path d="M128 0L239.53 53.64V178.6L128 250L16.47 178.6V53.64L128 0Z" fill="#326CE5"/>
+                <path d="M128 35.12L208.57 73.84V163.66L128 215.12L47.43 163.66V73.84L128 35.12Z" fill="white"/>
+                <path d="M128 53.68V95.73M128 153.27V195.32M74.96 158.73L104.7 128.99M181.04 90.27L151.3 120.01M53.68 128H95.73M153.27 128H195.32M74.96 97.27L104.7 127.01M181.04 151.73L151.3 121.99" stroke="#326CE5" strokeWidth="18" strokeLinecap="round"/>
+                <circle cx="128" cy="128" r="28" fill="#326CE5"/>
+              </svg>
+              Kubernetes
+            </span>
+          </div>
         </div>
         
         <div className="nav-section">
