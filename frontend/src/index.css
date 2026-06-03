@@ -13,13 +13,13 @@
   --text-main: #ededed;
   --text-muted: #888888;
   
-  --accent-primary: #ffffff;
-  --accent-blue: #3291ff;
-  --accent-cyan: #00f0ff;
-  --accent-purple: #f81ce5;
-  --accent-pink: #ff0080;
-  --accent-green: #39ff14; /* Neon green */
-  --accent-success: #39ff14;
+  --accent-primary: #3b82f6;
+  --accent-blue: #2563eb;
+  --accent-cyan: #60a5fa;
+  --accent-purple: #8b5cf6;
+  --accent-pink: #f43f5e;
+  --accent-green: #3b82f6; /* Royal Blue */
+  --accent-success: #10b981; /* Muted Emerald Green */
   --accent-warning: #ffb800;
   --accent-error: #e00;
 
@@ -90,14 +90,14 @@ body {
   font-weight: 700;
   letter-spacing: -0.5px;
   color: #fff;
-  text-shadow: 0 0 10px rgba(57, 255, 20, 0.4);
+  text-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
 }
 
 .brand-logo {
   width: 32px;
   height: 32px;
   border-radius: 6px;
-  box-shadow: 0 0 15px rgba(57, 255, 20, 0.3);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
 }
 
 .nav-section {
@@ -243,7 +243,7 @@ body {
 .stat-card:hover {
   transform: translateY(-2px);
   border-color: #333;
-  box-shadow: 0 5px 15px rgba(57, 255, 20, 0.05);
+  box-shadow: 0 5px 15px rgba(59, 130, 246, 0.05);
 }
 
 .stat-card:hover::before {
@@ -251,7 +251,7 @@ body {
 }
 
 .stat-icon {
-  background: rgba(57, 255, 20, 0.1);
+  background: rgba(59, 130, 246, 0.1);
   color: var(--accent-green);
   padding: 12px;
   border-radius: 8px;
@@ -439,7 +439,7 @@ body {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 0 40px rgba(0, 0, 0, 0.8), 0 0 10px rgba(57, 255, 20, 0.1);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.8), 0 0 10px rgba(59, 130, 246, 0.1);
 }
 
 .modal-tabs {
@@ -469,7 +469,7 @@ body {
 .modal-tab.active {
   color: var(--accent-green);
   border-bottom-color: var(--accent-green);
-  background: rgba(57, 255, 20, 0.05);
+  background: rgba(59, 130, 246, 0.05);
 }
 
 .modal-header {
@@ -535,7 +535,7 @@ body {
   font-family: var(--font-mono);
   font-size: 0.85rem;
   line-height: 1.4;
-  color: #39ff14; /* Matrix green */
+  color: #60a5fa; /* Cool blue */
   white-space: pre-wrap;
   box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
 }
@@ -635,7 +635,7 @@ body {
 }
 .metric-bar-fill.normal {
   background: var(--accent-green);
-  box-shadow: 0 0 6px rgba(57, 255, 20, 0.4);
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.4);
 }
 .metric-bar-fill.warning {
   background: var(--accent-warning);
@@ -736,13 +736,13 @@ body {
 }
 .topology-card:hover {
   border-color: var(--accent-green);
-  box-shadow: 0 4px 12px rgba(57, 255, 20, 0.1);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
   transform: translateY(-2px);
 }
 .topology-card.active {
   border-color: var(--accent-cyan);
-  box-shadow: 0 4px 16px rgba(0, 240, 255, 0.15);
-  background: rgba(0, 240, 255, 0.02);
+  box-shadow: 0 4px 16px rgba(96, 165, 250, 0.15);
+  background: rgba(96, 165, 250, 0.02);
 }
 .topology-card-title {
   font-weight: 600;
@@ -943,9 +943,9 @@ body {
 }
 
 .quick-action-btn:hover {
-  background: rgba(57, 255, 20, 0.05);
-  border-color: rgba(57, 255, 20, 0.3);
-  box-shadow: 0 4px 12px rgba(57, 255, 20, 0.05);
+  background: rgba(59, 130, 246, 0.05);
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.05);
   color: var(--accent-green);
 }
 
