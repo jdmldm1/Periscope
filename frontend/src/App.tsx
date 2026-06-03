@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Network } from 'vis-network';
 import { 
   Box, Layers, Server, Activity, Trash2, Terminal,
   FileText, Shield, Key, GitCommit, RefreshCw, X, Save, Search, Settings, Info, Power, SlidersHorizontal,
@@ -90,6 +91,11 @@ const pluralizeKind = (kind: string): string => {
   return k + 's';
 };
 
+const matchesSelector = (labels: any, selector: any) => {
+  if (!labels || !selector) return false;
+  return Object.keys(selector).every(key => labels[key] === selector[key]);
+};
+
 function App() {
   const [activeTab, setActiveTab] = useState<ResourceKind>('dashboard');
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -160,6 +166,9 @@ function App() {
     pods: any[]
   }>({ nodes: [], services: [], deployments: [], pods: [] });
   const [hoveredTopologyItem, setHoveredTopologyItem] = useState<{type: 'node' | 'service' | 'deployment' | 'pod', name: string, item: any} | null>(null);
+  const [topologyMode, setTopologyMode] = useState<'columns' | 'graph'>('columns');
+  const graphRef = useRef<HTMLDivElement>(null);
+  const networkInstance = useRef<any>(null);
 
   // Custom states for CRD & Command Palette
   const [customCrd, setCustomCrd] = useState<{group: string, version: string, plural: string, name: string} | null>(null);
@@ -408,6 +417,230 @@ function App() {
     fetchNamespaces();
     fetchZarfStatus();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'topology' && topologyMode === 'graph' && graphRef.current) {
+      // 1. Build nodes and edges
+      const nodesList: any[] = [];
+      const edgesList: any[] = [];
+
+      // Add Nodes
+      topologyData.nodes.forEach(n => {
+        nodesList.push({
+          id: `node-${n.metadata.name}`,
+          label: n.metadata.name,
+          title: `Node: ${n.metadata.name}\nKubelet: ${n.status?.nodeInfo?.kubeletVersion || 'N/A'}\nOS: ${n.status?.nodeInfo?.operatingSystem || 'N/A'}`,
+          group: 'nodes',
+          shape: 'box',
+          margin: 10,
+          color: {
+            background: '#0a0a0a',
+            border: '#3b82f6',
+            highlight: { background: '#1d4ed8', border: '#60a5fa' },
+            hover: { background: '#111111', border: '#60a5fa' }
+          },
+          font: { color: '#ffffff', face: 'Inter', size: 12 }
+        });
+      });
+
+      // Add Services
+      topologyData.services.forEach(s => {
+        nodesList.push({
+          id: `service-${s.metadata.name}`,
+          label: s.metadata.name,
+          title: `Service: ${s.metadata.name}\nType: ${s.spec?.type}\nClusterIP: ${s.spec?.clusterIP}`,
+          group: 'services',
+          shape: 'hexagon',
+          color: {
+            background: '#0a0a0a',
+            border: '#60a5fa',
+            highlight: { background: '#2563eb', border: '#60a5fa' },
+            hover: { background: '#111111', border: '#60a5fa' }
+          },
+          font: { color: '#ffffff', face: 'Inter', size: 12 }
+        });
+      });
+
+      // Add Deployments
+      topologyData.deployments.forEach(d => {
+        nodesList.push({
+          id: `deployment-${d.metadata.name}`,
+          label: d.metadata.name,
+          title: `Deployment: ${d.metadata.name}\nReplicas: ${d.status?.readyReplicas || 0}/${d.spec?.replicas || 0}`,
+          group: 'deployments',
+          shape: 'ellipse',
+          color: {
+            background: '#0a0a0a',
+            border: '#8b5cf6',
+            highlight: { background: '#6d28d9', border: '#a78bfa' },
+            hover: { background: '#111111', border: '#a78bfa' }
+          },
+          font: { color: '#ffffff', face: 'Inter', size: 12 }
+        });
+      });
+
+      // Add Pods
+      topologyData.pods.forEach(p => {
+        const phase = (p.status?.phase || 'Unknown').toLowerCase();
+        let color = '#3b82f6'; // running
+        if (phase === 'pending') color = '#ffb800';
+        if (phase === 'failed') color = '#e00';
+        if (phase === 'succeeded') color = '#10b981';
+
+        nodesList.push({
+          id: `pod-${p.metadata.name}`,
+          label: p.metadata.name.length > 20 ? p.metadata.name.substring(0, 17) + '...' : p.metadata.name,
+          title: `Pod: ${p.metadata.name}\nStatus: ${p.status?.phase}\nNode: ${p.spec?.nodeName}`,
+          group: 'pods',
+          shape: 'dot',
+          size: 16,
+          color: {
+            background: '#0a0a0a',
+            border: color,
+            highlight: { background: '#111111', border: color },
+            hover: { background: '#111111', border: color }
+          },
+          font: { color: '#ffffff', face: 'Inter', size: 10 }
+        });
+
+        // Edges: Pod -> Node
+        if (p.spec?.nodeName) {
+          edgesList.push({
+            from: `pod-${p.metadata.name}`,
+            to: `node-${p.spec.nodeName}`,
+            color: { color: '#222222', highlight: '#444444' },
+            dashes: true,
+            title: 'Runs on Node'
+          });
+        }
+
+        // Edges: Pod -> Deployment
+        topologyData.deployments.forEach(d => {
+          if (matchesSelector(p.metadata?.labels, d.spec?.selector?.matchLabels)) {
+            edgesList.push({
+              from: `pod-${p.metadata.name}`,
+              to: `deployment-${d.metadata.name}`,
+              color: { color: '#8b5cf6', highlight: '#a78bfa' },
+              width: 1.5,
+              title: 'Managed by Deployment'
+            });
+          }
+        });
+
+        // Edges: Pod -> Service
+        topologyData.services.forEach(s => {
+          if (matchesSelector(p.metadata?.labels, s.spec?.selector)) {
+            edgesList.push({
+              from: `pod-${p.metadata.name}`,
+              to: `service-${s.metadata.name}`,
+              color: { color: '#60a5fa', highlight: '#93c5fd' },
+              width: 1.5,
+              arrows: 'to',
+              title: 'Service Routes to Pod'
+            });
+          }
+        });
+      });
+
+      // Initialize vis.Network
+      const data = { nodes: nodesList, edges: edgesList };
+      const options = {
+        nodes: {
+          borderWidth: 2,
+          shadow: {
+            enabled: true,
+            color: 'rgba(0,0,0,0.5)',
+            size: 4,
+            x: 2,
+            y: 2
+          }
+        },
+        edges: {
+          smooth: {
+            enabled: true,
+            type: 'continuous',
+            roundness: 0.5
+          }
+        },
+        physics: {
+          stabilization: {
+            enabled: true,
+            iterations: 200
+          },
+          barnesHut: {
+            gravitationalConstant: -1800,
+            centralGravity: 0.3,
+            springLength: 120,
+            springConstant: 0.04,
+            damping: 0.09
+          }
+        },
+        interaction: {
+          hover: true,
+          tooltipDelay: 200,
+          hideEdgesOnDrag: false
+        }
+      };
+
+      if (networkInstance.current) {
+        networkInstance.current.destroy();
+      }
+
+      networkInstance.current = new Network(graphRef.current, data, options);
+
+      // Node double-click / click handler to open modals
+      networkInstance.current.on('doubleClick', (params: any) => {
+        if (params.nodes && params.nodes.length > 0) {
+          const selectedId = params.nodes[0];
+          const parts = selectedId.split('-');
+          const type = parts[0];
+          const name = parts.slice(1).join('-');
+          
+          if (type === 'pod') {
+            const pod = topologyData.pods.find(p => p.metadata.name === name);
+            if (pod) {
+              setModal({
+                type: 'yaml',
+                name: pod.metadata.name,
+                namespace: pod.metadata.namespace,
+                kind: 'pods',
+                uid: pod.metadata.uid
+              });
+            }
+          } else if (type === 'deployment') {
+            const dep = topologyData.deployments.find(d => d.metadata.name === name);
+            if (dep) {
+              setModal({
+                type: 'yaml',
+                name: dep.metadata.name,
+                namespace: dep.metadata.namespace,
+                kind: 'deployments',
+                uid: dep.metadata.uid
+              });
+            }
+          } else if (type === 'service') {
+            const svc = topologyData.services.find(s => s.metadata.name === name);
+            if (svc) {
+              setModal({
+                type: 'yaml',
+                name: svc.metadata.name,
+                namespace: svc.metadata.namespace,
+                kind: 'services',
+                uid: svc.metadata.uid
+              });
+            }
+          }
+        }
+      });
+    }
+
+    return () => {
+      if (networkInstance.current) {
+        networkInstance.current.destroy();
+        networkInstance.current = null;
+      }
+    };
+  }, [activeTab, topologyMode, topologyData]);
 
   useEffect(() => {
     if (activeTab === 'topology') {
@@ -663,11 +896,6 @@ function App() {
     const { type: hType, name: hName, item: hItem } = hoveredTopologyItem;
     
     if (hType === colType && hName === item.metadata.name) return true;
-    
-    const matchesSelector = (labels: any, selector: any) => {
-      if (!labels || !selector) return false;
-      return Object.keys(selector).every(key => labels[key] === selector[key]);
-    };
 
     if (hType === 'pod') {
       if (colType === 'node') return hItem.spec?.nodeName === item.metadata.name;
@@ -716,6 +944,29 @@ function App() {
   };
 
   const renderTopologyView = () => {
+    if (topologyMode === 'graph') {
+      return (
+        <div className="topology-container animate-fade-in" style={{ height: 'calc(100vh - 280px)', position: 'relative' }}>
+          <div 
+            ref={graphRef} 
+            className="topology-graph-canvas" 
+            style={{ 
+              width: '100%', 
+              height: '100%', 
+              background: '#070707', 
+              border: '1px solid var(--border-color)', 
+              borderRadius: 'var(--radius-lg)',
+              position: 'relative',
+              overflow: 'hidden'
+            }} 
+          />
+          <div style={{ position: 'absolute', bottom: 12, right: 12, fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.6)', padding: '4px 8px', borderRadius: 4, zIndex: 10, pointerEvents: 'none' }}>
+            Double-click a node to inspect resource
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="topology-container animate-fade-in">
         <div className="topology-layout">
@@ -1538,6 +1789,26 @@ function App() {
                   : `Managing ${filteredResources.length} resources in ${activeTab !== 'nodes' ? selectedNs : 'cluster'}`}
               </div>
             </div>
+            {activeTab === 'topology' && (
+              <div className="topology-toggle-group" style={{ display: 'flex', gap: 0 }}>
+                <button 
+                  type="button"
+                  className={`btn ${topologyMode === 'columns' ? 'btn-primary' : ''}`}
+                  onClick={() => setTopologyMode('columns')}
+                  style={{ borderRadius: '4px 0 0 4px', borderRight: 'none' }}
+                >
+                  Columns View
+                </button>
+                <button 
+                  type="button"
+                  className={`btn ${topologyMode === 'graph' ? 'btn-primary' : ''}`}
+                  onClick={() => setTopologyMode('graph')}
+                  style={{ borderRadius: '0 4px 4px 0' }}
+                >
+                  Interactive Graph
+                </button>
+              </div>
+            )}
             {activeTab === 'helm' && (
               <button className="btn btn-primary" onClick={() => setIsDeployHelmModalOpen(true)}>
                 <Package size={16} /> Deploy Chart

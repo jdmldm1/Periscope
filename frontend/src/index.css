@@ -956,4 +956,24 @@ body {
 .quick-action-btn:hover svg {
   transform: scale(1.1);
 }
+/* vis.js Network Graph Styles */
+div.vis-tooltip {
+  background-color: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-main) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 0.75rem !important;
+  padding: 8px 12px !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-card) !important;
+  z-index: 1000 !important;
+  line-height: 1.4 !important;
+}
 
+.topology-graph-canvas canvas {
+  outline: none;
+  cursor: grab;
+}
+.topology-graph-canvas canvas:active {
+  cursor: grabbing;
+}
