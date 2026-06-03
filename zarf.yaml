@@ -1,0 +1,27 @@
+kind: ZarfPackageConfig
+metadata:
+  name: periscope
+  description: A badass Periscope web console for exploring and managing Kubernetes resources.
+  version: 1.0.0
+
+components:
+  - name: periscope
+    required: true
+    images:
+      - periscope:latest
+    charts:
+      - name: periscope
+        version: 0.1.0
+        namespace: periscope
+        localPath: ./charts/periscope
+        valuesFiles:
+          - ./charts/periscope/values.yaml
+    actions:
+      onCreate:
+        before:
+          - cmd: docker build -t periscope:latest .
+            description: "Build Periscope docker image"
+          - cmd: docker save periscope:latest -o periscope.tar
+            description: "Save Periscope docker image to a tarball"
+    imageArchives:
+      - path: periscope.tar
