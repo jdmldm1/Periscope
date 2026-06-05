@@ -80,11 +80,47 @@ app.get('/api/resource/:kind', async (req, res) => {
             }
         } else {
             const nsName = ns || 'default';
-            if (!fetchers[kind]) return res.status(400).json({ error: 'Unsupported kind' });
+            if (!fetchers[kind]) {
+                return res.status(400).json({ error: 'Unsupported kind' });
+            }
             response = await fetchers[kind](nsName);
         }
-        res.json(response.items || []);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+
+        const items = response.items || [];
+
+        if (kind === 'pods') {
+            items.sort((a, b) => {
+                const aRunning = a.status?.phase === 'Running';
+                const bRunning = b.status?.phase === 'Running';
+
+                if (aRunning !== bRunning) {
+                    return bRunning - aRunning;
+                }
+
+                return a.metadata.name.localeCompare(b.metadata.name);
+            });
+        }
+
+        if (kind === 'deployments') {
+            items.sort((a, b) => {
+                const aReady =
+                    (a.status?.readyReplicas || 0) > 0;
+                const bReady =
+                    (b.status?.readyReplicas || 0) > 0;
+
+                if (aReady !== bReady) {
+                    return bReady - aReady;
+                }
+
+                return a.metadata.name.localeCompare(b.metadata.name);
+            });
+        }
+
+        res.json(items);
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Delete Resource
