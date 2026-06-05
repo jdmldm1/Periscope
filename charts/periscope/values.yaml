@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: periscope
-  pullPolicy: Never
+  pullPolicy: Always
   tag: "latest"
 
 serviceAccount:
@@ -10,8 +10,8 @@ serviceAccount:
   name: ""
 
 service:
-  type: ClusterIP
-  port: 80
+  type: LoadBalancer
+  port: 3001
   targetPort: 3001
   nodePort: null
 

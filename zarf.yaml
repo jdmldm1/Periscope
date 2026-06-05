@@ -1,14 +1,18 @@
 kind: ZarfPackageConfig
+
 metadata:
   name: periscope
-  description: A badass Periscope web console for exploring and managing Kubernetes resources.
+  description: A Periscope web console for exploring and managing Kubernetes resources
   version: 1.0.0
 
 components:
   - name: periscope
     required: true
+
+    # 🔥 CRITICAL: this is what Zarf actually imports into containerd
     images:
       - periscope:latest
+
     charts:
       - name: periscope
         version: 0.1.0
@@ -16,12 +20,9 @@ components:
         localPath: ./charts/periscope
         valuesFiles:
           - ./charts/periscope/values.yaml
+
     actions:
       onCreate:
         before:
           - cmd: docker build -t periscope:latest .
-            description: "Build Periscope docker image"
-          - cmd: docker save periscope:latest -o periscope.tar
-            description: "Save Periscope docker image to a tarball"
-    imageArchives:
-      - path: periscope.tar
+            description: Build Periscope image locally
