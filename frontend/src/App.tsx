@@ -643,6 +643,8 @@ function App() {
   }, [activeTab, topologyMode, topologyData]);
 
   useEffect(() => {
+    setResources([]);
+    setLoading(true);
     if (activeTab === 'topology') {
       fetchTopologyData();
       const interval = setInterval(fetchTopologyData, 10000);
@@ -1511,8 +1513,8 @@ function App() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredResources.map((pkg: any) => {
-                const name = pkg.name || pkg.Name || 'Unknown';
+              {filteredResources.filter((pkg: any) => pkg && !pkg.metadata).map((pkg: any) => {
+                const name = pkg.name || pkg.Name || pkg.package || pkg.Package || 'Unknown';
                 const version = pkg.version || pkg.Version || 'N/A';
                 const arch = pkg.architecture || pkg.arch || pkg.Architecture || 'N/A';
                 const components = Array.isArray(pkg.components) 
@@ -1567,7 +1569,7 @@ function App() {
     if (!term) return true;
     
     if (activeTab === 'zarf') {
-      const name = r.name || r.Name || '';
+      const name = r.name || r.Name || r.package || r.Package || '';
       return name.toLowerCase().includes(term);
     }
     
@@ -1855,7 +1857,7 @@ function App() {
               {filteredResources.length === 0 ? (
                 <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px' }}>No resources found.</div>
               ) : (
-                filteredResources.map((res, i) => (
+                filteredResources.filter((res: any) => res && res.metadata).map((res: any, i) => (
                   <div key={res.metadata.uid || res.metadata.name} className="resource-row animate-fade-in" style={{ animationDelay: `${i * 0.02}s` }}>
                     <div className="row-main">
                       <div className="row-title">
