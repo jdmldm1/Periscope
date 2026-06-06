@@ -408,8 +408,8 @@ function App() {
 
   const getPodContainers = (): string[] => {
     if (!modal || modal.kind !== 'pods') return [];
-    const pod = resources.find(r => r.metadata.name === modal.name && r.metadata.namespace === modal.namespace) 
-      || topologyData.pods.find(p => p.metadata.name === modal.name && p.metadata.namespace === modal.namespace);
+    const pod = resources.find(r => r && r.metadata && r.metadata.name === modal.name && r.metadata.namespace === modal.namespace) 
+      || topologyData.pods.find(p => p && p.metadata && p.metadata.name === modal.name && p.metadata.namespace === modal.namespace);
     return pod?.spec?.containers?.map((c: any) => c.name as string) || [];
   };
 
@@ -876,7 +876,7 @@ function App() {
   };
 
   const getNodeCapacity = (nodeName: string) => {
-    const node = resources.find(r => r.metadata.name === nodeName) || topologyData.nodes.find(r => r.metadata.name === nodeName);
+    const node = resources.find(r => r && r.metadata && r.metadata.name === nodeName) || topologyData.nodes.find(r => r && r.metadata && r.metadata.name === nodeName);
     if (!node) return { cpu: 1, memory: 1 };
     const cpuCap = parseCpu(node.status?.capacity?.cpu || '1');
     const memCap = parseMem(node.status?.capacity?.memory || '1Ki');
