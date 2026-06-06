@@ -3,12 +3,12 @@ import { Network } from 'vis-network';
 import { 
   Box, Layers, Server, Activity, Trash2, Terminal,
   FileText, Shield, Key, GitCommit, RefreshCw, X, Save, Search, Settings, Info, Power, SlidersHorizontal,
-  ArrowDown, Copy, Database, Package, Radio, Command, Code, List
+  ArrowDown, Copy, Database, Package, Radio, Command, Code, List, Globe, ExternalLink
 } from 'lucide-react';
 import './index.css';
 
-type ResourceKind = 'pods' | 'deployments' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'crds' | 'custom' | 'events' | 'zarf' | 'dashboard';
-type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history';
+type ResourceKind = 'pods' | 'deployments' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'dashboard';
+type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history' | 'files';
 
 // Unit parsers for metrics
 const parseCpu = (cpuStr: string) => {
@@ -103,6 +103,11 @@ function App() {
   const [resources, setResources] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [contexts, setContexts] = useState<any[]>([]);
+  const [currentContext, setCurrentContext] = useState<string>('');
+  const [associatedPods, setAssociatedPods] = useState<any[]>([]);
+  const [associatedDeployments, setAssociatedDeployments] = useState<any[]>([]);
+  const [establishingPortForward, setEstablishingPortForward] = useState<string | null>(null);
   
   const [modal, setModal] = useState<{type: ModalType, name: string, namespace: string, kind: string, uid?: string} | null>(null);
   const [modalData, setModalData] = useState<any>(null);
@@ -184,6 +189,945 @@ function App() {
   const [isSubmittingHelmDeploy, setIsSubmittingHelmDeploy] = useState(false);
   const [isSubmittingZarfDeploy, setIsSubmittingZarfDeploy] = useState(false);
 
+  // Sidebar collapsed sections state
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_collapsed');
+      return saved ? JSON.parse(saved) : {
+        cluster: false,
+        workloads: true,
+        network: true,
+        config: true,
+        storage: true,
+        helm: true,
+        zarf: true,
+        custom: true
+      };
+    } catch (e) {
+      return { cluster: false, workloads: true, network: true, config: true, storage: true, helm: true, zarf: true, custom: true };
+    }
+  });
+
+  const toggleSection = (section: string) => {
+    setCollapsedSections(prev => {
+      const updated = { ...prev, [section]: !prev[section] };
+      localStorage.setItem('sidebar_collapsed', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Helm expanded console states
+  const [helmRepos, setHelmRepos] = useState<any[]>([]);
+  const [helmSearchQuery, setHelmSearchQuery] = useState('');
+  const [helmSearchResults, setHelmSearchResults] = useState<any[]>([]);
+  const [isSearchingHelm, setIsSearchingHelm] = useState(false);
+  const [newHelmRepo, setNewHelmRepo] = useState({ name: '', url: '' });
+  const [isSubmittingHelmRepo, setIsSubmittingHelmRepo] = useState(false);
+  
+  // Custom deploy form states
+  const [helmCustomInstall, setHelmCustomInstall] = useState({
+    releaseName: '',
+    repo: '',
+    chartName: '',
+    version: '',
+    namespace: 'default',
+    valuesYaml: ''
+  });
+  
+  // Helm inspector detail states (Values, Manifest, Notes)
+  const [helmInspectTab, setHelmInspectTab] = useState<'values' | 'manifest' | 'notes'>('values');
+  const [helmInspectData, setHelmInspectData] = useState<string>('');
+  const [isFetchingHelmInspect, setIsFetchingHelmInspect] = useState(false);
+
+  // Zarf expanded console states
+  const [zarfViewMode, setZarfViewMode] = useState<'packages' | 'local' | 'tools' | 'edit'>('packages');
+  const [zarfCreds, setZarfCreds] = useState<any[]>([]);
+  const [isFetchingZarfCreds, setIsFetchingZarfCreds] = useState(false);
+  const [isClearingZarfCache, setIsClearingZarfCache] = useState(false);
+  const [zarfLocalPackages, setZarfLocalPackages] = useState<any[]>([]);
+  
+  // Zarf config mutator states
+  const [selectedZarfPackagePath, setSelectedZarfPackagePath] = useState<string>('');
+  const [zarfUnpackTempDir, setZarfUnpackTempDir] = useState<string>('');
+  const [zarfConfigText, setZarfConfigText] = useState<string>('');
+  const [isUnpackingZarf, setIsUnpackingZarf] = useState(false);
+  const [isSavingZarfConfig, setIsSavingZarfConfig] = useState(false);
+
+  // File upload state
+  const [zarfUploadFile, setZarfUploadFile] = useState<File | null>(null);
+  const [zarfUploadProgress, setZarfUploadProgress] = useState<number>(-1);
+
+  // Real-time task logs state
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [taskLogs, setTaskLogs] = useState<string>('');
+  const [taskStatus, setTaskStatus] = useState<string>('idle');
+  const [isTaskLogsModalOpen, setIsTaskLogsModalOpen] = useState(false);
+
+  // Zarf Registry states
+  const [zarfRegistryRepos, setZarfRegistryRepos] = useState<string[]>([]);
+  const [zarfSelectedRepo, setZarfSelectedRepo] = useState<string>('');
+  const [zarfSelectedRepoTags, setZarfSelectedRepoTags] = useState<string[]>([]);
+  const [isFetchingRegistry, setIsFetchingRegistry] = useState(false);
+  const [isFetchingTags, setIsFetchingTags] = useState(false);
+
+  // Pod File Explorer states
+  const [podFiles, setPodFiles] = useState<any[]>([]);
+  const [currentDirPath, setCurrentDirPath] = useState<string>('/');
+  const [isListingFiles, setIsListingFiles] = useState(false);
+  const [podFileUploadProgress, setPodFileUploadProgress] = useState<number>(-1);
+  const [podFileUploadName, setPodFileUploadName] = useState<string>('');
+
+  // Helm upgrade states
+  const [helmUpgradeValues, setHelmUpgradeValues] = useState<string>('');
+  const [helmUpgradeChartRef, setHelmUpgradeChartRef] = useState<string>('');
+  const [isUpgradingHelm, setIsUpgradingHelm] = useState(false);
+
+  // Zarf SBOM states
+  const [sbomActiveTab, setSbomActiveTab] = useState<'inspect' | 'scan'>('inspect');
+  const [sbomPackageName, setSbomPackageName] = useState<string>('');
+  const [sbomExtractedFiles, setSbomExtractedFiles] = useState<Array<{ name: string, url: string }>>([]);
+  const [sbomSelectedFileUrl, setSbomSelectedFileUrl] = useState<string>('');
+  const [isExtractingSbom, setIsExtractingSbom] = useState(false);
+  const [sbomImageRef, setSbomImageRef] = useState<string>('');
+  const [sbomScanResult, setSbomScanResult] = useState<any>(null);
+  const [isScanningSbomImage, setIsScanningSbomImage] = useState(false);
+  const [sbomScanSearchQuery, setSbomScanSearchQuery] = useState<string>('');
+
+  const fetchHelmRepos = () => {
+    fetch('/api/helm/repos')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setHelmRepos(data);
+      })
+      .catch(console.error);
+  };
+
+  const handleAddHelmRepo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newHelmRepo.name || !newHelmRepo.url) return alert('Name and URL are required');
+    setIsSubmittingHelmRepo(true);
+    try {
+      const res = await fetch('/api/helm/repos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newHelmRepo)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Repository added successfully');
+        setNewHelmRepo({ name: '', url: '' });
+        fetchHelmRepos();
+      } else {
+        alert('Failed to add repo: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setIsSubmittingHelmRepo(false);
+    }
+  };
+
+  const handleRemoveHelmRepo = async (name: string) => {
+    if (!window.confirm(`Are you sure you want to remove repo "${name}"?`)) return;
+    try {
+      const res = await fetch(`/api/helm/repos/${name}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Repository removed successfully');
+        fetchHelmRepos();
+      } else {
+        alert('Failed to remove: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleUpdateHelmRepos = async () => {
+    setIsSubmittingHelmRepo(true);
+    try {
+      const res = await fetch('/api/helm/repos/update', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Repositories updated successfully');
+        fetchHelmRepos();
+      } else {
+        alert('Failed to update: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setIsSubmittingHelmRepo(false);
+    }
+  };
+
+  const handleSearchHelmRepo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!helmSearchQuery.trim()) return;
+    setIsSearchingHelm(true);
+    fetch(`/api/helm/search?q=${encodeURIComponent(helmSearchQuery)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setHelmSearchResults(data);
+        else setHelmSearchResults([]);
+      })
+      .catch(err => {
+        console.error(err);
+        setHelmSearchResults([]);
+      })
+      .finally(() => setIsSearchingHelm(false));
+  };
+
+  const handleCustomHelmInstall = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { releaseName, repo, chartName, namespace } = helmCustomInstall;
+    if (!releaseName || !repo || !chartName || !namespace) {
+      return alert('Release Name, Repo, Chart Name, and Namespace are required');
+    }
+    setIsSubmittingHelmDeploy(true);
+    try {
+      const res = await fetch('/api/helm/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(helmCustomInstall)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Chart installed successfully: ' + data.output);
+        setActiveTab('helm');
+        fetchResources();
+      } else {
+        alert('Deployment failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setIsSubmittingHelmDeploy(false);
+    }
+  };
+
+  const fetchHelmInspect = (namespace: string, releaseName: string, tabType: 'values' | 'manifest' | 'notes') => {
+    setIsFetchingHelmInspect(true);
+    setHelmInspectData('');
+    const endpoint = `/api/helm/${namespace}/${releaseName}/${tabType}`;
+    fetch(endpoint)
+      .then(res => res.json())
+      .then(data => {
+        if (tabType === 'values') {
+          const valText = data.raw || (typeof data === 'string' ? data : JSON.stringify(data, null, 2));
+          setHelmInspectData(valText);
+          setHelmUpgradeValues(valText);
+          
+          const relRes = resources.find((r: any) => r && r.metadata && r.metadata.name === releaseName && r.metadata.namespace === namespace);
+          if (relRes && relRes.chart) {
+            const lastDashIndex = relRes.chart.lastIndexOf('-');
+            const hasVersion = lastDashIndex > 0 && /^[0-9]/.test(relRes.chart.substring(lastDashIndex + 1));
+            const baseChartName = hasVersion ? relRes.chart.substring(0, lastDashIndex) : relRes.chart;
+            setHelmUpgradeChartRef(baseChartName);
+          } else {
+            setHelmUpgradeChartRef('');
+          }
+        } else if (tabType === 'manifest') {
+          setHelmInspectData(data.manifest || '');
+        } else {
+          setHelmInspectData(data.notes || '');
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        setHelmInspectData('Error fetching data: ' + err.message);
+      })
+      .finally(() => setIsFetchingHelmInspect(false));
+  };
+
+  const fetchZarfCreds = () => {
+    setIsFetchingZarfCreds(true);
+    fetch('/api/zarf/creds')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setZarfCreds(data);
+      })
+      .catch(console.error)
+      .finally(() => setIsFetchingZarfCreds(false));
+  };
+
+  const fetchZarfLocalPackages = () => {
+    fetch('/api/zarf/local-packages')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setZarfLocalPackages(data);
+      })
+      .catch(console.error);
+  };
+
+  const handleClearZarfCache = async () => {
+    if (!window.confirm('Are you sure you want to clear the Zarf image and git cache?')) return;
+    setIsClearingZarfCache(true);
+    try {
+      const res = await fetch('/api/zarf/clear-cache', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Cache cleared successfully: ' + data.output);
+      } else {
+        alert('Failed to clear cache: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setIsClearingZarfCache(false);
+    }
+  };
+
+  const handleUnpackZarfPackage = async (path: string) => {
+    setIsUnpackingZarf(true);
+    setSelectedZarfPackagePath(path);
+    setZarfConfigText('');
+    setZarfUnpackTempDir('');
+    try {
+      const res = await fetch('/api/zarf/unpack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packagePath: path })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setZarfUnpackTempDir(data.tempDir);
+        setZarfConfigText(data.configText);
+        setZarfViewMode('edit');
+      } else {
+        alert('Failed to unpack package: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setIsUnpackingZarf(false);
+    }
+  };
+
+  const handleRebuildAndDeployZarf = async () => {
+    if (!zarfUnpackTempDir || !zarfConfigText) return;
+    setIsSavingZarfConfig(true);
+    try {
+      const res = await fetch('/api/zarf/rebuild-deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tempDir: zarfUnpackTempDir, configText: zarfConfigText })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setZarfViewMode('local');
+        setActiveTab('zarf-deploy');
+        setZarfUnpackTempDir('');
+        setZarfConfigText('');
+        startTaskLogsStreaming(data.taskId);
+      } else {
+        alert('Failed to start rebuild & deploy: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setIsSavingZarfConfig(false);
+    }
+  };
+
+  const handleHelmUpgrade = async (releaseName: string, namespace: string) => {
+    if (!helmUpgradeChartRef.trim()) {
+      alert('Chart Reference is required for upgrade');
+      return;
+    }
+    setIsUpgradingHelm(true);
+    try {
+      const res = await fetch('/api/helm/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          releaseName,
+          namespace,
+          chartName: helmUpgradeChartRef,
+          valuesYaml: helmUpgradeValues
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Helm release upgraded successfully!');
+        fetchResources();
+        fetchHelmInspect(namespace, releaseName, 'values');
+      } else {
+        alert('Upgrade failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error upgrading Helm release: ' + err.message);
+    } finally {
+      setIsUpgradingHelm(false);
+    }
+  };
+
+  const handleDeleteWorkspaceItem = async (name: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/zarf/local-packages?name=${encodeURIComponent(name)}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Workspace item deleted successfully');
+        fetchZarfLocalPackages();
+      } else {
+        alert('Failed to delete item: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleCompressFolder = async (folderName: string) => {
+    const dest = window.prompt(
+      `Enter destination filename ending in .tar.zst:`, 
+      `${folderName}.tar.zst`
+    );
+    if (!dest) return;
+    if (!dest.endsWith('.tar.zst')) {
+      alert('Destination filename must end in .tar.zst');
+      return;
+    }
+    try {
+      const res = await fetch('/api/zarf/archiver/compress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: folderName, dest })
+      });
+      const data = await res.json();
+      if (res.ok && data.taskId) {
+        setActiveTaskId(data.taskId);
+        setIsTaskLogsModalOpen(true);
+      } else {
+        alert('Failed to start compression: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleDecompressPackage = async (packageName: string) => {
+    const defaultFolder = packageName.replace(/\.tar\.zst$/, '').replace(/\.zst$/, '');
+    const dest = window.prompt(
+      `Enter destination folder name:`, 
+      defaultFolder
+    );
+    if (!dest) return;
+    try {
+      const res = await fetch('/api/zarf/archiver/decompress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: packageName, dest })
+      });
+      const data = await res.json();
+      if (res.ok && data.taskId) {
+        setActiveTaskId(data.taskId);
+        setIsTaskLogsModalOpen(true);
+      } else {
+        alert('Failed to start decompression: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleExtractSbom = async () => {
+    if (!sbomPackageName) return alert('Please select a local package archive first.');
+    setIsExtractingSbom(true);
+    setSbomExtractedFiles([]);
+    setSbomSelectedFileUrl('');
+    try {
+      const res = await fetch('/api/zarf/sbom/inspect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packageName: sbomPackageName })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSbomExtractedFiles(data.files || []);
+        if (data.files && data.files.length > 0) {
+          setSbomSelectedFileUrl(data.files[0].url);
+        }
+      } else {
+        alert('Failed to extract SBOM: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error extracting SBOM: ' + err.message);
+    } finally {
+      setIsExtractingSbom(false);
+    }
+  };
+
+  const handleScanImageSbom = async (imgRef?: string) => {
+    const targetImage = imgRef || sbomImageRef;
+    if (!targetImage.trim()) return alert('Please enter or select a container image reference.');
+    setIsScanningSbomImage(true);
+    setSbomScanResult(null);
+    try {
+      const res = await fetch('/api/zarf/sbom/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageRef: targetImage })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSbomScanResult(data);
+      } else {
+        alert('Failed to scan image: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error scanning image: ' + err.message);
+    } finally {
+      setIsScanningSbomImage(false);
+    }
+  };
+
+  const handleZarfUpload = async () => {
+    if (!zarfUploadFile) return alert('Please select a file to upload first.');
+    setZarfUploadProgress(0);
+    
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/zarf/upload', true);
+      xhr.setRequestHeader('x-file-name', zarfUploadFile.name);
+      
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          setZarfUploadProgress(pct);
+        }
+      };
+      
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const data = JSON.parse(xhr.responseText);
+          alert(`File uploaded successfully to: ${data.filepath}`);
+          setZarfUploadFile(null);
+          setZarfUploadProgress(-1);
+          fetchZarfLocalPackages();
+        } else {
+          alert('Upload failed: ' + xhr.statusText);
+          setZarfUploadProgress(-1);
+        }
+      };
+      
+      xhr.onerror = () => {
+        alert('Upload failed due to connection error.');
+        setZarfUploadProgress(-1);
+      };
+      
+      xhr.send(zarfUploadFile);
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+      setZarfUploadProgress(-1);
+    }
+  };
+
+  const handleDeployLocalPackage = async (path: string) => {
+    if (!window.confirm(`Are you sure you want to deploy local package "${path.split(/[\\/]/).pop()}"?`)) return;
+    try {
+      const res = await fetch('/api/zarf/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packagePath: path })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        startTaskLogsStreaming(data.taskId);
+      } else {
+        alert('Failed to deploy package: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const fetchZarfRegistryCatalog = () => {
+    setIsFetchingRegistry(true);
+    setZarfRegistryRepos([]);
+    setZarfSelectedRepo('');
+    setZarfSelectedRepoTags([]);
+    fetch('/api/zarf/registry/catalog')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setZarfRegistryRepos(data);
+      })
+      .catch(console.error)
+      .finally(() => setIsFetchingRegistry(false));
+  };
+
+  const fetchZarfRegistryTags = (repoName: string) => {
+    setIsFetchingTags(true);
+    setZarfSelectedRepo(repoName);
+    setZarfSelectedRepoTags([]);
+    fetch(`/api/zarf/registry/repository/${repoName}/tags`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setZarfSelectedRepoTags(data);
+      })
+      .catch(console.error)
+      .finally(() => setIsFetchingTags(false));
+  };
+
+  const handleDeleteRegistryImage = async (repoName: string, tag: string) => {
+    const imageRef = `${repoName}:${tag}`;
+    if (!window.confirm(`Are you sure you want to delete image reference "${imageRef}"?`)) return;
+    try {
+      const res = await fetch(`/api/zarf/registry/image?imageRef=${encodeURIComponent(imageRef)}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Image reference deleted successfully');
+        fetchZarfRegistryTags(repoName);
+      } else {
+        alert('Failed to delete image: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handlePruneRegistry = async () => {
+    if (!window.confirm('Are you sure you want to prune all unused images from the Zarf registry?')) return;
+    try {
+      const res = await fetch('/api/zarf/registry/prune', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        startTaskLogsStreaming(data.taskId);
+      } else {
+        alert('Failed to start registry prune: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const fetchPodFilesList = (path: string) => {
+    if (!modal) return;
+    setIsListingFiles(true);
+    const cleanPath = path.endsWith('/') ? path : path + '/';
+    
+    fetch(`/api/resource/pods/${modal.namespace}/${modal.name}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        command: `ls -la "${cleanPath}"`,
+        container: selectedContainer
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          alert('Error listing files: ' + data.error);
+          return;
+        }
+        
+        const lines = (data.stdout || '').split('\n');
+        const filesList: any[] = [];
+        
+        lines.forEach((line: string) => {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length < 9) return;
+          const permissions = parts[0];
+          const isDir = permissions.startsWith('d');
+          const isLink = permissions.startsWith('l');
+          const size = parseInt(parts[4], 10);
+          const date = `${parts[5]} ${parts[6]} ${parts[7]}`;
+          const name = parts.slice(8).join(' ');
+          
+          if (name === '.' || name === '..') return;
+          
+          filesList.push({
+            name,
+            isDir,
+            isLink,
+            size,
+            date,
+            permissions
+          });
+        });
+        
+        filesList.sort((a, b) => {
+          if (a.isDir && !b.isDir) return -1;
+          if (!a.isDir && b.isDir) return 1;
+          return a.name.localeCompare(b.name);
+        });
+        
+        setPodFiles(filesList);
+        setCurrentDirPath(cleanPath);
+      })
+      .catch(err => {
+        console.error(err);
+        alert('Failed to query files list: ' + err.message);
+      })
+      .finally(() => setIsListingFiles(false));
+  };
+
+  const handleCreatePodFolder = () => {
+    if (!modal) return;
+    const folderName = window.prompt('Enter folder name:');
+    if (!folderName || !folderName.trim()) return;
+    
+    setIsListingFiles(true);
+    const folderPath = currentDirPath + folderName.trim();
+    
+    fetch(`/api/resource/pods/${modal.namespace}/${modal.name}/exec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        command: `mkdir -p "${folderPath}"`,
+        container: selectedContainer
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          alert('Failed to create folder: ' + data.error);
+        } else {
+          fetchPodFilesList(currentDirPath);
+        }
+      })
+      .catch(err => {
+        alert('Error: ' + err.message);
+      })
+      .finally(() => setIsListingFiles(false));
+  };
+
+  const handleDownloadPodFile = (fileName: string) => {
+    if (!modal) return;
+    const filePath = currentDirPath + fileName;
+    const url = `/api/resource/pods/${modal.namespace}/${modal.name}/files/download?path=${encodeURIComponent(filePath)}&container=${selectedContainer}`;
+    window.open(url, '_blank');
+  };
+
+  const handleDeletePodFile = async (fileName: string, isDir: boolean) => {
+    if (!modal) return;
+    const filePath = currentDirPath + fileName;
+    if (!window.confirm(`Are you sure you want to delete ${isDir ? 'folder' : 'file'} "${fileName}"?`)) return;
+    
+    setIsListingFiles(true);
+    try {
+      const res = await fetch(`/api/resource/pods/${modal.namespace}/${modal.name}/files?path=${encodeURIComponent(filePath)}&container=${selectedContainer}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        fetchPodFilesList(currentDirPath);
+      } else {
+        alert('Failed to delete: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setIsListingFiles(false);
+    }
+  };
+
+  const handleUploadPodFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!modal || !e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    setPodFileUploadName(file.name);
+    setPodFileUploadProgress(0);
+    
+    const xhr = new XMLHttpRequest();
+    const url = `/api/resource/pods/${modal.namespace}/${modal.name}/files/upload?destDir=${encodeURIComponent(currentDirPath)}&container=${selectedContainer}`;
+    
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('x-file-name', file.name);
+    
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const pct = Math.round((event.loaded / event.total) * 100);
+        setPodFileUploadProgress(pct);
+      }
+    };
+    
+    xhr.onload = () => {
+      setPodFileUploadProgress(-1);
+      setPodFileUploadName('');
+      if (xhr.status >= 200 && xhr.status < 300) {
+        fetchPodFilesList(currentDirPath);
+      } else {
+        alert('Upload failed: ' + xhr.statusText);
+      }
+    };
+    
+    xhr.onerror = () => {
+      setPodFileUploadProgress(-1);
+      setPodFileUploadName('');
+      alert('Upload failed due to network error.');
+    };
+    
+    xhr.send(file);
+  };
+
+  const startTaskLogsStreaming = (taskId: string) => {
+    setActiveTaskId(taskId);
+    setTaskLogs('');
+    setTaskStatus('running');
+    setIsTaskLogsModalOpen(true);
+  };
+
+  useEffect(() => {
+    if (!activeTaskId) return;
+    const interval = setInterval(() => {
+      fetch(`/api/tasks/${activeTaskId}/logs`)
+        .then(res => res.json())
+        .then(data => {
+          setTaskLogs(data.logs || '');
+          setTaskStatus(data.status);
+          if (data.status !== 'running') {
+            clearInterval(interval);
+            if (data.status === 'success') {
+              fetchResources();
+            }
+          }
+        })
+        .catch(console.error);
+    }, 1500);
+    
+    return () => clearInterval(interval);
+  }, [activeTaskId]);
+
+  useEffect(() => {
+    if (activeTab === 'helm-repos' || activeTab === 'helm-install') {
+      fetchHelmRepos();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'zarf-deploy') {
+      fetchZarfLocalPackages();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'zarf-registry') {
+      fetchZarfRegistryCatalog();
+    } else if (activeTab === 'zarf-creds') {
+      fetchZarfCreds();
+    } else if (activeTab === 'zarf-sbom') {
+      fetchZarfRegistryCatalog();
+      fetchZarfLocalPackages();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (modal && modal.type === 'files') {
+      fetchPodFilesList(currentDirPath || '/');
+    }
+  }, [modal?.type, modal?.name, modal?.namespace, selectedContainer]);
+
+  const fetchContexts = () => {
+    fetch('/api/kube/contexts')
+      .then(res => res.json())
+      .then(data => {
+        if (data.contexts) {
+          setContexts(data.contexts);
+          setCurrentContext(data.currentContext);
+        }
+      })
+      .catch(console.error);
+  };
+
+  const handleContextChange = (contextName: string) => {
+    setLoading(true);
+    fetch('/api/kube/contexts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context: contextName })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setCurrentContext(data.currentContext);
+          fetchNamespaces();
+          fetchResources();
+        } else {
+          alert('Failed to switch context: ' + (data.error || 'Unknown error'));
+          setLoading(false);
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        alert('Failed to switch context due to network error.');
+        setLoading(false);
+      });
+  };
+
+  const handleOpenServiceWebsite = (service: any) => {
+    const matchingPods = associatedPods.filter(p => matchesSelector(p.metadata?.labels, service.spec?.selector));
+    const runningPod = matchingPods.find(p => p.status?.phase?.toLowerCase() === 'running');
+    
+    if (!runningPod) {
+      alert('No running pods found matching the service selector.');
+      return;
+    }
+
+    const ports = service.spec?.ports || [];
+    if (ports.length === 0) {
+      alert('Service has no configured ports.');
+      return;
+    }
+
+    const httpPort = ports.find((p: any) => {
+      const name = (p.name || '').toLowerCase();
+      const portVal = p.port;
+      return name.includes('http') || name.includes('web') || name.includes('html') || portVal === 80 || portVal === 8080 || portVal === 3000 || portVal === 5000 || portVal === 8000;
+    }) || ports[0];
+
+    let targetPort = httpPort.targetPort || httpPort.port;
+    if (typeof targetPort === 'string' && isNaN(Number(targetPort))) {
+      let resolved = false;
+      for (const container of runningPod.spec?.containers || []) {
+        for (const cp of container.ports || []) {
+          if (cp.name === targetPort) {
+            targetPort = cp.containerPort;
+            resolved = true;
+            break;
+          }
+        }
+        if (resolved) break;
+      }
+      if (!resolved) {
+        targetPort = httpPort.port;
+      }
+    }
+
+    const portNum = Number(targetPort);
+    const svcName = service.metadata.name;
+    setEstablishingPortForward(svcName);
+    
+    fetch('/api/portforward', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        namespace: service.metadata.namespace,
+        podName: runningPod.metadata.name,
+        remotePort: portNum
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        setEstablishingPortForward(null);
+        if (data.success && data.localPort) {
+          const isHttps = httpPort.port === 443 || (httpPort.name || '').toLowerCase().includes('https');
+          const url = `${isHttps ? 'https' : 'http'}://localhost:${data.localPort}`;
+          window.open(url, '_blank');
+        } else {
+          alert('Failed to establish port-forward: ' + (data.error || 'Unknown error'));
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        setEstablishingPortForward(null);
+        alert('Failed to establish port-forward due to network error.');
+      });
+  };
+
   const fetchZarfStatus = () => {
     fetch('/api/zarf/status')
       .then(res => res.json())
@@ -200,6 +1144,17 @@ function App() {
   };
 
   const fetchResources = () => {
+    if (
+      activeTab === 'zarf-registry' || 
+      activeTab === 'zarf-creds' || 
+      activeTab === 'helm-install' || 
+      activeTab === 'helm-repos' || 
+      activeTab === 'zarf-deploy' || 
+      activeTab === 'zarf-sbom'
+    ) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     if (activeTab === 'dashboard') {
       fetch(`/api/dashboard/stats?namespace=${selectedNs}`)
@@ -269,6 +1224,8 @@ function App() {
         pods: p?.length || 0,
         deployments: d?.length || 0
       });
+      if (Array.isArray(p)) setAssociatedPods(p);
+      if (Array.isArray(d)) setAssociatedDeployments(d);
     });
   };
 
@@ -416,6 +1373,7 @@ function App() {
   useEffect(() => {
     fetchNamespaces();
     fetchZarfStatus();
+    fetchContexts();
   }, []);
 
   useEffect(() => {
@@ -744,6 +1702,10 @@ function App() {
         const res = await fetch(`/api/helm/${modal.namespace}/${modal.name}/history`);
         const data = await res.json();
         setModalData(data);
+      } else if (type === 'files') {
+        setModalData('files-ready');
+        setCurrentDirPath('/');
+        fetchPodFilesList('/');
       }
     } catch (err) { console.error(err); }
   };
@@ -842,6 +1804,18 @@ function App() {
       });
       fetchResources();
     } catch (err) { console.error(err); }
+  };
+
+  const handleDrillDownToPods = (resource: any) => {
+    const matchLabels = resource.spec?.selector?.matchLabels || {};
+    const firstKey = Object.keys(matchLabels)[0];
+    if (firstKey) {
+      setSearch(`label:${firstKey}=${matchLabels[firstKey]}`);
+    } else {
+      setSearch(resource.metadata.name);
+    }
+    setSelectedNs(resource.metadata.namespace || 'all');
+    setActiveTab('pods');
   };
 
   const renderStatusBadge = (resource: any) => {
@@ -962,6 +1936,57 @@ function App() {
               overflow: 'hidden'
             }} 
           />
+          {/* Visual Graph Legend */}
+          <div style={{
+            position: 'absolute',
+            top: 12,
+            left: 12,
+            background: 'rgba(7, 7, 7, 0.85)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-md)',
+            padding: '12px 16px',
+            zIndex: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+            fontSize: '0.75rem',
+            width: '160px',
+            pointerEvents: 'none'
+          }}>
+            <div style={{ fontWeight: 600, color: '#fff', marginBottom: '4px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', letterSpacing: '0.5px', fontSize: '0.8rem' }}>GRAPH LEGEND</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+              <div style={{ width: '12px', height: '12px', background: '#0a0a0a', border: '2px solid #3b82f6', borderRadius: 'var(--radius-sm)' }} />
+              <span>Node</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+              <div style={{ width: '12px', height: '12px', background: '#0a0a0a', border: '2px solid #8b5cf6', borderRadius: '50%' }} />
+              <span>Deployment</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+              <svg viewBox="0 0 100 100" width="12" height="12" style={{ display: 'block', flexShrink: 0 }}>
+                <polygon points="50,5 95,28 95,72 50,95 5,72 5,28" fill="#0a0a0a" stroke="#60a5fa" strokeWidth="15" />
+              </svg>
+              <span>Service</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+              <div style={{ width: '8px', height: '8px', background: '#0a0a0a', border: '2px solid #3b82f6', borderRadius: '50%' }} />
+              <span>Pod (Running)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+              <div style={{ width: '8px', height: '8px', background: '#0a0a0a', border: '2px solid #10b981', borderRadius: '50%' }} />
+              <span>Pod (Succeeded)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+              <div style={{ width: '8px', height: '8px', background: '#0a0a0a', border: '2px solid #ffb800', borderRadius: '50%' }} />
+              <span>Pod (Pending)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+              <div style={{ width: '8px', height: '8px', background: '#0a0a0a', border: '2px solid #ef4444', borderRadius: '50%' }} />
+              <span>Pod (Failed)</span>
+            </div>
+          </div>
           <div style={{ position: 'absolute', bottom: 12, right: 12, fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.6)', padding: '4px 8px', borderRadius: 4, zIndex: 10, pointerEvents: 'none' }}>
             Double-click a node to inspect resource
           </div>
@@ -1332,6 +2357,61 @@ function App() {
     
     return (
       <div className="dashboard-container animate-fade-in">
+        {/* Welcome Hero Banner */}
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(13, 27, 42, 0.45) 0%, rgba(27, 38, 59, 0.2) 100%)',
+          border: '1px solid rgba(255, 255, 255, 0.05)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '24px 32px',
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '24px',
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.25)'
+        }}>
+          {/* Subtle background glow */}
+          <div style={{
+            position: 'absolute',
+            top: '-50%',
+            right: '-10%',
+            width: '300px',
+            height: '300px',
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(96, 165, 250, 0.12) 0%, transparent 70%)',
+            filter: 'blur(30px)',
+            pointerEvents: 'none'
+          }} />
+          
+          <div style={{ flex: 1, zIndex: 1 }}>
+            <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#fff', marginBottom: '8px', letterSpacing: '-0.5px' }}>
+              Welcome to Periscope
+            </h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5', maxWidth: '620px', margin: 0 }}>
+              Your ultimate interactive control plane for Kubernetes clusters and Zarf package deployments. 
+              Monitor metrics, trace topologies, execute terminal commands, manage Helm charts, and explore container files instantly.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+              <button className="btn btn-primary btn-sm" onClick={() => { setActiveTab('topology'); setSearch(''); }} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Activity size={12} /> Open Topology Graph
+              </button>
+              <button className="btn btn-sm" onClick={() => setIsCmdPaletteOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
+                <Command size={12} /> Command Palette
+              </button>
+            </div>
+          </div>
+          
+          <div style={{ width: '220px', height: '125px', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', position: 'relative', zIndex: 1, flexShrink: 0, boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
+            <img 
+              src="/periscope_hero.png" 
+              alt="Periscope Cluster View" 
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+            />
+          </div>
+        </div>
+
         <div className="dashboard-row">
           <div className="dashboard-chart-card" style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div style={{ width: '100%', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 16, fontWeight: 600, letterSpacing: 0.5 }}>CLUSTER CPU UTILIZATION</div>
@@ -1467,10 +2547,419 @@ function App() {
     );
   };
 
-  const renderZarfView = () => {
+  // We need this state as well
+  const [selectedHelmRelease, setSelectedHelmRelease] = useState<{name: string, namespace: string} | null>(null);
+
+  const renderHelmReleasesView = () => {
     return (
-      <div className="zarf-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Zarf Status Banner */}
+      <div className="helm-releases-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Active Releases ({filteredResources.length})</h3>
+        {filteredResources.length === 0 ? (
+          <div style={{ color: 'var(--text-muted)', padding: '20px 0', border: '1px dashed var(--border-color)', borderRadius: 8, textAlign: 'center' }}>
+            No Helm releases found in this namespace/cluster.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {filteredResources.filter((res: any) => res && res.metadata && res.metadata.uid?.startsWith('helm-')).map((res: any) => {
+              const name = res.metadata.name;
+              const ns = res.metadata.namespace;
+              const status = res.status?.phase || 'unknown';
+              const isSelected = selectedHelmRelease?.name === name && selectedHelmRelease?.namespace === ns;
+              
+              return (
+                <div 
+                  key={res.metadata.uid}
+                  className={`resource-row ${isSelected ? 'active' : ''}`}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                    padding: '16px 20px',
+                    background: 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border-color)'}`,
+                    borderRadius: 8
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-main)' }}>{name}</span>
+                        <span className={`badge ${status.toLowerCase() === 'deployed' ? 'ready' : 'error'}`}>{status}</span>
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        Chart: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{res.chart}</span>
+                        Rev: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{res.revision}</span>
+                        App Version: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{res.appVersion || 'N/A'}</span>
+                        NS: <span style={{ color: 'var(--text-main)' }}>{ns}</span>
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button 
+                        className="btn"
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedHelmRelease(null);
+                          } else {
+                            setSelectedHelmRelease({ name, namespace: ns });
+                            fetchHelmInspect(ns, name, helmInspectTab);
+                          }
+                        }}
+                      >
+                        <Search size={14} /> {isSelected ? 'Close Details' : 'Inspect'}
+                      </button>
+                      <button 
+                        className="btn"
+                        onClick={() => setModal({ type: 'history', name, namespace: ns, kind: 'helm', uid: res.metadata.uid })}
+                      >
+                        <RefreshCw size={14} /> History
+                      </button>
+                      <button 
+                        className="btn btn-danger"
+                        onClick={() => handleDelete(res)}
+                      >
+                        <Trash2 size={14} /> Uninstall
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Release Inspect Panel */}
+                  {isSelected && (
+                    <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {/* Inspect tabs */}
+                      <div style={{ display: 'flex', gap: 12, borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 8 }}>
+                        {(['values', 'manifest', 'notes'] as const).map((t) => (
+                          <button 
+                            key={t}
+                            className={`btn ${helmInspectTab === t ? 'btn-primary' : ''}`}
+                            style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+                            onClick={() => {
+                              setHelmInspectTab(t);
+                              fetchHelmInspect(ns, name, t);
+                            }}
+                          >
+                            {t.charAt(0).toUpperCase() + t.slice(1)}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Inspector output */}
+                      {isFetchingHelmInspect ? (
+                        <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)' }}>Fetching release details...</div>
+                      ) : helmInspectTab === 'values' ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Upgrade Chart Reference (e.g. bitnami/nginx or chart name)</label>
+                              <input
+                                type="text"
+                                className="exec-input"
+                                style={{ padding: '6px 10px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, fontSize: '0.85rem' }}
+                                value={helmUpgradeChartRef}
+                                onChange={e => setHelmUpgradeChartRef(e.target.value)}
+                                placeholder="e.g. bitnami/nginx"
+                              />
+                            </div>
+                            <button
+                              className="btn btn-primary"
+                              onClick={() => handleHelmUpgrade(name, ns)}
+                              disabled={isUpgradingHelm}
+                              style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                            >
+                              {isUpgradingHelm ? 'Upgrading...' : 'Upgrade Release'}
+                            </button>
+                          </div>
+                          <textarea
+                            style={{
+                              padding: '12px 16px',
+                              background: 'var(--bg-main)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: 6,
+                              height: 250,
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: '0.85rem',
+                              color: 'var(--text-main)',
+                              resize: 'vertical'
+                            }}
+                            value={helmUpgradeValues}
+                            onChange={e => setHelmUpgradeValues(e.target.value)}
+                            placeholder="# Enter values overrides here"
+                          />
+                        </div>
+                      ) : (
+                        <pre 
+                          className="code-block"
+                          style={{
+                            background: 'var(--bg-main)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 6,
+                            padding: '12px 16px',
+                            fontSize: '0.85rem',
+                            maxHeight: 300,
+                            overflowY: 'auto',
+                            fontFamily: 'var(--font-mono)',
+                            color: 'var(--text-main)',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-all'
+                          }}
+                        >
+                          {helmInspectData || 'No data returned.'}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderHelmInstallView = () => {
+    return (
+      <div className="helm-install-view animate-fade-in" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+        <h3 style={{ fontSize: '1.1rem', marginBottom: 16 }}>Deploy Repository Chart</h3>
+        <form onSubmit={handleCustomHelmInstall} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Release Name</label>
+              <input 
+                type="text"
+                className="exec-input"
+                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                value={helmCustomInstall.releaseName}
+                onChange={e => setHelmCustomInstall(prev => ({ ...prev, releaseName: e.target.value }))}
+                placeholder="e.g. my-nginx"
+                required
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Namespace</label>
+              <input 
+                type="text"
+                className="exec-input"
+                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                value={helmCustomInstall.namespace}
+                onChange={e => setHelmCustomInstall(prev => ({ ...prev, namespace: e.target.value }))}
+                placeholder="e.g. default"
+                required
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Chart Repository</label>
+              <input 
+                type="text"
+                className="exec-input"
+                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                value={helmCustomInstall.repo}
+                onChange={e => setHelmCustomInstall(prev => ({ ...prev, repo: e.target.value }))}
+                placeholder="e.g. bitnami"
+                required
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Chart Name</label>
+              <input 
+                type="text"
+                className="exec-input"
+                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                value={helmCustomInstall.chartName}
+                onChange={e => setHelmCustomInstall(prev => ({ ...prev, chartName: e.target.value }))}
+                placeholder="e.g. nginx"
+                required
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Version (Optional)</label>
+              <input 
+                type="text"
+                className="exec-input"
+                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                value={helmCustomInstall.version}
+                onChange={e => setHelmCustomInstall(prev => ({ ...prev, version: e.target.value }))}
+                placeholder="e.g. 15.2.3"
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Custom values.yaml (Optional)</label>
+            <textarea 
+              style={{ 
+                padding: '12px 16px', 
+                background: 'var(--bg-main)', 
+                border: '1px solid var(--border-color)', 
+                borderRadius: 4, 
+                height: 150, 
+                fontFamily: 'var(--font-mono)', 
+                fontSize: '0.85rem',
+                color: 'var(--text-main)',
+                resize: 'vertical'
+              }}
+              value={helmCustomInstall.valuesYaml}
+              onChange={e => setHelmCustomInstall(prev => ({ ...prev, valuesYaml: e.target.value }))}
+              placeholder="# Enter values.yaml overrides here"
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
+            <button type="button" className="btn" onClick={() => setActiveTab('helm')} disabled={isSubmittingHelmDeploy}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={isSubmittingHelmDeploy}>
+              {isSubmittingHelmDeploy ? 'Deploying...' : 'Deploy'}
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  };
+
+  const renderHelmReposView = () => {
+    return (
+      <div className="helm-repos-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Configured Repositories</h3>
+            <button className="btn" onClick={handleUpdateHelmRepos} disabled={isSubmittingHelmRepo}>
+              <RefreshCw size={14} /> Update Repos
+            </button>
+          </div>
+
+          {helmRepos.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', padding: '16px 0' }}>No chart repositories configured.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {helmRepos.map((r: any) => (
+                <div 
+                  key={r.name} 
+                  style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    padding: '10px 14px', 
+                    background: 'rgba(255,255,255,0.02)', 
+                    border: '1px solid var(--border-color)', 
+                    borderRadius: 6 
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{r.name}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.url}</div>
+                  </div>
+                  <button className="btn btn-danger" style={{ padding: '4px 8px' }} onClick={() => handleRemoveHelmRepo(r.name)}>
+                    <Trash2 size={12} /> Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <form onSubmit={handleAddHelmRepo} style={{ display: 'flex', gap: 12, marginTop: 16, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
+            <input 
+              type="text" 
+              placeholder="Repo Name (e.g. bitnami)" 
+              className="exec-input" 
+              style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+              value={newHelmRepo.name}
+              onChange={e => setNewHelmRepo(prev => ({ ...prev, name: e.target.value }))}
+              disabled={isSubmittingHelmRepo}
+            />
+            <input 
+              type="text" 
+              placeholder="URL (e.g. https://charts.bitnami.com/bitnami)" 
+              className="exec-input" 
+              style={{ flex: 2, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+              value={newHelmRepo.url}
+              onChange={e => setNewHelmRepo(prev => ({ ...prev, url: e.target.value }))}
+              disabled={isSubmittingHelmRepo}
+            />
+            <button type="submit" className="btn btn-primary" disabled={isSubmittingHelmRepo}>
+              Add Repo
+            </button>
+          </form>
+        </div>
+
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: 16 }}>Search Repository Charts</h3>
+          <form onSubmit={handleSearchHelmRepo} style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            <input 
+              type="text" 
+              placeholder="Search query (e.g. nginx, redis...)" 
+              className="exec-input" 
+              style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+              value={helmSearchQuery}
+              onChange={e => setHelmSearchQuery(e.target.value)}
+            />
+            <button type="submit" className="btn btn-primary" disabled={isSearchingHelm}>
+              {isSearchingHelm ? 'Searching...' : 'Search'}
+            </button>
+          </form>
+
+          {helmSearchResults.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>Enter a query above to search chart repositories.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 300, overflowY: 'auto', paddingRight: 4 }}>
+              {helmSearchResults.map((c: any) => {
+                const parts = c.name.split('/');
+                const repoName = parts[0];
+                const chartName = parts[1] || parts[0];
+                
+                return (
+                  <div 
+                    key={c.name}
+                    style={{ 
+                      padding: '12px 16px', 
+                      background: 'rgba(255,255,255,0.02)', 
+                      border: '1px solid var(--border-color)', 
+                      borderRadius: 6,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div style={{ flex: 1, paddingRight: 16 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{c.name}</span>
+                        <span className="badge badge-running" style={{ fontSize: '0.7rem', padding: '1px 5px', textTransform: 'none' }}>v{c.version}</span>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>{c.description}</div>
+                    </div>
+                    <button 
+                      className="btn btn-primary"
+                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                      onClick={() => {
+                        setHelmCustomInstall({
+                          releaseName: chartName,
+                          repo: repoName,
+                          chartName: chartName,
+                          version: c.version,
+                          namespace: 'default',
+                          valuesYaml: '# Custom values here\n'
+                        });
+                        setActiveTab('helm-install');
+                      }}
+                    >
+                      Configure & Deploy
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderZarfPackagesView = () => {
+    return (
+      <div className="zarf-packages-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div 
           style={{ 
             display: 'flex', 
@@ -1496,15 +2985,14 @@ function App() {
             </div>
           </div>
           {zarfStatus.installed && (
-            <button className="btn btn-primary" onClick={() => setIsDeployZarfModalOpen(true)}>
+            <button className="btn btn-primary" onClick={() => setActiveTab('zarf-deploy')}>
               <Package size={14} /> Deploy Package
             </button>
           )}
         </div>
 
-        {/* Deployed Zarf Packages List */}
         <div>
-          <h2 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Deployed Packages ({filteredResources.length})</h2>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Deployed Packages ({filteredResources.length})</h3>
           {!zarfStatus.installed ? (
             <div style={{ color: 'var(--text-muted)', padding: '20px 0' }}>Please install Zarf on the host to list packages.</div>
           ) : filteredResources.length === 0 ? (
@@ -1558,6 +3046,799 @@ function App() {
                 );
               })}
             </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderZarfDeployView = () => {
+    if (zarfViewMode === 'edit') {
+      return (
+        <div className="zarf-edit-view animate-fade-in" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Modify Zarf Config</h3>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                Editing `zarf.yaml` config extracted from package.
+              </div>
+            </div>
+            <button 
+              className="btn btn-danger" 
+              onClick={() => {
+                setZarfViewMode('local');
+                setZarfUnpackTempDir('');
+                setZarfConfigText('');
+              }}
+            >
+              Discard changes
+            </button>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <textarea 
+              style={{ 
+                padding: '12px 16px', 
+                background: 'var(--bg-main)', 
+                border: '1px solid var(--border-color)', 
+                borderRadius: 4, 
+                height: 350, 
+                fontFamily: 'var(--font-mono)', 
+                fontSize: '0.85rem',
+                color: 'var(--text-main)',
+                resize: 'vertical'
+              }}
+              value={zarfConfigText}
+              onChange={e => setZarfConfigText(e.target.value)}
+              placeholder="# Enter zarf.yaml content here"
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button 
+                className="btn" 
+                onClick={() => {
+                  setZarfViewMode('local');
+                  setZarfUnpackTempDir('');
+                  setZarfConfigText('');
+                }}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleRebuildAndDeployZarf}
+                disabled={isSavingZarfConfig}
+              >
+                {isSavingZarfConfig ? 'Rebuilding & Deploying...' : 'Rebuild & Deploy'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="zarf-deploy-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Upload Zarf Package</h3>
+          <div 
+            style={{ 
+              border: '2px dashed var(--border-color)', 
+              borderRadius: 6, 
+              padding: '30px 20px', 
+              textAlign: 'center', 
+              background: 'rgba(0,0,0,0.1)', 
+              cursor: 'pointer',
+              marginBottom: 16
+            }}
+            onClick={() => document.getElementById('zarf-file-input')?.click()}
+          >
+            <input 
+              type="file" 
+              id="zarf-file-input" 
+              style={{ display: 'none' }} 
+              accept=".zst"
+              onChange={e => {
+                const files = e.target.files;
+                if (files && files.length > 0) {
+                  setZarfUploadFile(files[0]);
+                }
+              }}
+            />
+            <Package size={36} style={{ color: 'var(--text-muted)', marginBottom: 10 }} />
+            {zarfUploadFile ? (
+              <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                Selected: {zarfUploadFile.name} ({(zarfUploadFile.size / (1024 * 1024)).toFixed(1)} MB)
+              </div>
+            ) : (
+              <div style={{ color: 'var(--text-muted)' }}>
+                Drag and drop your Zarf package tarball here, or click to browse
+              </div>
+            )}
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              Supports Zarf package files (ending in .tar.zst)
+            </div>
+          </div>
+
+          {zarfUploadFile && (
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button 
+                className="btn" 
+                onClick={() => setZarfUploadFile(null)}
+                disabled={zarfUploadProgress >= 0}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleZarfUpload}
+                disabled={zarfUploadProgress >= 0}
+              >
+                Upload Package
+              </button>
+            </div>
+          )}
+
+          {zarfUploadProgress >= 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                <span>Uploading {zarfUploadFile?.name}...</span>
+                <span>{zarfUploadProgress}%</span>
+              </div>
+              <div className="metric-bar-wrapper" style={{ margin: 0 }}>
+                <div className="metric-bar-fill normal" style={{ width: `${zarfUploadProgress}%` }}></div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Workspace Directory Contents</h3>
+            <button className="btn btn-icon" onClick={fetchZarfLocalPackages}>
+              <RefreshCw size={14} />
+            </button>
+          </div>
+
+          {zarfLocalPackages.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
+              No workspace files or folders found.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {zarfLocalPackages.map((pkg: any) => {
+                const isPackage = pkg.name.endsWith('.tar.zst') || pkg.name.endsWith('.zst');
+                return (
+                  <div 
+                    key={pkg.name} 
+                    style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      padding: '12px 16px', 
+                      background: 'rgba(255,255,255,0.02)', 
+                      border: '1px solid var(--border-color)', 
+                      borderRadius: 6 
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-main)' }}>{pkg.name}</span>
+                        {pkg.isDir && <span className="badge badge-running" style={{ textTransform: 'none', background: 'rgba(0, 122, 255, 0.1)', color: '#007aff', borderColor: '#007aff' }}>Folder</span>}
+                        {isPackage && <span className="badge badge-running" style={{ textTransform: 'none', background: 'rgba(57, 255, 20, 0.1)', color: '#39ff14', borderColor: '#39ff14' }}>Package</span>}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Size: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{pkg.isDir ? 'N/A' : `${(pkg.size / (1024 * 1024)).toFixed(1)} MB`}</span>
+                        Modified: <span style={{ color: 'var(--text-main)' }}>{new Date(pkg.mtime).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {pkg.isDir && (
+                        <button 
+                          className="btn" 
+                          onClick={() => handleCompressFolder(pkg.name)}
+                        >
+                          Compress
+                        </button>
+                      )}
+                      {isPackage && (
+                        <>
+                          <button 
+                            className="btn" 
+                            onClick={() => handleDecompressPackage(pkg.name)}
+                          >
+                            Decompress
+                          </button>
+                          <button 
+                            className="btn" 
+                            onClick={() => handleUnpackZarfPackage(pkg.path)}
+                            disabled={isUnpackingZarf}
+                          >
+                            {isUnpackingZarf && selectedZarfPackagePath === pkg.path ? 'Unpacking...' : 'Inspect & Edit'}
+                          </button>
+                          <button 
+                            className="btn btn-primary" 
+                            onClick={() => handleDeployLocalPackage(pkg.path)}
+                          >
+                            Deploy
+                          </button>
+                        </>
+                      )}
+                      <button 
+                        className="btn btn-danger btn-icon" 
+                        onClick={() => handleDeleteWorkspaceItem(pkg.name)}
+                        style={{ padding: '6px' }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderZarfSbomView = () => {
+    const packagesOnly = zarfLocalPackages.filter((pkg: any) => pkg.name.endsWith('.tar.zst') || pkg.name.endsWith('.zst'));
+    const scanArtifacts = sbomScanResult?.artifacts || [];
+    const filteredScanArtifacts = scanArtifacts.filter((art: any) => {
+      if (!sbomScanSearchQuery.trim()) return true;
+      const query = sbomScanSearchQuery.toLowerCase();
+      const name = (art.name || '').toLowerCase();
+      const ver = (art.version || '').toLowerCase();
+      const type = (art.type || '').toLowerCase();
+      const licenses = Array.isArray(art.licenses)
+        ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || '')).join(' ').toLowerCase()
+        : '';
+      return name.includes(query) || ver.includes(query) || type.includes(query) || licenses.includes(query);
+    });
+
+    return (
+      <div className="zarf-sbom-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', paddingBottom: 10, gap: 16 }}>
+          <button 
+            className={`btn ${sbomActiveTab === 'inspect' ? 'btn-primary' : ''}`}
+            onClick={() => setSbomActiveTab('inspect')}
+          >
+            Package SBOM Inspector
+          </button>
+          <button 
+            className={`btn ${sbomActiveTab === 'scan' ? 'btn-primary' : ''}`}
+            onClick={() => setSbomActiveTab('scan')}
+          >
+            Image Scanner
+          </button>
+        </div>
+
+        {sbomActiveTab === 'inspect' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+              <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Extract CycloneDX Package Reports</h3>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <select 
+                  className="exec-input"
+                  style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)' }}
+                  value={sbomPackageName}
+                  onChange={e => setSbomPackageName(e.target.value)}
+                >
+                  <option value="">-- Select a local Zarf package --</option>
+                  {packagesOnly.map((pkg: any) => (
+                    <option key={pkg.name} value={pkg.name}>{pkg.name}</option>
+                  ))}
+                </select>
+                <button 
+                  className="btn btn-primary"
+                  onClick={handleExtractSbom}
+                  disabled={isExtractingSbom || !sbomPackageName}
+                >
+                  {isExtractingSbom ? 'Extracting...' : 'Extract SBOM'}
+                </button>
+              </div>
+            </div>
+
+            {sbomExtractedFiles.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: 20 }}>
+                <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, maxHeight: '600px', overflowY: 'auto' }}>
+                  <h4 style={{ fontSize: '0.9rem', marginBottom: 10, color: 'var(--text-muted)' }}>Component Reports</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {sbomExtractedFiles.map(file => {
+                      const cleanName = file.name.replace(/^sbom-viewer-/, '').replace(/\.html$/, '');
+                      const isActive = sbomSelectedFileUrl === file.url;
+                      return (
+                        <button
+                          key={file.name}
+                          className={`btn ${isActive ? 'btn-primary' : ''}`}
+                          style={{ 
+                            justifyContent: 'flex-start', 
+                            textAlign: 'left', 
+                            fontSize: '0.8rem', 
+                            padding: '8px 12px', 
+                            overflow: 'hidden', 
+                            textOverflow: 'ellipsis', 
+                            whiteSpace: 'nowrap',
+                            background: isActive ? 'var(--accent-blue)' : 'rgba(255,255,255,0.02)'
+                          }}
+                          onClick={() => setSbomSelectedFileUrl(file.url)}
+                          title={cleanName}
+                        >
+                          {cleanName}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ background: '#fff', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', height: '600px' }}>
+                  {sbomSelectedFileUrl ? (
+                    <iframe 
+                      src={sbomSelectedFileUrl}
+                      style={{ width: '100%', height: '100%', border: 'none' }}
+                      title="CycloneDX SBOM Report"
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#333' }}>
+                      Select a component report to view.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {sbomActiveTab === 'scan' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+              <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Run Real-time Container Image SBOM Scan</h3>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16 }}>
+                <input 
+                  type="text"
+                  className="exec-input"
+                  style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                  value={sbomImageRef}
+                  onChange={e => setSbomImageRef(e.target.value)}
+                  placeholder="e.g. 127.0.0.1:31999/library/periscope:latest or alpine:latest"
+                />
+                <button 
+                  className="btn btn-primary"
+                  onClick={() => handleScanImageSbom()}
+                  disabled={isScanningSbomImage}
+                >
+                  {isScanningSbomImage ? 'Scanning Image...' : 'Scan Image'}
+                </button>
+              </div>
+
+              {zarfRegistryRepos.length > 0 && (
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Registry Image Suggestions (Click to fill):</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {zarfRegistryRepos.map(repo => {
+                      const shortRef = `127.0.0.1:31999/${repo}:latest`;
+                      return (
+                        <button
+                          key={repo}
+                          className="btn"
+                          style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)' }}
+                          onClick={() => setSbomImageRef(shortRef)}
+                        >
+                          {repo}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {isScanningSbomImage && (
+              <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <div className="loader" style={{ margin: '0 auto 12px auto' }}></div>
+                Scanning image layers with Syft scanner. This may take up to a minute...
+              </div>
+            )}
+
+            {sbomScanResult && (
+              <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div>
+                    <h4 style={{ fontSize: '1.05rem', margin: 0 }}>Scan Report: {sbomScanResult.source?.target?.imageID || sbomImageRef}</h4>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                      Scanned by {sbomScanResult.descriptor?.name || 'Syft'} {sbomScanResult.descriptor?.version || ''}. Found {scanArtifacts.length} packages.
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Filter packages..."
+                    className="exec-input"
+                    style={{ width: 250, padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, fontSize: '0.85rem' }}
+                    value={sbomScanSearchQuery}
+                    onChange={e => setSbomScanSearchQuery(e.target.value)}
+                  />
+                </div>
+
+                {filteredScanArtifacts.length === 0 ? (
+                  <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
+                    No packages match your search filter.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                          <th style={{ padding: '8px 12px' }}>Package Name</th>
+                          <th style={{ padding: '8px 12px' }}>Version</th>
+                          <th style={{ padding: '8px 12px' }}>Type</th>
+                          <th style={{ padding: '8px 12px' }}>Licenses</th>
+                          <th style={{ padding: '8px 12px' }}>Language</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredScanArtifacts.map((art: any, i: number) => {
+                          const licenseStrs = Array.isArray(art.licenses)
+                            ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || ''))
+                            : [];
+                          return (
+                            <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                              <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-main)' }}>{art.name}</td>
+                              <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>{art.version}</td>
+                              <td style={{ padding: '8px 12px' }}>
+                                <span className="badge badge-running" style={{ textTransform: 'none', padding: '2px 6px', background: 'rgba(255,255,255,0.03)' }}>
+                                  {art.type}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 12px', color: '#ffd700' }}>
+                                {licenseStrs.length > 0 ? licenseStrs.join(', ') : <span style={{ color: 'var(--text-muted)' }}>None</span>}
+                              </td>
+                              <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{art.language || 'N/A'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderZarfRegistryView = () => {
+    return (
+      <div className="zarf-registry-view animate-fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        {/* Repositories catalog list */}
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Repositories Catalog</h3>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn" onClick={handlePruneRegistry}>
+                Prune Unused
+              </button>
+              <button className="btn btn-icon" onClick={fetchZarfRegistryCatalog} disabled={isFetchingRegistry}>
+                <RefreshCw size={14} />
+              </button>
+            </div>
+          </div>
+
+          {isFetchingRegistry ? (
+            <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
+              Querying repositories catalog...
+            </div>
+          ) : zarfRegistryRepos.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
+              No repositories found in local registry.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {zarfRegistryRepos.map(repo => {
+                const isSelected = zarfSelectedRepo === repo;
+                return (
+                  <div 
+                    key={repo}
+                    className={`resource-row ${isSelected ? 'active' : ''}`}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '10px 14px',
+                      background: 'rgba(255,255,255,0.02)',
+                      border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border-color)'}`,
+                      borderRadius: 6,
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => fetchZarfRegistryTags(repo)}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{repo}</div>
+                    <Search size={14} style={{ color: 'var(--text-muted)' }} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Selected Repository Tags */}
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: 16 }}>
+            {zarfSelectedRepo ? `Tags for ${zarfSelectedRepo}` : 'Select a Repository'}
+          </h3>
+
+          {!zarfSelectedRepo ? (
+            <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
+              Select a repository from the left panel to list its tags.
+            </div>
+          ) : isFetchingTags ? (
+            <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
+              Fetching tags...
+            </div>
+          ) : zarfSelectedRepoTags.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
+              No tags found for this repository.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {zarfSelectedRepoTags.map(tag => (
+                <div 
+                  key={tag}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '10px 14px',
+                    background: 'rgba(255,255,255,0.02)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 6
+                  }}
+                >
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>{zarfSelectedRepo}:</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{tag}</span>
+                  </div>
+                  <button 
+                    className="btn btn-danger" 
+                    style={{ padding: '4px 8px' }} 
+                    onClick={() => handleDeleteRegistryImage(zarfSelectedRepo, tag)}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderZarfCredsView = () => {
+    return (
+      <div className="zarf-creds-view animate-fade-in" style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20 }}>
+        {/* Credentials Card */}
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Registry & Cluster Credentials</h3>
+            <button className="btn btn-icon" onClick={fetchZarfCreds} disabled={isFetchingZarfCreds}>
+              <RefreshCw size={14} />
+            </button>
+          </div>
+
+          {isFetchingZarfCreds ? (
+            <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
+              Querying Zarf credentials...
+            </div>
+          ) : zarfCreds.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
+              No credentials found. Ensure Zarf is initialized in this cluster.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="crd-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                    <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Application</th>
+                    <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Username</th>
+                    <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Password</th>
+                    <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'right' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {zarfCreds.map((c: any, idx: number) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '8px 12px', fontWeight: 600, fontSize: '0.85rem' }}>{c.application}</td>
+                      <td style={{ padding: '8px 12px', fontSize: '0.85rem' }}>{c.username}</td>
+                      <td style={{ padding: '8px 12px', fontSize: '0.85rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>••••••••</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        <button 
+                          className="btn" 
+                          style={{ padding: '2px 8px', fontSize: '0.75rem' }} 
+                          onClick={() => {
+                            navigator.clipboard.writeText(c.password);
+                            alert(`Copied password for ${c.application} to clipboard!`);
+                          }}
+                        >
+                          <Copy size={12} /> Password
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Maintenance card */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Zarf Maintenance</h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: 16 }}>
+              Clear the cache directory of Zarf tools. This removes downloaded repository caches, compressed package images, and incomplete tars to free up host disk space.
+            </p>
+            <button 
+              className="btn btn-danger" 
+              style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}
+              onClick={handleClearZarfCache}
+              disabled={isClearingZarfCache}
+            >
+              <Trash2 size={14} /> 
+              {isClearingZarfCache ? 'Clearing Cache...' : 'Clear Zarf Local Cache'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderPodFilesTab = () => {
+    if (!modal) return null;
+    
+    const handleNavigateUp = () => {
+      if (currentDirPath === '/') return;
+      const parts = currentDirPath.split('/').filter(Boolean);
+      parts.pop();
+      const parentPath = '/' + parts.join('/') + (parts.length > 0 ? '/' : '');
+      fetchPodFilesList(parentPath);
+    };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Path:</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--text-main)', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, padding: '4px 8px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {currentDirPath}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input 
+              type="file" 
+              id="pod-file-upload-input" 
+              style={{ display: 'none' }} 
+              onChange={handleUploadPodFile} 
+            />
+            <button className="btn" onClick={() => document.getElementById('pod-file-upload-input')?.click()} disabled={podFileUploadProgress >= 0}>
+              Upload File
+            </button>
+            <button className="btn" onClick={handleCreatePodFolder}>
+              New Folder
+            </button>
+            <button className="btn btn-icon" onClick={() => fetchPodFilesList(currentDirPath)} disabled={isListingFiles}>
+              <RefreshCw size={14} />
+            </button>
+          </div>
+        </div>
+
+        {podFileUploadProgress >= 0 && (
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+              <span>Uploading: {podFileUploadName}</span>
+              <span>{podFileUploadProgress}%</span>
+            </div>
+            <div className="metric-bar-wrapper" style={{ margin: 0 }}>
+              <div className="metric-bar-fill normal" style={{ width: `${podFileUploadProgress}%` }}></div>
+            </div>
+          </div>
+        )}
+
+        <div className="terminal-container" style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 6 }}>
+          {isListingFiles ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <div className="loader" style={{ margin: '0 auto 10px auto', width: 24, height: 24 }}></div>
+              Reading directory contents...
+            </div>
+          ) : (
+            <table className="crd-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.1)' }}>
+                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>Name</th>
+                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem', width: 80 }}>Type</th>
+                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem', width: 100, textAlign: 'right' }}>Size</th>
+                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem', width: 140 }}>Modified</th>
+                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem', width: 100, textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {currentDirPath !== '/' && (
+                  <tr 
+                    style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', cursor: 'pointer' }}
+                    onClick={handleNavigateUp}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '6px 12px', fontWeight: 600, color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>📁 ..</span>
+                    </td>
+                    <td style={{ padding: '6px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Parent Dir</td>
+                    <td style={{ padding: '6px 12px', textAlign: 'right', color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</td>
+                    <td style={{ padding: '6px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</td>
+                    <td style={{ padding: '6px 12px', textAlign: 'right' }}></td>
+                  </tr>
+                )}
+
+                {podFiles.length === 0 && currentDirPath === '/' ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      No files found.
+                    </td>
+                  </tr>
+                ) : (
+                  podFiles.map(file => (
+                    <tr 
+                      key={file.name} 
+                      style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.01)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td 
+                        style={{ padding: '8px 12px', fontWeight: 500, cursor: file.isDir ? 'pointer' : 'default', color: file.isDir ? 'var(--accent-green)' : 'var(--text-main)' }}
+                        onClick={() => {
+                          if (file.isDir) {
+                            fetchPodFilesList(currentDirPath + file.name + '/');
+                          }
+                        }}
+                      >
+                        {file.isDir ? `📁 ${file.name}` : `📄 ${file.name}`}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                        {file.isDir ? 'Folder' : file.isLink ? 'Symlink' : 'File'}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: '0.8rem' }}>
+                        {file.isDir ? '--' : `${(file.size / 1024).toFixed(1)} KB`}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                        {file.date}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: 6 }}>
+                          {!file.isDir && (
+                            <button 
+                              className="btn" 
+                              style={{ padding: '2px 6px', fontSize: '0.7rem' }} 
+                              onClick={() => handleDownloadPodFile(file.name)}
+                            >
+                              Get
+                            </button>
+                          )}
+                          <button 
+                            className="btn btn-danger" 
+                            style={{ padding: '2px 6px', fontSize: '0.7rem' }} 
+                            onClick={() => handleDeletePodFile(file.name, file.isDir)}
+                          >
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           )}
         </div>
       </div>
@@ -1620,64 +3901,148 @@ function App() {
         </div>
         
         <div className="nav-section">
-          <div className="nav-section-title">Cluster</div>
-          <nav className="nav-menu">
-            <a className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}><SlidersHorizontal size={16} /> Dashboard</a>
-            <a className={`nav-item ${activeTab === 'topology' ? 'active' : ''}`} onClick={() => setActiveTab('topology')}><Activity size={16} /> Topology</a>
-            <a className={`nav-item ${activeTab === 'nodes' ? 'active' : ''}`} onClick={() => setActiveTab('nodes')}><Server size={16} /> Nodes</a>
-            <a className={`nav-item ${activeTab === 'events' ? 'active' : ''}`} onClick={() => setActiveTab('events')}><List size={16} /> Events</a>
-          </nav>
+          <div 
+            className="nav-section-title" 
+            onClick={() => toggleSection('cluster')}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          >
+            <span>Cluster</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['cluster'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          </div>
+          {!collapsedSections['cluster'] && (
+            <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => { setActiveTab('dashboard'); setSearch(''); }}><SlidersHorizontal size={16} /> Dashboard</a>
+              <a className={`nav-item ${activeTab === 'topology' ? 'active' : ''}`} onClick={() => { setActiveTab('topology'); setSearch(''); }}><Activity size={16} /> Topology</a>
+              <a className={`nav-item ${activeTab === 'nodes' ? 'active' : ''}`} onClick={() => { setActiveTab('nodes'); setSearch(''); }}><Server size={16} /> Nodes</a>
+              <a className={`nav-item ${activeTab === 'events' ? 'active' : ''}`} onClick={() => { setActiveTab('events'); setSearch(''); }}><List size={16} /> Events</a>
+            </nav>
+          )}
         </div>
 
         <div className="nav-section">
-          <div className="nav-section-title">Workloads</div>
-          <nav className="nav-menu">
-            <a className={`nav-item ${activeTab === 'pods' ? 'active' : ''}`} onClick={() => setActiveTab('pods')}><Box size={16} /> Pods</a>
-            <a className={`nav-item ${activeTab === 'deployments' ? 'active' : ''}`} onClick={() => setActiveTab('deployments')}><Layers size={16} /> Deployments</a>
-            <a className={`nav-item ${activeTab === 'jobs' ? 'active' : ''}`} onClick={() => setActiveTab('jobs')}><Activity size={16} /> Jobs</a>
-            <a className={`nav-item ${activeTab === 'cronjobs' ? 'active' : ''}`} onClick={() => setActiveTab('cronjobs')}><RefreshCw size={16} /> CronJobs</a>
-          </nav>
+          <div 
+            className="nav-section-title" 
+            onClick={() => toggleSection('workloads')}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          >
+            <span>Workloads</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['workloads'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          </div>
+          {!collapsedSections['workloads'] && (
+            <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'pods' ? 'active' : ''}`} onClick={() => { setActiveTab('pods'); setSearch(''); }}><Box size={16} /> Pods</a>
+              <a className={`nav-item ${activeTab === 'deployments' ? 'active' : ''}`} onClick={() => { setActiveTab('deployments'); setSearch(''); }}><Layers size={16} /> Deployments</a>
+              <a className={`nav-item ${activeTab === 'jobs' ? 'active' : ''}`} onClick={() => { setActiveTab('jobs'); setSearch(''); }}><Activity size={16} /> Jobs</a>
+              <a className={`nav-item ${activeTab === 'cronjobs' ? 'active' : ''}`} onClick={() => { setActiveTab('cronjobs'); setSearch(''); }}><RefreshCw size={16} /> CronJobs</a>
+            </nav>
+          )}
         </div>
 
         <div className="nav-section">
-          <div className="nav-section-title">Network</div>
-          <nav className="nav-menu">
-            <a className={`nav-item ${activeTab === 'services' ? 'active' : ''}`} onClick={() => setActiveTab('services')}><GitCommit size={16} /> Services</a>
-            <a className={`nav-item ${activeTab === 'ingresses' ? 'active' : ''}`} onClick={() => setActiveTab('ingresses')}><Shield size={16} /> Ingresses</a>
-          </nav>
+          <div 
+            className="nav-section-title" 
+            onClick={() => toggleSection('network')}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          >
+            <span>Network</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['network'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          </div>
+          {!collapsedSections['network'] && (
+            <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'services' ? 'active' : ''}`} onClick={() => { setActiveTab('services'); setSearch(''); }}><GitCommit size={16} /> Services</a>
+              <a className={`nav-item ${activeTab === 'ingresses' ? 'active' : ''}`} onClick={() => { setActiveTab('ingresses'); setSearch(''); }}><Shield size={16} /> Ingresses</a>
+            </nav>
+          )}
         </div>
 
         <div className="nav-section">
-          <div className="nav-section-title">Config</div>
-          <nav className="nav-menu">
-            <a className={`nav-item ${activeTab === 'configmaps' ? 'active' : ''}`} onClick={() => setActiveTab('configmaps')}><FileText size={16} /> ConfigMaps</a>
-            <a className={`nav-item ${activeTab === 'secrets' ? 'active' : ''}`} onClick={() => setActiveTab('secrets')}><Key size={16} /> Secrets</a>
-          </nav>
+          <div 
+            className="nav-section-title" 
+            onClick={() => toggleSection('config')}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          >
+            <span>Config</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['config'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          </div>
+          {!collapsedSections['config'] && (
+            <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'configmaps' ? 'active' : ''}`} onClick={() => { setActiveTab('configmaps'); setSearch(''); }}><FileText size={16} /> ConfigMaps</a>
+              <a className={`nav-item ${activeTab === 'secrets' ? 'active' : ''}`} onClick={() => { setActiveTab('secrets'); setSearch(''); }}><Key size={16} /> Secrets</a>
+            </nav>
+          )}
         </div>
 
         <div className="nav-section">
-          <div className="nav-section-title">Storage</div>
-          <nav className="nav-menu">
-            <a className={`nav-item ${activeTab === 'persistentvolumes' ? 'active' : ''}`} onClick={() => setActiveTab('persistentvolumes')}><Database size={16} /> PVs</a>
-            <a className={`nav-item ${activeTab === 'persistentvolumeclaims' ? 'active' : ''}`} onClick={() => setActiveTab('persistentvolumeclaims')}><Database size={16} /> PVCs</a>
-          </nav>
+          <div 
+            className="nav-section-title" 
+            onClick={() => toggleSection('storage')}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          >
+            <span>Storage</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['storage'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          </div>
+          {!collapsedSections['storage'] && (
+            <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'persistentvolumes' ? 'active' : ''}`} onClick={() => { setActiveTab('persistentvolumes'); setSearch(''); }}><Database size={16} /> PVs</a>
+              <a className={`nav-item ${activeTab === 'persistentvolumeclaims' ? 'active' : ''}`} onClick={() => { setActiveTab('persistentvolumeclaims'); setSearch(''); }}><Database size={16} /> PVCs</a>
+            </nav>
+          )}
         </div>
 
         <div className="nav-section">
-          <div className="nav-section-title">Apps</div>
-          <nav className="nav-menu">
-            <a className={`nav-item ${activeTab === 'helm' ? 'active' : ''}`} onClick={() => setActiveTab('helm')}><Package size={16} /> Helm Releases</a>
-            <a className={`nav-item ${activeTab === 'zarf' ? 'active' : ''}`} onClick={() => setActiveTab('zarf')}><Package size={16} /> Zarf Packages</a>
-          </nav>
+          <div 
+            className="nav-section-title" 
+            onClick={() => toggleSection('helm')}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          >
+            <span>Helm</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['helm'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          </div>
+          {!collapsedSections['helm'] && (
+            <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'helm' ? 'active' : ''}`} onClick={() => { setActiveTab('helm'); setSearch(''); }}><Package size={16} /> Helm Releases</a>
+              <a className={`nav-item ${activeTab === 'helm-install' ? 'active' : ''}`} onClick={() => { setActiveTab('helm-install'); setSearch(''); }}><ArrowDown size={16} /> Install Chart</a>
+              <a className={`nav-item ${activeTab === 'helm-repos' ? 'active' : ''}`} onClick={() => { setActiveTab('helm-repos'); setSearch(''); }}><Database size={16} /> Repo Manager</a>
+            </nav>
+          )}
         </div>
 
         <div className="nav-section">
-          <div className="nav-section-title">Custom Resources</div>
-          <nav className="nav-menu">
-            <a className={`nav-item ${activeTab === 'crds' ? 'active' : ''}`} onClick={() => setActiveTab('crds')}><Code size={16} /> CRD Explorer</a>
-            <a className={`nav-item ${activeTab === 'custom' && customCrd?.name === 'helmcharts.helm.cattle.io' ? 'active' : ''}`} onClick={() => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmcharts', name: 'helmcharts.helm.cattle.io' }); setActiveTab('custom'); }}><Code size={16} /> K3s HelmCharts</a>
-            <a className={`nav-item ${activeTab === 'custom' && customCrd?.name === 'helmchartconfigs.helm.cattle.io' ? 'active' : ''}`} onClick={() => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmchartconfigs', name: 'helmchartconfigs.helm.cattle.io' }); setActiveTab('custom'); }}><Code size={16} /> K3s ChartConfigs</a>
-          </nav>
+          <div 
+            className="nav-section-title" 
+            onClick={() => toggleSection('zarf')}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          >
+            <span>Zarf</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['zarf'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          </div>
+          {!collapsedSections['zarf'] && (
+            <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'zarf' ? 'active' : ''}`} onClick={() => { setZarfViewMode('packages'); setActiveTab('zarf'); setSearch(''); }}><Package size={16} /> Deployed Packages</a>
+              <a className={`nav-item ${activeTab === 'zarf-deploy' ? 'active' : ''}`} onClick={() => { setZarfViewMode('local'); setActiveTab('zarf-deploy'); setSearch(''); }}><Save size={16} /> Deploy Zarf Package</a>
+              <a className={`nav-item ${activeTab === 'zarf-registry' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-registry'); setSearch(''); }}><Database size={16} /> Zarf Registry</a>
+              <a className={`nav-item ${activeTab === 'zarf-creds' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-creds'); setSearch(''); }}><Key size={16} /> Zarf Credentials</a>
+              <a className={`nav-item ${activeTab === 'zarf-sbom' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-sbom'); setSearch(''); }}><Shield size={16} /> Zarf SBOMs</a>
+            </nav>
+          )}
+        </div>
+
+        <div className="nav-section">
+          <div 
+            className="nav-section-title" 
+            onClick={() => toggleSection('custom')}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          >
+            <span>Custom Resources</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['custom'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          </div>
+          {!collapsedSections['custom'] && (
+            <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'crds' ? 'active' : ''}`} onClick={() => { setActiveTab('crds'); setSearch(''); }}><Code size={16} /> CRD Explorer</a>
+              <a className={`nav-item ${activeTab === 'custom' && customCrd?.name === 'helmcharts.helm.cattle.io' ? 'active' : ''}`} onClick={() => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmcharts', name: 'helmcharts.helm.cattle.io' }); setActiveTab('custom'); setSearch(''); }}><Code size={16} /> K3s HelmCharts</a>
+              <a className={`nav-item ${activeTab === 'custom' && customCrd?.name === 'helmchartconfigs.helm.cattle.io' ? 'active' : ''}`} onClick={() => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmchartconfigs', name: 'helmchartconfigs.helm.cattle.io' }); setActiveTab('custom'); setSearch(''); }}><Code size={16} /> K3s ChartConfigs</a>
+            </nav>
+          )}
         </div>
       </aside>
 
@@ -1713,6 +4078,23 @@ function App() {
             </button>
           </div>
           <div className="controls-bar">
+            {contexts.length > 0 && (
+              <select 
+                className="select-ns" 
+                style={{ 
+                  marginRight: 4, 
+                  background: 'rgba(96, 165, 250, 0.08)', 
+                  color: '#60a5fa', 
+                  borderColor: 'rgba(96, 165, 250, 0.25)',
+                  fontWeight: 500
+                }}
+                value={currentContext} 
+                onChange={e => handleContextChange(e.target.value)}
+                title="Kubernetes Context"
+              >
+                {contexts.map(c => <option key={c.name} value={c.name} style={{ background: '#0a0a0a', color: '#fff' }}>{c.name}</option>)}
+              </select>
+            )}
             {activeTab !== 'nodes' && activeTab !== 'persistentvolumes' && (
               <select className="select-ns" value={selectedNs} onChange={e => setSelectedNs(e.target.value)}>
                 {namespaces.map(ns => <option key={ns} value={ns}>{ns === 'all' ? 'All Namespaces' : ns}</option>)}
@@ -1730,21 +4112,21 @@ function App() {
 
         <div className="content-area">
           <div className="stats-grid">
-            <div className="stat-card">
+            <div className="stat-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('nodes')} title="View Nodes">
               <div className="stat-icon"><Server size={24}/></div>
               <div className="stat-info">
                 <span className="stat-value">{stats.nodes}</span>
                 <span className="stat-label">Total Nodes</span>
               </div>
             </div>
-            <div className="stat-card">
+            <div className="stat-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('pods')} title="View Pods">
               <div className="stat-icon"><Box size={24}/></div>
               <div className="stat-info">
                 <span className="stat-value">{stats.pods}</span>
                 <span className="stat-label">Active Pods</span>
               </div>
             </div>
-            <div className="stat-card">
+            <div className="stat-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('deployments')} title="View Deployments">
               <div className="stat-icon"><Layers size={24}/></div>
               <div className="stat-info">
                 <span className="stat-value">{stats.deployments}</span>
@@ -1800,15 +4182,39 @@ function App() {
               <h1 className="title">
                 {activeTab === 'helm' 
                   ? 'Helm Releases' 
+                  : activeTab === 'helm-install'
+                  ? 'Install Chart'
+                  : activeTab === 'helm-repos'
+                  ? 'Repo Manager'
                   : activeTab === 'zarf' 
-                  ? 'Zarf Packages' 
+                  ? 'Deployed Packages'
+                  : activeTab === 'zarf-deploy'
+                  ? 'Deploy Zarf Package'
+                  : activeTab === 'zarf-registry'
+                  ? 'Zarf Registry'
+                  : activeTab === 'zarf-creds'
+                  ? 'Zarf Credentials'
+                  : activeTab === 'zarf-sbom'
+                  ? 'Zarf SBOMs'
                   : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
               </h1>
               <div className="subtitle">
                 {activeTab === 'topology' 
                   ? `Visualizing cluster relationships in ${selectedNs}` 
                   : activeTab === 'zarf'
-                  ? 'Manage and deploy offline packages in your cluster'
+                  ? 'Manage in-cluster deployed Zarf packages'
+                  : activeTab === 'zarf-deploy'
+                  ? 'Upload, compress/decompress, and deploy local package archives'
+                  : activeTab === 'zarf-registry'
+                  ? 'Manage containers and tag images inside the in-cluster registry'
+                  : activeTab === 'zarf-creds'
+                  ? 'Inspect and connect to Zarf cluster services'
+                  : activeTab === 'zarf-sbom'
+                  ? 'Extract CycloneDX package reports or perform container image SBOM scans'
+                  : activeTab === 'helm-install'
+                  ? 'Install Helm charts from configured repositories'
+                  : activeTab === 'helm-repos'
+                  ? 'Configure and manage Helm chart repositories'
                   : `Managing ${filteredResources.length} resources in ${activeTab !== 'nodes' ? selectedNs : 'cluster'}`}
               </div>
             </div>
@@ -1833,12 +4239,12 @@ function App() {
               </div>
             )}
             {activeTab === 'helm' && (
-              <button className="btn btn-primary" onClick={() => setIsDeployHelmModalOpen(true)}>
-                <Package size={16} /> Deploy Chart
+              <button className="btn btn-primary" onClick={() => setActiveTab('helm-install')}>
+                <Package size={16} /> Install Chart
               </button>
             )}
             {activeTab === 'zarf' && zarfStatus.installed && (
-              <button className="btn btn-primary" onClick={() => setIsDeployZarfModalOpen(true)}>
+              <button className="btn btn-primary" onClick={() => setActiveTab('zarf-deploy')}>
                 <Package size={16} /> Deploy Zarf Package
               </button>
             )}
@@ -1849,7 +4255,21 @@ function App() {
           ) : activeTab === 'topology' ? (
             renderTopologyView()
           ) : activeTab === 'zarf' ? (
-            renderZarfView()
+            renderZarfPackagesView()
+          ) : activeTab === 'zarf-deploy' ? (
+            renderZarfDeployView()
+          ) : activeTab === 'zarf-registry' ? (
+            renderZarfRegistryView()
+          ) : activeTab === 'zarf-creds' ? (
+            renderZarfCredsView()
+          ) : activeTab === 'zarf-sbom' ? (
+            renderZarfSbomView()
+          ) : activeTab === 'helm' ? (
+            renderHelmReleasesView()
+          ) : activeTab === 'helm-install' ? (
+            renderHelmInstallView()
+          ) : activeTab === 'helm-repos' ? (
+            renderHelmReposView()
           ) : activeTab === 'dashboard' ? (
             renderDashboardView()
           ) : (
@@ -1900,6 +4320,144 @@ function App() {
                             ))}
                           </div>
                         )}
+                        {activeTab === 'pods' && res.spec?.containers && (
+                          <div className="container-badge-group">
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Containers:</span>
+                            {res.spec.containers.map((c: any) => (
+                              <div key={c.name} className="container-badge">
+                                <span>{c.name}</span>
+                                <span 
+                                  className="container-badge-action logs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedContainer(c.name);
+                                    setModal({ type: 'logs', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
+                                  }}
+                                  title="View logs"
+                                >
+                                  <FileText size={10} />
+                                </span>
+                                <span 
+                                  className="container-badge-action console"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedContainer(c.name);
+                                    setModal({ type: 'terminal', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
+                                  }}
+                                  title="Open Console"
+                                >
+                                  <Terminal size={10} />
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {activeTab === 'services' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Ports:</span>
+                              {(res.spec?.ports || []).map((p: any) => (
+                                <span 
+                                  key={`${p.port}-${p.protocol}`} 
+                                  className="badge" 
+                                  style={{ 
+                                    background: 'rgba(96, 165, 250, 0.05)', 
+                                    color: '#60a5fa', 
+                                    border: '1px solid rgba(96, 165, 250, 0.15)',
+                                    fontSize: '0.7rem',
+                                    textTransform: 'none',
+                                    padding: '2px 6px'
+                                  }}
+                                >
+                                  {p.name ? `${p.name}: ` : ''}{p.port}{p.nodePort ? `:${p.nodePort}` : ''} ➔ {p.targetPort} ({p.protocol})
+                                </span>
+                              ))}
+                            </div>
+                            {res.spec?.selector && (
+                              <>
+                                {(() => {
+                                  const matchingDeps = associatedDeployments.filter(dep => 
+                                    dep.spec?.selector?.matchLabels && 
+                                    Object.keys(res.spec.selector).length > 0 &&
+                                    Object.entries(res.spec.selector).every(([k, v]) => dep.spec.selector.matchLabels[k] === v)
+                                  );
+                                  if (matchingDeps.length === 0) return null;
+                                  return (
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Deployments:</span>
+                                      {matchingDeps.map(dep => (
+                                        <span 
+                                          key={dep.metadata.uid} 
+                                          className="badge" 
+                                          style={{ 
+                                            background: 'rgba(139, 92, 246, 0.05)', 
+                                            color: '#a78bfa', 
+                                            border: '1px solid rgba(139, 92, 246, 0.15)',
+                                            fontSize: '0.7rem',
+                                            textTransform: 'none',
+                                            padding: '2px 6px',
+                                            cursor: 'pointer'
+                                          }}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setActiveTab('deployments');
+                                            setSearch(dep.metadata.name);
+                                          }}
+                                        >
+                                          {dep.metadata.name} <ExternalLink size={10} style={{ marginLeft: 4, opacity: 0.8 }} />
+                                        </span>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                                {(() => {
+                                  const matchingPods = associatedPods.filter(p => matchesSelector(p.metadata?.labels, res.spec.selector));
+                                  if (matchingPods.length === 0) return null;
+                                  return (
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Matched Pods:</span>
+                                      {matchingPods.map(pod => {
+                                        const phase = (pod.status?.phase || 'Unknown').toLowerCase();
+                                        let statusColor = 'var(--text-muted)';
+                                        if (phase === 'running') statusColor = 'var(--accent-success)';
+                                        else if (phase === 'pending') statusColor = 'var(--accent-warning)';
+                                        else if (phase === 'failed') statusColor = 'var(--accent-error)';
+                                        else if (phase === 'succeeded') statusColor = '#10b981';
+                                        
+                                        return (
+                                          <span 
+                                            key={pod.metadata.uid} 
+                                            className="badge" 
+                                            style={{ 
+                                              background: 'rgba(255,255,255,0.03)', 
+                                              color: statusColor, 
+                                              border: '1px solid var(--border-color)',
+                                              fontSize: '0.7rem',
+                                              textTransform: 'none',
+                                              padding: '2px 6px',
+                                              cursor: 'pointer',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '4px'
+                                            }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setActiveTab('pods');
+                                              setSearch(pod.metadata.name);
+                                            }}
+                                          >
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
+                                            {pod.metadata.name} <ExternalLink size={10} style={{ marginLeft: 4, opacity: 0.8 }} />
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
                       {renderStatusBadge(res)}
                       <div className="row-meta">
@@ -1947,9 +4505,6 @@ function App() {
                         {activeTab === 'persistentvolumeclaims' && (
                           <span>Vol: {res.spec?.volumeName || 'None'} | Cap: {res.status?.capacity?.storage || res.spec?.resources?.requests?.storage || 'N/A'}</span>
                         )}
-                        {activeTab === 'helm' && (
-                          <span>Chart: {res.chart} | Rev: {res.revision}</span>
-                        )}
                         {activeTab === 'crds' && (
                           <span>Group: {res.spec?.group} | Scope: {res.spec?.scope}</span>
                         )}
@@ -1975,19 +4530,73 @@ function App() {
                     <div className="row-actions">
                       {activeTab === 'deployments' && (
                         <>
-                          <button className="btn" onClick={() => handleRestart(res.metadata.name, res.metadata.namespace)}>
-                            <Power size={14} /> Restart
+                          <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleRestart(res.metadata.name, res.metadata.namespace); }}>
+                            <Power size={12} /> Restart
                           </button>
-                          <button className="btn" onClick={() => handleScale(res.metadata.name, res.metadata.namespace, res.spec?.replicas || 0)}>
-                            <SlidersHorizontal size={14} /> Scale
+                          <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleScale(res.metadata.name, res.metadata.namespace, res.spec?.replicas || 0); }}>
+                            <SlidersHorizontal size={12} /> Scale
+                          </button>
+                          <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); handleDrillDownToPods(res); }}>
+                            <Box size={12} /> Pods
+                          </button>
+                        </>
+                      )}
+                      
+                      {activeTab === 'services' && (
+                        <button 
+                          className="btn btn-sm btn-primary" 
+                          onClick={(e) => { 
+                            e.stopPropagation();
+                            handleOpenServiceWebsite(res);
+                          }}
+                          disabled={
+                            establishingPortForward === res.metadata.name ||
+                            !associatedPods.some(p => p.status?.phase?.toLowerCase() === 'running' && matchesSelector(p.metadata?.labels, res.spec?.selector))
+                          }
+                          title="Port-forward and open in browser"
+                        >
+                          <Globe size={12} /> {establishingPortForward === res.metadata.name ? 'Connecting...' : 'Website'} <ExternalLink size={10} style={{ marginLeft: 4 }} />
+                        </button>
+                      )}
+
+                      {activeTab === 'pods' && (
+                        <>
+                          <button className="btn btn-sm" onClick={(e) => { 
+                            e.stopPropagation();
+                            setSelectedContainer(res.spec?.containers?.[0]?.name || '');
+                            setModal({ type: 'terminal', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
+                          }}>
+                            <Terminal size={12} /> Console
+                          </button>
+                          <button className="btn btn-sm" onClick={(e) => { 
+                            e.stopPropagation();
+                            setSelectedContainer(res.spec?.containers?.[0]?.name || '');
+                            setCurrentDirPath('/');
+                            setModal({ type: 'files', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
+                          }}>
+                            <FileText size={12} /> Files
+                          </button>
+                          <button className="btn btn-sm" onClick={(e) => { 
+                            e.stopPropagation();
+                            setModal({ type: 'portforward', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
+                          }}>
+                            <Radio size={12} /> Port Fwd
+                          </button>
+                          <button className="btn btn-sm" onClick={(e) => { 
+                            e.stopPropagation();
+                            setSelectedContainer(res.spec?.containers?.[0]?.name || '');
+                            setModal({ type: 'logs', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
+                          }}>
+                            <FileText size={12} /> Logs
                           </button>
                         </>
                       )}
                       
                       {activeTab === 'crds' && (
                         <button 
-                          className="btn btn-primary" 
-                          onClick={() => {
+                          className="btn btn-sm btn-primary" 
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setCustomCrd({
                               group: res.spec.group,
                               version: res.spec.versions.find((v: any) => v.served)?.name || res.spec.versions[0].name,
@@ -1997,46 +4606,56 @@ function App() {
                             setActiveTab('custom');
                           }}
                         >
-                          <Search size={14} /> View Instances
+                          <Search size={12} /> View Instances
                         </button>
                       )}
 
                       {activeTab === 'events' && res.involvedObject && (
                         <button 
-                          className="btn" 
-                          onClick={() => setModal({ 
-                            type: 'yaml', 
-                            name: res.involvedObject.name, 
-                            namespace: res.involvedObject.namespace || 'default', 
-                            kind: pluralizeKind(res.involvedObject.kind), 
-                            uid: res.involvedObject.uid 
-                          })}
+                          className="btn btn-sm" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setModal({ 
+                              type: 'yaml', 
+                              name: res.involvedObject.name, 
+                              namespace: res.involvedObject.namespace || 'default', 
+                              kind: pluralizeKind(res.involvedObject.kind), 
+                              uid: res.involvedObject.uid 
+                            });
+                          }}
                         >
-                          <Search size={14} /> View Resource
+                          <Search size={12} /> View Resource
                         </button>
                       )}
 
                       {activeTab !== 'nodes' && activeTab !== 'crds' && activeTab !== 'events' && (
-                        <button className="btn" onClick={() => setModal({ type: 'events', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid })}>
-                          <Info size={14} /> Describe
-                        </button>
-                      )}
-
-                      {activeTab === 'pods' && (
-                        <button className="btn" onClick={() => setModal({ type: 'logs', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid })}>
-                          <Terminal size={14} /> Logs
+                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setModal({ type: 'events', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid }); }}>
+                          <Info size={12} /> Describe
                         </button>
                       )}
                       
                       {activeTab !== 'nodes' && activeTab !== 'crds' && activeTab !== 'events' && (
-                        <button className="btn" onClick={() => setModal({ type: 'yaml', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid })}>
-                          <Settings size={14} /> YAML
-                        </button>
+                        <>
+                          <button className="btn btn-sm" onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setIsEditingYaml(false); 
+                            setModal({ type: 'yaml', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid }); 
+                          }}>
+                            <Settings size={12} /> YAML
+                          </button>
+                          <button className="btn btn-sm btn-primary" onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setIsEditingYaml(true); 
+                            setModal({ type: 'yaml', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid }); 
+                          }}>
+                            <Code size={12} /> Edit
+                          </button>
+                        </>
                       )}
                       
                       {activeTab !== 'nodes' && activeTab !== 'crds' && activeTab !== 'events' && (
-                        <button className="btn btn-danger" onClick={() => handleDelete(res)}>
-                          <Trash2 size={14} /> Delete
+                        <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); handleDelete(res); }}>
+                          <Trash2 size={12} /> Delete
                         </button>
                       )}
                     </div>
@@ -2061,12 +4680,17 @@ function App() {
             
             <div className="modal-tabs">
               {((modal.kind === 'helm' ? ['yaml', 'events', 'history'] : ['yaml', 'events']) as ModalType[])
-                .concat(modal.kind === 'pods' ? ['logs', 'terminal', 'portforward'] : [])
+                .concat(modal.kind === 'pods' ? ['logs', 'terminal', 'portforward', 'files'] : [])
                 .map(t => (
                   <div 
                     key={t}
                     className={`modal-tab ${modal.type === t ? 'active' : ''}`}
-                    onClick={() => setModal({ ...modal, type: t })}
+                    onClick={() => {
+                      if (t === 'files') {
+                        setCurrentDirPath('/');
+                      }
+                      setModal({ ...modal, type: t });
+                    }}
                   >
                     {t === 'yaml' && <Settings size={14}/>}
                     {t === 'events' && <Info size={14}/>}
@@ -2074,13 +4698,16 @@ function App() {
                     {t === 'terminal' && <Terminal size={14}/>}
                     {t === 'portforward' && <Radio size={14}/>}
                     {t === 'history' && <Activity size={14}/>}
+                    {t === 'files' && <FileText size={14}/>}
                     {t === 'terminal' ? 'Console' : t === 'portforward' ? 'Port Forward' : t === 'events' && modal.kind === 'helm' ? 'Status' : t.charAt(0).toUpperCase() + t.slice(1)}
                   </div>
                 ))}
             </div>
  
             <div className="modal-body">
-              {modalData === null ? (
+              {modal.type === 'files' ? (
+                renderPodFilesTab()
+              ) : modalData === null ? (
                 <div className="loader-container"><div className="loader"></div></div>
               ) : modal.type === 'yaml' ? (
                 typeof modalData !== 'string' ? (
@@ -2609,10 +5236,9 @@ function App() {
                   });
                   const data = await res.json();
                   if (res.ok) {
-                    alert('Zarf package deployed successfully');
                     setIsDeployZarfModalOpen(false);
                     setZarfDeployForm({ packagePath: '' });
-                    fetchResources();
+                    startTaskLogsStreaming(data.taskId);
                   } else {
                     alert('Failed to deploy package: ' + (data.error || 'Unknown error'));
                   }
@@ -2751,6 +5377,61 @@ function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isTaskLogsModalOpen && (
+        <div className="modal-overlay" onClick={() => { if (taskStatus !== 'running') setIsTaskLogsModalOpen(false); }}>
+          <div className="modal-content animate-fade-in" onClick={e => e.stopPropagation()} style={{ maxWidth: 800, height: 500, display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-header">
+              <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Terminal size={18} />
+                <span>Background Deployment Console</span>
+                <span className={`badge ${taskStatus === 'running' ? 'badge-running' : taskStatus === 'success' ? 'badge-running' : 'badge-failed'}`} style={{ marginLeft: 8, textTransform: 'uppercase' }}>
+                  {taskStatus}
+                </span>
+              </div>
+              <button className="btn btn-icon" onClick={() => setIsTaskLogsModalOpen(false)} disabled={taskStatus === 'running'}>
+                <X size={16}/>
+              </button>
+            </div>
+            <div className="modal-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0a0a0a', padding: 16, overflow: 'hidden' }}>
+              <div 
+                style={{ 
+                  flex: 1, 
+                  overflowY: 'auto', 
+                  fontFamily: 'var(--font-mono)', 
+                  fontSize: '0.85rem', 
+                  color: '#ededed', 
+                  whiteSpace: 'pre-wrap', 
+                  wordBreak: 'break-all', 
+                  padding: 8 
+                }}
+                ref={(el) => {
+                  if (el) {
+                    el.scrollTop = el.scrollHeight;
+                  }
+                }}
+              >
+                {taskLogs || 'Initializing task...'}
+              </div>
+            </div>
+            <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button 
+                className="btn" 
+                onClick={() => {
+                  if (activeTaskId) {
+                    fetch(`/api/tasks/${activeTaskId}`, { method: 'DELETE' }).catch(console.error);
+                  }
+                  setIsTaskLogsModalOpen(false);
+                  setActiveTaskId(null);
+                }} 
+                disabled={taskStatus === 'running'}
+              >
+                Close Console
+              </button>
+            </div>
           </div>
         </div>
       )}
