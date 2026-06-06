@@ -1059,14 +1059,6 @@ function App() {
   };
 
   const handleOpenServiceWebsite = (service: any) => {
-    const matchingPods = associatedPods.filter(p => matchesSelector(p.metadata?.labels, service.spec?.selector));
-    const runningPod = matchingPods.find(p => p.status?.phase?.toLowerCase() === 'running');
-    
-    if (!runningPod) {
-      alert('No running pods found matching the service selector.');
-      return;
-    }
-
     const ports = service.spec?.ports || [];
     if (ports.length === 0) {
       alert('Service has no configured ports.');
@@ -1078,6 +1070,37 @@ function App() {
       const portVal = p.port;
       return name.includes('http') || name.includes('web') || name.includes('html') || portVal === 80 || portVal === 8080 || portVal === 3000 || portVal === 5000 || portVal === 8000;
     }) || ports[0];
+
+    const isHttps = httpPort.port === 443 || (httpPort.name || '').toLowerCase().includes('https');
+    const protocol = isHttps ? 'https' : 'http';
+
+    // Scenario A: NodePort Service (Local cluster scenario)
+    if (service.spec?.type === 'NodePort' && httpPort.nodePort) {
+      const host = window.location.hostname;
+      const url = `${protocol}://${host}:${httpPort.nodePort}`;
+      window.open(url, '_blank');
+      return;
+    }
+
+    // Scenario B: LoadBalancer Service with External IP
+    const ingresses = service.status?.loadBalancer?.ingress || [];
+    if (service.spec?.type === 'LoadBalancer' && ingresses.length > 0) {
+      const host = ingresses[0].ip || ingresses[0].hostname;
+      if (host) {
+        const url = `${protocol}://${host}:${httpPort.port}`;
+        window.open(url, '_blank');
+        return;
+      }
+    }
+
+    // Scenario C: ClusterIP (Private) Service - fallback to Port-Forwarding
+    const matchingPods = associatedPods.filter(p => matchesSelector(p.metadata?.labels, service.spec?.selector));
+    const runningPod = matchingPods.find(p => p.status?.phase?.toLowerCase() === 'running');
+    
+    if (!runningPod) {
+      alert('No running pods found matching the service selector for port-forwarding.');
+      return;
+    }
 
     let targetPort = httpPort.targetPort || httpPort.port;
     if (typeof targetPort === 'string' && isNaN(Number(targetPort))) {
@@ -1114,8 +1137,7 @@ function App() {
       .then(data => {
         setEstablishingPortForward(null);
         if (data.success && data.localPort) {
-          const isHttps = httpPort.port === 443 || (httpPort.name || '').toLowerCase().includes('https');
-          const url = `${isHttps ? 'https' : 'http'}://localhost:${data.localPort}`;
+          const url = `${window.location.protocol}//${window.location.host}/api/portforward/proxy/${data.localPort}/`;
           window.open(url, '_blank');
         } else {
           alert('Failed to establish port-forward: ' + (data.error || 'Unknown error'));
@@ -4551,7 +4573,9 @@ function App() {
                           }}
                           disabled={
                             establishingPortForward === res.metadata.name ||
-                            !associatedPods.some(p => p.status?.phase?.toLowerCase() === 'running' && matchesSelector(p.metadata?.labels, res.spec?.selector))
+                            (res.spec?.type !== 'NodePort' && 
+                             !(res.spec?.type === 'LoadBalancer' && res.status?.loadBalancer?.ingress?.length > 0) &&
+                             !associatedPods.some(p => p.status?.phase?.toLowerCase() === 'running' && matchesSelector(p.metadata?.labels, res.spec?.selector)))
                           }
                           title="Port-forward and open in browser"
                         >
