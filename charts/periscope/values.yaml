@@ -10,10 +10,10 @@ serviceAccount:
   name: ""
 
 service:
-  type: LoadBalancer
+  type: NodePort
   port: 3001
   targetPort: 3001
-  nodePort: null
+  nodePort: 30080
 
 ingress:
   enabled: false
