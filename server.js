@@ -5,6 +5,8 @@ const path = require('path');
 const stream = require('stream');
 const net = require('net');
 const { exec } = require('child_process');
+const http = require('http');
+
 
 const app = express();
 app.use(cors());
@@ -790,6 +792,38 @@ app.delete('/api/portforward', async (req, res) => {
     } else {
         res.status(404).json({ error: 'Port forward not found' });
     }
+});
+
+// Port Forward Proxy
+app.all(/^\/api\/portforward\/proxy\/(\d+)(.*)/, (req, res) => {
+    const localPort = req.params[0];
+    let subpath = req.params[1] || '/';
+    
+    const queryIndex = req.originalUrl.indexOf('?');
+    if (queryIndex !== -1) {
+        subpath += req.originalUrl.substring(queryIndex);
+    }
+
+    const headers = { ...req.headers };
+    headers.host = `127.0.0.1:${localPort}`;
+
+    const proxyReq = http.request({
+        host: '127.0.0.1',
+        port: Number(localPort),
+        path: subpath,
+        method: req.method,
+        headers: headers
+    }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+    });
+
+    proxyReq.on('error', (err) => {
+        console.error(`Proxy error for port ${localPort} and path ${subpath}:`, err);
+        res.status(502).send('Proxy error: ' + err.message);
+    });
+
+    req.pipe(proxyReq, { end: true });
 });
 
 // CRD API
