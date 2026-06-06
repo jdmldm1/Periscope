@@ -417,6 +417,50 @@ body {
   border: none;
 }
 
+.btn-sm {
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  height: 26px;
+  gap: 4px;
+}
+.btn-sm svg {
+  width: 12px;
+  height: 12px;
+}
+
+.container-badge-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+.container-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: var(--text-main);
+  text-transform: none;
+}
+.container-badge-action {
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.15s;
+  display: flex;
+  align-items: center;
+}
+.container-badge-action:hover.logs {
+  color: var(--accent-cyan);
+}
+.container-badge-action:hover.console {
+  color: var(--accent-purple);
+}
+
 /* Modals */
 .modal-overlay {
   position: fixed;
