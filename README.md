@@ -82,6 +82,30 @@ Periscope is intended to provide threat detection in your Kubernetes clusters:
 
 ---
 
+## 📦 OCI Registry Artifacts (GHCR)
+
+You can pull the official pre-built containers, Helm charts, and Zarf packages directly from GitHub Container Registry (GHCR):
+
+### 1. Zarf Package
+Pull the air-gapped Zarf package archive:
+```bash
+zarf package pull oci://ghcr.io/jdmldm1/packages/periscope:1.0.0
+```
+
+### 2. Helm Chart
+Pull the Helm deployment package:
+```bash
+helm pull oci://ghcr.io/jdmldm1/charts/periscope --version 0.1.0
+```
+
+### 3. Container Image
+Pull the production container image:
+```bash
+docker pull ghcr.io/jdmldm1/periscope-kubernetes:latest
+```
+
+---
+
 ## ☸️ Cluster Deployment
 
 You can deploy Periscope directly into your cluster using the included Helm chart.
