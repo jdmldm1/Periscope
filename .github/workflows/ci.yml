@@ -139,10 +139,44 @@ jobs:
         run: |
           zarf tools registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Zarf Package
+      - name: Install ORAS CLI
         run: |
-          # Use local docker socket if building images inline, or pull image from registry
-          zarf package create --confirm
+          curl -LO https://github.com/oras-project/oras/releases/download/v1.2.0/oras_1.2.0_linux_amd64.tar.gz
+          tar -zxf oras_1.2.0_linux_amd64.tar.gz -C /usr/local/bin/ oras
+          rm oras_1.2.0_linux_amd64.tar.gz
+          oras version
+
+      - name: Install Grype CLI
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          grype version
+
+      - name: Create Zarf Package and Export SBOMs
+        run: |
+          mkdir -p sbom-output
+          zarf package create --confirm --sbom-out ./sbom-output
+
+      - name: Scan SBOMs with Grype
+        run: |
+          SBOM_FILE=$(find ./sbom-output -name "*syft.json" | head -n 1)
+          if [ -z "$SBOM_FILE" ]; then
+            echo "Error: No Syft SBOM json file found!"
+            exit 1
+          fi
+          echo "Found Syft SBOM: $SBOM_FILE"
+          grype sbom:"$SBOM_FILE" --output json > vulnerability-report.json
+          echo "Vulnerability scan completed. Saved to vulnerability-report.json"
+
+      - name: Log in to GHCR with ORAS
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ${{ env.REGISTRY }} --username ${{ github.actor }} --password-stdin
+
+      - name: Publish SBOM and Vulnerabilities to GHCR via ORAS
+        run: |
+          SBOM_FILE=$(find ./sbom-output -name "*syft.json" | head -n 1)
+          oras push ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages/periscope-sbom:1.0.0 \
+            $SBOM_FILE:application/vnd.syft+json \
+            vulnerability-report.json:application/json
 
       - name: Publish Zarf Package to OCI Registry
         run: |
