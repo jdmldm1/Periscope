@@ -990,13 +990,35 @@ app.get('/api/zarf/packages', (req, res) => {
     });
 });
 
+// Save Zarf config file
+app.post('/api/zarf/config', (req, res) => {
+    const { content, filename } = req.body;
+    if (!content) return res.status(400).json({ error: 'content is required' });
+    
+    const targetName = filename || 'zarf-config.yaml';
+    const targetPath = path.join(__dirname, targetName);
+    
+    try {
+        fs.writeFileSync(targetPath, content, 'utf8');
+        res.json({ success: true, filepath: targetPath, filename: targetName });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to save config: ' + err.message });
+    }
+});
+
 // Zarf package deploy
 app.post('/api/zarf/deploy', (req, res) => {
-    const { packagePath } = req.body;
+    const { packagePath, configPath } = req.body;
     if (!packagePath) {
         return res.status(400).json({ error: 'packagePath is required' });
     }
-    const taskId = startTask('zarf', ['package', 'deploy', packagePath, '--confirm']);
+    
+    const args = ['package', 'deploy', packagePath, '--confirm'];
+    if (configPath) {
+        args.push('--config', configPath);
+    }
+    
+    const taskId = startTask('zarf', args);
     res.json({ success: true, taskId });
 });
 
@@ -1993,6 +2015,39 @@ const ensureZarfRegistryLogin = (onSuccess, onError) => {
     });
 };
 
+// Get all images and their tags from Zarf registry
+app.get('/api/zarf/registry/all-images', (req, res) => {
+    const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
+    
+    const fetchAll = () => {
+        exec(`zarf tools registry catalog ${registryUrl}`, (error, stdout, stderr) => {
+            if (error) return res.status(500).json({ error: error.message || stderr });
+            const repos = stdout.split('\n').map(r => r.trim()).filter(Boolean);
+            
+            const results = [];
+            let completed = 0;
+            
+            if (repos.length === 0) return res.json([]);
+            
+            repos.forEach(repo => {
+                exec(`zarf tools registry ls ${registryUrl}/${repo}`, (lsError, lsStdout, lsStderr) => {
+                    if (!lsError) {
+                        const tags = lsStdout.split('\n').map(t => t.trim()).filter(Boolean);
+                        tags.forEach(tag => {
+                            results.push({ repository: repo, tag: tag, full: `${repo}:${tag}` });
+                        });
+                    }
+                    completed++;
+                    if (completed === repos.length) {
+                        res.json(results);
+                    }
+                });
+            });
+        });
+    };
+    ensureZarfRegistryLogin(fetchAll, (err) => res.status(500).json({ error: err.message }));
+});
+
 // Zarf tools registry catalog (repositories)
 app.get('/api/zarf/registry/catalog', (req, res) => {
     const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
@@ -2064,6 +2119,52 @@ app.post('/api/zarf/registry/pull', (req, res) => {
         res.json({ success: true, taskId });
     };
     ensureZarfRegistryLogin(runPull, (err) => res.status(500).json({ error: err.message }));
+});
+
+// Zarf tools registry download (copy to tarball then serve)
+app.get('/api/zarf/registry/download', (req, res) => {
+    const { imageRef } = req.query;
+    if (!imageRef) return res.status(400).json({ error: 'imageRef is required' });
+
+    const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
+    const fullSource = imageRef.startsWith(registryUrl) ? imageRef : `${registryUrl}/${imageRef}`;
+    
+    const tempFileName = `image-${imageRef.replace(/[:/]/g, '-')}-${Date.now()}.tar`;
+    const tempFilePath = path.join(os.tmpdir(), tempFileName);
+
+    const runDownload = () => {
+        // We use exec here because we need to wait for it to finish before serving the file
+        // or we could use startTask but then we'd need a way to notify the user when ready.
+        // For simplicity and to support browser downloads, we'll try to do it and then redirect or serve.
+        // But images can be large. Let's use a task and return taskId.
+        const taskId = startTask('zarf', [
+            'tools', 'registry', 'copy',
+            fullSource,
+            tempFilePath,
+            '--insecure'
+        ], __dirname, (code) => {
+            if (code === 0) {
+                // Task success, file is ready at tempFilePath
+                console.log(`Image ${imageRef} ready for download at ${tempFilePath}`);
+            }
+        });
+        res.json({ success: true, taskId, downloadPath: `/api/zarf/registry/download-ready?file=${tempFileName}` });
+    };
+    ensureZarfRegistryLogin(runDownload, (err) => res.status(500).json({ error: err.message }));
+});
+
+app.get('/api/zarf/registry/download-ready', (req, res) => {
+    const fileName = req.query.file;
+    if (!fileName) return res.status(400).send('File name required');
+    const filePath = path.join(os.tmpdir(), fileName);
+    if (!fs.existsSync(filePath)) return res.status(404).send('File not found or still generating');
+    
+    res.download(filePath, fileName, (err) => {
+        if (!err) {
+            // Optional: delete after download
+            // fs.unlinkSync(filePath);
+        }
+    });
 });
 
 // Zarf tools registry push (tarball upload)

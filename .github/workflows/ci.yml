@@ -154,16 +154,24 @@ jobs:
       - name: Create Zarf Package and Export SBOMs
         run: |
           mkdir -p sbom-output
-          zarf package create --confirm --sbom-out ./sbom-output
+          zarf package create --confirm --sbom-out ./sbom-output --set IMAGE_REPO=${{ env.REPO_LOWER }}
+          echo "Contents of sbom-output:"
+          ls -R sbom-output
 
       - name: Scan SBOMs with Grype
         run: |
-          SBOM_FILE=$(find ./sbom-output -name "*syft.json" | head -n 1)
+          SBOM_FILE=$(find ./sbom-output -name "*syft.json" -type f | head -n 1)
           if [ -z "$SBOM_FILE" ]; then
-            echo "Error: No Syft SBOM json file found!"
+            echo "Warning: No Syft SBOM json file found with syft.json suffix, trying any json..."
+            SBOM_FILE=$(find ./sbom-output -name "*.json" -type f | head -n 1)
+          fi
+          
+          if [ -z "$SBOM_FILE" ]; then
+            echo "Error: No SBOM json file found in sbom-output!"
             exit 1
           fi
-          echo "Found Syft SBOM: $SBOM_FILE"
+          
+          echo "Found SBOM: $SBOM_FILE"
           grype sbom:"$SBOM_FILE" --output json > vulnerability-report.json
           echo "Vulnerability scan completed. Saved to vulnerability-report.json"
 
@@ -173,7 +181,11 @@ jobs:
 
       - name: Publish SBOM and Vulnerabilities to GHCR via ORAS
         run: |
-          SBOM_FILE=$(find ./sbom-output -name "*syft.json" | head -n 1)
+          SBOM_FILE=$(find ./sbom-output -name "*.json" -type f | head -n 1)
+          if [ -z "$SBOM_FILE" ]; then
+            echo "Error: No SBOM file to push!"
+            exit 1
+          fi
           oras push ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages/periscope-sbom:1.0.0 \
             $SBOM_FILE:application/vnd.syft+json \
             vulnerability-report.json:application/json
