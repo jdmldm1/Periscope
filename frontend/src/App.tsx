@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import './index.css';
 
-type ResourceKind = 'pods' | 'deployments' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state';
+type ResourceKind = 'pods' | 'deployments' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state' | 'kubescape';
 type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history' | 'files' | 'values';
 
 // Unit parsers for metrics
@@ -210,8 +210,9 @@ function App() {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('sidebar_collapsed');
-      return saved ? JSON.parse(saved) : {
+      const defaults = {
         cluster: false,
+        security: false,
         workloads: true,
         network: true,
         config: true,
@@ -220,8 +221,9 @@ function App() {
         zarf: true,
         custom: true
       };
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
     } catch (e) {
-      return { cluster: false, workloads: true, network: true, config: true, storage: true, helm: true, zarf: true, custom: true };
+      return { cluster: false, security: false, workloads: true, network: true, config: true, storage: true, helm: true, zarf: true, custom: true };
     }
   });
 
@@ -322,6 +324,39 @@ function App() {
   const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'images'>('vulnerabilities');
   const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
   const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null);
+
+  // Kubescape compliance scanner states
+  const [kubescapeReport, setKubescapeReport] = useState<any>(null);
+  const [isScanningKubescape, setIsScanningKubescape] = useState(false);
+  const [kubescapeSearchQuery, setKubescapeSearchQuery] = useState('');
+  const [kubescapeSeverityFilter, setKubescapeSeverityFilter] = useState('all');
+  const [expandedControlId, setExpandedControlId] = useState<string | null>(null);
+
+  const filteredResources = resources.filter(r => {
+    const term = search.toLowerCase();
+    if (!term) return true;
+    
+    if (activeTab === 'zarf') {
+      const name = r.name || r.Name || r.package || r.Package || '';
+      return name.toLowerCase().includes(term);
+    }
+    
+    if (term.startsWith('label:')) {
+      const labelQuery = search.slice(6).trim();
+      if (!labelQuery) return true;
+      const parts = labelQuery.split('=');
+      const key = parts[0];
+      const val = parts[1] || '';
+      if (!r.metadata?.labels) return false;
+      if (val) {
+        return r.metadata.labels[key] === val;
+      }
+      return r.metadata.labels.hasOwnProperty(key);
+    }
+    
+    return (r.metadata?.name || '').toLowerCase().includes(term);
+  });
 
   // Cluster Pulse States
   const [pulseAlerts, setPulseAlerts] = useState<any[]>([]);
@@ -1009,6 +1044,67 @@ function App() {
       .catch(console.error);
   };
 
+  const fetchCachedScans = () => {
+    fetch('/api/zarf/sbom/scans')
+      .then(res => res.json())
+      .then(data => {
+        setRunningImagesScanResults(prev => {
+          const updated = { ...prev };
+          Object.keys(data).forEach(img => {
+            if (!updated[img] || updated[img].status !== 'scanning') {
+              updated[img] = data[img];
+            }
+          });
+          return updated;
+        });
+      })
+      .catch(console.error);
+  };
+
+  const fetchKubescapeStatus = () => {
+    fetch('/api/security/kubescape/status')
+      .then(res => res.json())
+      .then(data => {
+        setKubescapeReport(data.report);
+        setIsScanningKubescape(data.scanning);
+      })
+      .catch(console.error);
+  };
+
+  const triggerKubescapeScan = async () => {
+    setIsScanningKubescape(true);
+    try {
+      const res = await fetch('/api/security/kubescape/scan', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert('Failed to trigger scan: ' + (data.error || 'Unknown error'));
+        setIsScanningKubescape(false);
+        return;
+      }
+      
+      const pollInterval = setInterval(() => {
+        fetch('/api/security/kubescape/status')
+          .then(r => r.json())
+          .then(statusData => {
+            setKubescapeReport(statusData.report);
+            setIsScanningKubescape(statusData.scanning);
+            if (!statusData.scanning) {
+              clearInterval(pollInterval);
+            }
+          })
+          .catch(err => {
+            console.error('Error polling Kubescape status:', err);
+            clearInterval(pollInterval);
+            setIsScanningKubescape(false);
+          });
+      }, 2000);
+      
+    } catch (err: any) {
+      alert('Error triggering compliance scan: ' + err.message);
+      setIsScanningKubescape(false);
+    }
+  };
+
   const fetchRunningImagesAndScan = async () => {
     setIsScanningAllRunningImages(true);
     try {
@@ -1486,6 +1582,26 @@ function App() {
       }
     } else if (activeTab === 'image-scanner') {
       fetchRunningImages();
+      fetchCachedScans();
+    } else if (activeTab === 'kubescape') {
+      fetchKubescapeStatus();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'image-scanner' || activeTab === 'zarf-sbom') {
+      fetchCachedScans();
+      const interval = setInterval(() => {
+        fetchCachedScans();
+        fetchRunningImages();
+      }, 5000);
+      return () => clearInterval(interval);
+    } else if (activeTab === 'kubescape') {
+      fetchKubescapeStatus();
+      const interval = setInterval(() => {
+        fetchKubescapeStatus();
+      }, 4000);
+      return () => clearInterval(interval);
     }
   }, [activeTab]);
 
@@ -2476,15 +2592,142 @@ function App() {
   }, [activeTab, selectedNs, customCrd]);
 
   useEffect(() => {
+    if (filteredResources.length > 0) {
+      setFocusedRowIndex(0);
+    } else {
+      setFocusedRowIndex(null);
+    }
+  }, [activeTab, filteredResources.length]);
+
+  useEffect(() => {
+    if (focusedRowIndex !== null) {
+      const el = document.querySelector(`.resource-row[data-row-index="${focusedRowIndex}"]`);
+      if (el) {
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [focusedRowIndex]);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      const isInput = active && (
+        active.tagName === 'INPUT' || 
+        active.tagName === 'TEXTAREA' || 
+        (active as HTMLElement).isContentEditable
+      );
+
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
         setIsCmdPaletteOpen(prev => !prev);
+        return;
+      }
+
+      if (isCmdPaletteOpen) {
+        return;
+      }
+
+      if (e.key === ':' && !isInput) {
+        e.preventDefault();
+        setCmdPaletteSearch(':');
+        setIsCmdPaletteOpen(true);
+        return;
+      }
+
+      if (modal) {
+        return;
+      }
+
+      if (!isInput && focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
+        const res = filteredResources[focusedRowIndex];
+        
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setFocusedRowIndex(prev => {
+            if (prev === null) return 0;
+            return Math.min(prev + 1, filteredResources.length - 1);
+          });
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setFocusedRowIndex(prev => {
+            if (prev === null) return 0;
+            return Math.max(prev - 1, 0);
+          });
+        } else if (e.key === 'd') {
+          if (activeTab !== 'nodes' && activeTab !== 'crds' && activeTab !== 'events') {
+            e.preventDefault();
+            setModal({
+              type: 'events',
+              name: res.metadata.name,
+              namespace: res.metadata.namespace,
+              kind: activeTab,
+              uid: res.metadata.uid
+            });
+          }
+        } else if (e.key === 'l') {
+          if (activeTab === 'pods') {
+            e.preventDefault();
+            setSelectedContainer(res.spec?.containers?.[0]?.name || '');
+            setModal({
+              type: 'logs',
+              name: res.metadata.name,
+              namespace: res.metadata.namespace,
+              kind: activeTab,
+              uid: res.metadata.uid
+            });
+          }
+        } else if (e.key === 's') {
+          if (activeTab === 'pods') {
+            e.preventDefault();
+            setSelectedContainer(res.spec?.containers?.[0]?.name || '');
+            setModal({
+              type: 'terminal',
+              name: res.metadata.name,
+              namespace: res.metadata.namespace,
+              kind: activeTab,
+              uid: res.metadata.uid
+            });
+          }
+        } else if (e.key === 'e') {
+          e.preventDefault();
+          if (activeTab === 'pods') {
+            setSelectedContainer(res.spec?.containers?.[0]?.name || '');
+            setCurrentDirPath('/');
+            setModal({
+              type: 'files',
+              name: res.metadata.name,
+              namespace: res.metadata.namespace,
+              kind: activeTab,
+              uid: res.metadata.uid
+            });
+          } else if (activeTab !== 'nodes' && activeTab !== 'crds' && activeTab !== 'events') {
+            setIsEditingYaml(true);
+            setModal({
+              type: 'yaml',
+              name: res.metadata.name,
+              namespace: res.metadata.namespace,
+              kind: activeTab,
+              uid: res.metadata.uid
+            });
+          }
+        } else if (e.key === 'Delete') {
+          if (activeTab !== 'nodes' && activeTab !== 'crds' && activeTab !== 'events') {
+            e.preventDefault();
+            handleDelete(res);
+          }
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [activeTab, filteredResources, focusedRowIndex, modal, isCmdPaletteOpen]);
+
+  useEffect(() => {
+    if (!isCmdPaletteOpen) {
+      setCmdPaletteSearch('');
+      setActivePaletteIndex(0);
+    }
+  }, [isCmdPaletteOpen]);
 
   useEffect(() => {
     fetchMetrics();
@@ -4502,6 +4745,9 @@ function App() {
               Images Scanned: <strong style={{ color: 'var(--text-main)' }}>{scannedCount}</strong> / {totalCount}
               {scanningCount > 0 && <span style={{ marginLeft: 10, color: 'var(--accent-cyan)' }}>({scanningCount} scanning...)</span>}
               {failedCount > 0 && <span style={{ marginLeft: 10, color: '#ef4444' }}>({failedCount} failed)</span>}
+              <div style={{ width: '250px', height: '6px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '3px', marginTop: '6px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: 'var(--accent-blue)', width: `${totalCount > 0 ? (scannedCount / totalCount) * 100 : 0}%`, transition: 'width 0.4s ease' }} />
+              </div>
             </div>
           </div>
           <button 
@@ -4863,6 +5109,242 @@ function App() {
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderKubescapeView = () => {
+    const report = kubescapeReport;
+    const isScanning = isScanningKubescape;
+
+    const filteredControls = report ? report.failedControls.filter((c: any) => {
+      const matchesSeverity = kubescapeSeverityFilter === 'all' || c.severity.toLowerCase() === kubescapeSeverityFilter.toLowerCase();
+      const matchesSearch = !kubescapeSearchQuery || 
+        c.name.toLowerCase().includes(kubescapeSearchQuery.toLowerCase()) || 
+        c.id.toLowerCase().includes(kubescapeSearchQuery.toLowerCase()) ||
+        c.description.toLowerCase().includes(kubescapeSearchQuery.toLowerCase());
+      return matchesSeverity && matchesSearch;
+    }) : [];
+
+    return (
+      <div className="kubescape-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h3 style={{ fontSize: '1.1rem', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Shield size={18} style={{ color: 'var(--accent-success)' }} /> Security Compliance Scan (Kubescape)
+            </h3>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Scan cluster configurations against NSA-CISA, MITRE ATT&CK, and CIS Benchmarks.
+            </div>
+          </div>
+          <button 
+            className="btn btn-primary"
+            onClick={triggerKubescapeScan}
+            disabled={isScanning}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--accent-success)', color: '#000' }}
+          >
+            <RefreshCw size={16} className={isScanning ? 'spin' : ''} />
+            {isScanning ? 'Scanning Cluster Compliance...' : 'Run Compliance Scan'}
+          </button>
+        </div>
+
+        {isScanning && (
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+            <div className="loader" style={{ margin: '0 auto 16px auto', width: 32, height: 32 }}></div>
+            <div style={{ fontWeight: 600, color: 'var(--text-main)', marginBottom: 8 }}>Compliance scan in progress...</div>
+            <div style={{ fontSize: '0.85rem' }}>Downloading local catalog definitions, compiling rules, and scanning RBAC & resource manifests. This may take up to 20 seconds.</div>
+          </div>
+        )}
+
+        {!isScanning && !report && (
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
+            <div style={{ color: 'var(--text-muted)', marginBottom: 16 }}>No compliance report available. Click "Run Compliance Scan" to begin.</div>
+            <button className="btn btn-primary" onClick={triggerKubescapeScan} style={{ margin: '0 auto', background: 'var(--accent-success)', color: '#000' }}>
+              Run Compliance Scan
+            </button>
+          </div>
+        )}
+
+        {!isScanning && report && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+              {report.frameworks.map((fw: any) => {
+                const score = fw.complianceScore;
+                const scoreColor = score > 80 ? '#10b981' : score > 60 ? '#f59e0b' : '#ef4444';
+                return (
+                  <div key={fw.name} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <h4 style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 500 }}>{fw.name} Compliance</h4>
+                      <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#fff' }}>{score}%</div>
+                    </div>
+                    <svg width="60" height="60" viewBox="0 0 36 36" style={{ transform: 'rotate(-90deg)' }}>
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#222"
+                        strokeWidth="3.5"
+                      />
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke={scoreColor}
+                        strokeWidth="3.5"
+                        strokeDasharray={`${score}, 100`}
+                        strokeLinecap="round"
+                        style={{ transition: 'stroke-dasharray 0.8s ease' }}
+                      />
+                    </svg>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              <div style={{ background: 'rgba(239, 68, 68, 0.03)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>{report.summary?.critical || 0}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Critical Controls Failed</div>
+              </div>
+              <div style={{ background: 'rgba(245, 158, 11, 0.03)', border: '1px solid rgba(245, 158, 11, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f59e0b', lineHeight: 1.2 }}>{report.summary?.high || 0}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>High Controls Failed</div>
+              </div>
+              <div style={{ background: 'rgba(252, 211, 77, 0.03)', border: '1px solid rgba(252, 211, 77, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fbbf24', lineHeight: 1.2 }}>{report.summary?.medium || 0}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Medium Controls Failed</div>
+              </div>
+              <div style={{ background: 'rgba(96, 165, 250, 0.03)', border: '1px solid rgba(96, 165, 250, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#60a5fa', lineHeight: 1.2 }}>{report.summary?.low || 0}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Low Controls Failed</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.1)', borderRadius: 6, padding: 12, flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div className="search-box" style={{ width: 250 }}>
+                  <Search size={14} />
+                  <input 
+                    type="text" 
+                    placeholder="Search controls, IDs, descriptions..."
+                    value={kubescapeSearchQuery}
+                    onChange={e => setKubescapeSearchQuery(e.target.value)}
+                    style={{ padding: '6px 10px 6px 30px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                  />
+                </div>
+
+                <select
+                  value={kubescapeSeverityFilter}
+                  onChange={e => setKubescapeSeverityFilter(e.target.value)}
+                  style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem' }}
+                >
+                  <option value="all">All Severities</option>
+                  <option value="Critical">Critical</option>
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                </select>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Showing <strong>{filteredControls.length}</strong> of {report.failedControls?.length || 0} failed checks
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {filteredControls.length === 0 ? (
+                <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+                  No failed compliance controls match current filters.
+                </div>
+              ) : (
+                filteredControls.map((c: any) => {
+                  const isExpanded = expandedControlId === c.id;
+                  const sevColor = 
+                    c.severity === 'Critical' ? '#ef4444' :
+                    c.severity === 'High' ? '#f59e0b' :
+                    c.severity === 'Medium' ? '#fbbf24' : '#60a5fa';
+                  
+                  return (
+                    <div 
+                      key={c.id} 
+                      style={{ 
+                        background: 'var(--bg-card)', 
+                        border: `1px solid ${isExpanded ? sevColor : 'var(--border-color)'}`, 
+                        borderRadius: 8, 
+                        overflow: 'hidden',
+                        transition: 'border-color 0.2s'
+                      }}
+                    >
+                      <div 
+                        onClick={() => setExpandedControlId(isExpanded ? null : c.id)}
+                        style={{ 
+                          padding: '14px 20px', 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center', 
+                          cursor: 'pointer',
+                          background: isExpanded ? 'rgba(255,255,255,0.02)' : 'none',
+                          userSelect: 'none'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{c.id}</span>
+                          <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{c.name}</span>
+                          <span 
+                            style={{ 
+                              fontSize: '0.7rem', 
+                              fontWeight: 700, 
+                              color: sevColor, 
+                              background: `${sevColor}12`, 
+                              border: `1px solid ${sevColor}22`,
+                              borderRadius: 4, 
+                              padding: '2px 8px' 
+                            }}
+                          >
+                            {c.severity}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <span style={{ fontSize: '0.8rem', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '2px 8px', borderRadius: 4, fontWeight: 500 }}>
+                            {c.resources?.length || 0} violations
+                          </span>
+                          <span style={{ transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', color: 'var(--text-muted)', fontSize: '0.8rem' }}>▼</span>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div style={{ padding: '20px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 16, background: 'rgba(0,0,0,0.1)' }}>
+                          <div>
+                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.5px', marginBottom: 4 }}>Control Description</div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.5 }}>{c.description}</div>
+                          </div>
+
+                          <div style={{ background: 'rgba(16, 185, 129, 0.03)', border: '1px solid rgba(16, 185, 129, 0.15)', borderRadius: 6, padding: '12px 16px' }}>
+                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#10b981', fontWeight: 600, letterSpacing: '0.5px', marginBottom: 4 }}>Remediation Recommendation</div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.5, fontFamily: 'var(--font-sans)' }}>{c.remediation}</div>
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.5px', marginBottom: 8 }}>Violating Cluster Resources</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '200px', overflowY: 'auto', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 6, padding: 10 }}>
+                              {c.resources && c.resources.length > 0 ? (
+                                c.resources.map((res: string, rIdx: number) => (
+                                  <div key={rIdx} style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
+                                    {res}
+                                  </div>
+                                ))
+                              ) : (
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No specific violating resources returned in this namespace. Check global cluster permissions.</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
         )}
       </div>
     );
@@ -5237,33 +5719,26 @@ function App() {
                       {issue.message}
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.02)', paddingTop: 6 }}>
-                      <div>
-                        Resource: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>{issue.resource}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.8rem', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.02)', paddingTop: 8, flexDirection: 'column', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                        <div>
+                          Resource: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>{issue.resource}</span>
+                        </div>
+                        {issue.remediation && (
+                          <div style={{ color: '#10b981', fontSize: '0.75rem', fontWeight: 500 }}>
+                            💡 Recommendation: {issue.remediation}
+                          </div>
+                        )}
                       </div>
                       
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', maxWidth: '60%', textAlign: 'right' }}>
-                        💡 <strong>Recommendation:</strong> {
-                          issue.rule === 'No CPU/Memory Limit' ? 'Add resources.limits to the container spec' :
-                          issue.rule === 'No CPU/Memory Request' ? 'Add resources.requests to the container spec' :
-                          issue.rule === 'Privileged Container' ? 'Set securityContext.privileged to false' :
-                          issue.rule === 'Privilege Escalation Allowed' ? 'Set securityContext.allowPrivilegeEscalation to false' :
-                          issue.rule === 'Running as Root' ? 'Configure runAsNonRoot: true in securityContext' :
-                          issue.rule === 'Plaintext Secret in Env' ? 'Store secret values in Kubernetes Secrets and reference using valueFrom.secretKeyRef' :
-                          issue.rule === 'Host Network Shared' ? 'Remove hostNetwork: true from pod spec' :
-                          issue.rule === 'Host PID Shared' ? 'Remove hostPID: true from pod spec' :
-                          issue.rule === 'Host IPC Shared' ? 'Remove hostIPC: true from pod spec' :
-                          issue.rule === 'HostPath Volume Mounted' ? 'Use persistent volume claims (PVC) or local volumes instead of hostPath' :
-                          issue.rule === 'Single Replica Deployment' ? 'Set replicas to 2 or more' :
-                          issue.rule === 'Missing Probes' ? 'Add livenessProbe and readinessProbe to verify container health' :
-                          issue.rule === 'Service Lacks Matching Pods' ? 'Correct selector labels to match running pod labels' :
-                          issue.rule === 'Pod Missing NetworkPolicy' ? 'Create a NetworkPolicy targeting this pod to restrict ingress/egress traffic' :
-                          issue.rule === 'Overprivileged ServiceAccount' ? 'Follow principle of least privilege: restrict verbs and resources in bound Role/ClusterRole' :
-                          issue.rule === 'Namespace Missing ResourceQuota' ? 'Create a ResourceQuota in the namespace to prevent resource starvation' :
-                          issue.rule === 'Namespace Missing LimitRange' ? 'Create a LimitRange in the namespace to define default container requests/limits' :
-                          issue.rule === 'Deprecated API Version' ? 'Upgrade the apiVersion in resource manifest to the recommended alternative' : 'Verify spec settings'
-                        }
-                      </div>
+                      {issue.codeFix && (
+                        <div style={{ width: '100%', marginTop: 4 }}>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, letterSpacing: '0.5px' }}>SUGGESTED CONFIGURATION PATCH:</div>
+                          <pre style={{ margin: 0, padding: 8, background: '#111', border: '1px solid var(--border-color)', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: '0.75rem', overflowX: 'auto', color: 'var(--accent-cyan)', width: '100%' }}>
+                            {issue.codeFix}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -5512,31 +5987,6 @@ function App() {
     );
   };
 
-  const filteredResources = resources.filter(r => {
-    const term = search.toLowerCase();
-    if (!term) return true;
-    
-    if (activeTab === 'zarf') {
-      const name = r.name || r.Name || r.package || r.Package || '';
-      return name.toLowerCase().includes(term);
-    }
-    
-    if (term.startsWith('label:')) {
-      const labelQuery = search.slice(6).trim();
-      if (!labelQuery) return true;
-      const parts = labelQuery.split('=');
-      const key = parts[0];
-      const val = parts[1] || '';
-      if (!r.metadata?.labels) return false;
-      if (val) {
-        return r.metadata.labels[key] === val;
-      }
-      return r.metadata.labels.hasOwnProperty(key);
-    }
-    
-    return (r.metadata?.name || '').toLowerCase().includes(term);
-  });
-
   return (
     <div className="layout-container">
       {/* Sidebar */}
@@ -5599,6 +6049,7 @@ function App() {
             <nav className="nav-menu">
               <a className={`nav-item ${activeTab === 'cluster-auditor' ? 'active' : ''}`} onClick={() => { setActiveTab('cluster-auditor'); setSearch(''); }}><Shield size={16} /> Cluster Auditor</a>
               <a className={`nav-item ${activeTab === 'image-scanner' ? 'active' : ''}`} onClick={() => { setActiveTab('image-scanner'); setSearch(''); }}><Shield size={16} style={{ color: '#60a5fa' }} /> Image Scanner</a>
+              <a className={`nav-item ${activeTab === 'kubescape' ? 'active' : ''}`} onClick={() => { setActiveTab('kubescape'); setSearch(''); }}><Shield size={16} style={{ color: '#10b981' }} /> Compliance (Kubescape)</a>
             </nav>
           )}
         </div>
@@ -5999,6 +6450,8 @@ function App() {
             renderImageScannerView()
           ) : activeTab === 'cluster-auditor' ? (
             renderClusterAuditorView()
+          ) : activeTab === 'kubescape' ? (
+            renderKubescapeView()
           ) : activeTab === 'helm' ? (
             renderHelmReleasesView()
           ) : activeTab === 'helm-install' ? (
@@ -6013,7 +6466,17 @@ function App() {
                 <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px' }}>No resources found.</div>
               ) : (
                 filteredResources.filter((res: any) => res && res.metadata).map((res: any, i) => (
-                  <div key={res.metadata.uid || res.metadata.name} className="resource-row animate-fade-in" style={{ animationDelay: `${i * 0.02}s` }}>
+                  <div 
+                    key={res.metadata.uid || res.metadata.name} 
+                    data-row-index={i}
+                    className={`resource-row animate-fade-in ${focusedRowIndex === i ? 'focused' : ''}`}
+                    onClick={() => setFocusedRowIndex(i)}
+                    style={{ 
+                      animationDelay: `${i * 0.02}s`,
+                      border: focusedRowIndex === i ? '1px solid var(--accent-green)' : '1px solid var(--border-color)',
+                      boxShadow: focusedRowIndex === i ? '0 0 10px rgba(59, 130, 246, 0.2)' : 'none'
+                    }}
+                  >
                     <div className="row-main">
                       <div className="row-title">
                         {activeTab === 'events' ? (
@@ -7429,6 +7892,7 @@ function App() {
                 // Security & Scans
                 { name: 'Open Cluster Auditor', category: 'Security & Scans', action: () => { setActiveTab('cluster-auditor'); setIsCmdPaletteOpen(false); } },
                 { name: 'Open Image Scanner', category: 'Security & Scans', action: () => { setActiveTab('image-scanner'); setIsCmdPaletteOpen(false); } },
+                { name: 'Open Kubescape Compliance', category: 'Security & Scans', action: () => { setActiveTab('kubescape'); setIsCmdPaletteOpen(false); } },
                 { name: 'Scan All Running Images', category: 'Security & Scans', action: () => { fetchRunningImagesAndScan(); setIsCmdPaletteOpen(false); } },
 
                 // Actions
@@ -7474,6 +7938,50 @@ function App() {
                           setActivePaletteIndex(prev => Math.max(prev - 1, 0));
                         } else if (e.key === 'Enter') {
                           e.preventDefault();
+                          const query = cmdPaletteSearch.trim().toLowerCase();
+                          if (query.startsWith(':')) {
+                            const command = query.slice(1).trim();
+                            let targetTab: ResourceKind | null = null;
+                            if (['po', 'pod', 'pods'].includes(command)) targetTab = 'pods';
+                            else if (['dep', 'deploy', 'deployments'].includes(command)) targetTab = 'deployments';
+                            else if (['svc', 'service', 'services'].includes(command)) targetTab = 'services';
+                            else if (['ing', 'ingress', 'ingresses'].includes(command)) targetTab = 'ingresses';
+                            else if (['no', 'node', 'nodes'].includes(command)) targetTab = 'nodes';
+                            else if (['cm', 'configmap', 'configmaps'].includes(command)) targetTab = 'configmaps';
+                            else if (['sec', 'secret', 'secrets'].includes(command)) targetTab = 'secrets';
+                            else if (['pv'].includes(command)) targetTab = 'persistentvolumes';
+                            else if (['pvc'].includes(command)) targetTab = 'persistentvolumeclaims';
+                            else if (['job', 'jobs'].includes(command)) targetTab = 'jobs';
+                            else if (['cj', 'cronjob', 'cronjobs'].includes(command)) targetTab = 'cronjobs';
+                            else if (['helm'].includes(command)) targetTab = 'helm';
+                            else if (['crd', 'crds'].includes(command)) targetTab = 'crds';
+                            else if (['audit'].includes(command)) targetTab = 'cluster-auditor';
+                            else if (['scan', 'scanner'].includes(command)) targetTab = 'image-scanner';
+                            else if (['kube', 'compliance', 'kubescape'].includes(command)) targetTab = 'kubescape';
+                            else if (['topo', 'topology'].includes(command)) targetTab = 'topology';
+                            else if (['event', 'events'].includes(command)) targetTab = 'events';
+
+                            if (targetTab) {
+                              setActiveTab(targetTab);
+                              setIsCmdPaletteOpen(false);
+                              return;
+                            }
+
+                            if (command.startsWith('ns ')) {
+                              const nsName = command.slice(3).trim();
+                              if (namespaces.includes(nsName)) {
+                                setSelectedNs(nsName);
+                                setIsCmdPaletteOpen(false);
+                                return;
+                              }
+                            }
+
+                            if (namespaces.includes(command)) {
+                              setSelectedNs(command);
+                              setIsCmdPaletteOpen(false);
+                              return;
+                            }
+                          }
                           if (filtered[activePaletteIndex]) {
                             filtered[activePaletteIndex].action();
                           }
