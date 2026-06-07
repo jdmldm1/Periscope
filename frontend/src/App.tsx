@@ -260,13 +260,12 @@ function App() {
 
   // Zarf expanded console states
   const [zarfViewMode, setZarfViewMode] = useState<'packages' | 'local' | 'tools' | 'edit'>('packages');
-  const [zarfCreds, setZarfCreds] = useState<any[]>([]);
-  const [isFetchingZarfCreds, setIsFetchingZarfCreds] = useState(false);
   const [isClearingZarfCache, setIsClearingZarfCache] = useState(false);
   const [zarfLocalPackages, setZarfLocalPackages] = useState<any[]>([]);
   
   // Zarf config mutator states
   const [selectedZarfPackagePath, setSelectedZarfPackagePath] = useState<string>('');
+  const [selectedZarfConfigPath, setSelectedZarfConfigPath] = useState<string>('');
   const [zarfUnpackTempDir, setZarfUnpackTempDir] = useState<string>('');
   const [zarfConfigText, setZarfConfigText] = useState<string>('');
   const [isUnpackingZarf, setIsUnpackingZarf] = useState(false);
@@ -274,7 +273,8 @@ function App() {
 
   // File upload state
   const [zarfUploadFile, setZarfUploadFile] = useState<File | null>(null);
-  const [zarfUploadProgress, setZarfUploadProgress] = useState<number>(-1);
+  const [zarfConfigFile, setZarfConfigFile] = useState<File | null>(null);
+  const [zarfUploadProgress, setZarfUploadProgress] = useState(-1);
 
   // Real-time task logs state
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -283,11 +283,8 @@ function App() {
   const [isTaskLogsModalOpen, setIsTaskLogsModalOpen] = useState(false);
 
   // Zarf Registry states
-  const [zarfRegistryRepos, setZarfRegistryRepos] = useState<string[]>([]);
-  const [zarfSelectedRepo, setZarfSelectedRepo] = useState<string>('');
-  const [zarfSelectedRepoTags, setZarfSelectedRepoTags] = useState<string[]>([]);
+  const [zarfRegistryImages, setZarfRegistryImages] = useState<any[]>([]);
   const [isFetchingRegistry, setIsFetchingRegistry] = useState(false);
-  const [isFetchingTags, setIsFetchingTags] = useState(false);
 
   // Pod File Explorer states
   const [podFiles, setPodFiles] = useState<any[]>([]);
@@ -312,9 +309,6 @@ function App() {
   const [isPackageDetailModalOpen, setIsPackageDetailModalOpen] = useState(false);
   const [isFetchingPackageDetail, setIsFetchingPackageDetail] = useState(false);
   
-  const [clusterAuditResult, setClusterAuditResult] = useState<any>(null);
-  const [isAuditingCluster, setIsAuditingCluster] = useState(false);
-  
   const [runningImages, setRunningImages] = useState<string[]>([]);
   
   // Standalone Image Scanner States
@@ -332,14 +326,6 @@ function App() {
   const [kubescapeSearchQuery, setKubescapeSearchQuery] = useState('');
   const [kubescapeSeverityFilter, setKubescapeSeverityFilter] = useState('all');
   const [expandedControlId, setExpandedControlId] = useState<string | null>(null);
-
-  // Gitea CLI console states
-  const [giteaUrl, setGiteaUrl] = useState('http://shiloh:3000');
-  const [giteaToken, setGiteaToken] = useState('');
-  const [giteaHasToken, setGiteaHasToken] = useState(false);
-  const [giteaCmd, setGiteaCmd] = useState('tea repo list');
-  const [giteaLogs, setGiteaLogs] = useState('tea CLI emulator v0.9.2\nType "tea help" for available commands.\n\n');
-  const [isExecutingGiteaCmd, setIsExecutingGiteaCmd] = useState(false);
 
   // Zarf graph state
   const [selectedZarfGraphPkg, setSelectedZarfGraphPkg] = useState<string | null>(null);
@@ -389,9 +375,6 @@ function App() {
   const [editingFile, setEditingFile] = useState<{ path: string; content: string; isSaving: boolean } | null>(null);
   const [isEditingFileModalOpen, setIsEditingFileModalOpen] = useState(false);
 
-  // Zarf Global State
-  const [zarfState, setZarfState] = useState<any>(null);
-  const [isFetchingZarfState, setIsFetchingZarfState] = useState(false);
   const [zarfDetailActiveTab, setZarfDetailActiveTab] = useState<'overview' | 'config' | 'variables'>('overview');
 
   const fetchHelmRepos = () => {
@@ -539,17 +522,6 @@ function App() {
         setHelmInspectData('Error fetching data: ' + err.message);
       })
       .finally(() => setIsFetchingHelmInspect(false));
-  };
-
-  const fetchZarfCreds = () => {
-    setIsFetchingZarfCreds(true);
-    fetch('/api/zarf/creds')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setZarfCreds(data);
-      })
-      .catch(console.error)
-      .finally(() => setIsFetchingZarfCreds(false));
   };
 
   const fetchZarfLocalPackages = () => {
@@ -900,62 +872,26 @@ function App() {
     downloadAnchor.remove();
   };
 
-  const exportAuditJson = () => {
-    if (!clusterAuditResult) return;
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(clusterAuditResult, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `cluster-audit-report.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const exportAuditMarkdown = () => {
-    if (!clusterAuditResult) return;
-    const issues = clusterAuditResult.issues || [];
-    const criticals = issues.filter((i: any) => i.severity === 'Critical');
-    const errors = issues.filter((i: any) => i.severity === 'Error');
-    const warnings = issues.filter((i: any) => i.severity === 'Warning');
-    const infos = issues.filter((i: any) => i.severity === 'Info');
-
-    let md = `# Periscope Cluster Configuration & Security Audit Report\n\n`;
-    md += `Generated on: ${new Date().toLocaleString()}\n`;
-    md += `Kubernetes Version: ${clusterAuditResult.clusterVersion || 'N/A'}\n`;
-    md += `Overall Grade: **${clusterAuditResult.grade}** (Score: **${clusterAuditResult.score}**/100)\n\n`;
-    md += `## Metrics Summary\n\n`;
-    md += `- **Critical Violations**: ${criticals.length}\n`;
-    md += `- **Configuration Errors**: ${errors.length}\n`;
-    md += `- **Configuration Warnings**: ${warnings.length}\n`;
-    md += `- **Optimizations**: ${infos.length}\n\n`;
-    
-    md += `## Detailed Findings\n\n`;
-    
-    if (issues.length === 0) {
-      md += `*No issues found! Your cluster conforms to all rules.*\n`;
-    } else {
-      md += `| Severity | Category | Rule | Resource | Namespace | Message |\n`;
-      md += `| --- | --- | --- | --- | --- | --- |\n`;
-      issues.forEach((issue: any) => {
-        md += `| ${issue.severity} | ${issue.category} | ${issue.rule} | \`${issue.resource}\` | \`${issue.namespace}\` | ${issue.message.replace(/\|/g, '\\|')} |\n`;
-      });
-    }
-    
-    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", url);
-    downloadAnchor.setAttribute("download", `cluster-audit-report.md`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
   const handleZarfUpload = async () => {
     if (!zarfUploadFile) return alert('Please select a file to upload first.');
     setZarfUploadProgress(0);
     
     try {
+      // 1. Upload config if selected
+      let uploadedConfigPath = '';
+      if (zarfConfigFile) {
+        const configContent = await zarfConfigFile.text();
+        const configRes = await fetch('/api/zarf/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: configContent, filename: zarfConfigFile.name })
+        });
+        const configData = await configRes.json();
+        if (configRes.ok) {
+          uploadedConfigPath = configData.filepath;
+        }
+      }
+
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/zarf/upload', true);
       xhr.setRequestHeader('x-file-name', zarfUploadFile.name);
@@ -970,8 +906,9 @@ function App() {
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           const data = JSON.parse(xhr.responseText);
-          alert(`File uploaded successfully to: ${data.filepath}`);
+          alert(`Uploaded ${data.filename} successfully! ${uploadedConfigPath ? 'Config file also saved.' : ''}`);
           setZarfUploadFile(null);
+          setZarfConfigFile(null);
           setZarfUploadProgress(-1);
           fetchZarfLocalPackages();
         } else {
@@ -993,12 +930,21 @@ function App() {
   };
 
   const handleDeployLocalPackage = async (path: string) => {
-    if (!window.confirm(`Are you sure you want to deploy local package "${path.split(/[\\/]/).pop()}"?`)) return;
+    const pkgName = path.split(/[\\/]/).pop();
+    const configName = selectedZarfConfigPath ? selectedZarfConfigPath.split(/[\\/]/).pop() : 'none';
+    
+    if (!window.confirm(`Are you sure you want to deploy local package "${pkgName}"${selectedZarfConfigPath ? ` using config "${configName}"` : ''}?`)) {
+      return;
+    }
+
     try {
       const res = await fetch('/api/zarf/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ packagePath: path })
+        body: JSON.stringify({ 
+          packagePath: path,
+          configPath: selectedZarfConfigPath || undefined
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -1026,46 +972,6 @@ function App() {
       alert('Error fetching package details: ' + err.message);
     } finally {
       setIsFetchingPackageDetail(false);
-    }
-  };
-
-  const runClusterAudit = async () => {
-    setIsAuditingCluster(true);
-    try {
-      const res = await fetch('/api/cluster/audit');
-      const data = await res.json();
-      if (res.ok) {
-        setClusterAuditResult(data);
-      } else {
-        alert('Failed to audit cluster: ' + (data.error || 'Unknown error'));
-      }
-    } catch (err: any) {
-      alert('Error auditing cluster: ' + err.message);
-    } finally {
-      setIsAuditingCluster(false);
-    }
-  };
-
-  const handleApplyRemediation = async (id: string, resource: string) => {
-    if (!confirm(`Are you sure you want to programmatically apply the remediation patch for control ${id} on ${resource}? This will patch the workload specification in the cluster.`)) {
-      return;
-    }
-    
-    try {
-      const res = await fetch('/api/cluster/remediate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, resource })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        alert(data.message || 'Patch applied successfully!');
-        runClusterAudit();
-      } else {
-        alert('Failed to apply patch: ' + (data.error || 'Unknown error'));
-      }
-    } catch (err: any) {
-      alert('Error applying patch: ' + err.message);
     }
   };
 
@@ -1136,59 +1042,6 @@ function App() {
     } catch (err: any) {
       alert('Error triggering compliance scan: ' + err.message);
       setIsScanningKubescape(false);
-    }
-  };
-
-  const fetchGiteaConfig = () => {
-    fetch('/api/gitea/config')
-      .then(res => res.json())
-      .then(data => {
-        setGiteaUrl(data.url);
-        setGiteaHasToken(data.hasToken);
-      })
-      .catch(console.error);
-  };
-
-  const saveGiteaConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetch('/api/gitea/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: giteaUrl, token: giteaToken })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        alert(data.message || 'Config saved successfully!');
-        setGiteaToken('');
-        fetchGiteaConfig();
-      } else {
-        alert('Failed to save config: ' + (data.error || 'Unknown error'));
-      }
-    } catch (err: any) {
-      alert('Error saving config: ' + err.message);
-    }
-  };
-
-  const runGiteaCommand = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!giteaCmd.trim()) return;
-    setIsExecutingGiteaCmd(true);
-    setGiteaLogs(prev => prev + `> ${giteaCmd}\n`);
-    
-    try {
-      const res = await fetch('/api/gitea/exec', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: giteaCmd })
-      });
-      const data = await res.json();
-      setGiteaLogs(prev => prev + (data.output || 'No output returned.') + '\n\n');
-      setGiteaCmd('');
-    } catch (err: any) {
-      setGiteaLogs(prev => prev + `Error running command: ${err.message}\n\n`);
-    } finally {
-      setIsExecutingGiteaCmd(false);
     }
   };
 
@@ -1307,31 +1160,45 @@ function App() {
     }
   };
 
-  const fetchZarfRegistryCatalog = () => {
+  const fetchZarfRegistryImages = () => {
     setIsFetchingRegistry(true);
-    setZarfRegistryRepos([]);
-    setZarfSelectedRepo('');
-    setZarfSelectedRepoTags([]);
-    fetch('/api/zarf/registry/catalog')
+    fetch('/api/zarf/registry/all-images')
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) setZarfRegistryRepos(data);
+        if (Array.isArray(data)) setZarfRegistryImages(data);
       })
       .catch(console.error)
       .finally(() => setIsFetchingRegistry(false));
   };
 
-  const fetchZarfRegistryTags = (repoName: string) => {
-    setIsFetchingTags(true);
-    setZarfSelectedRepo(repoName);
-    setZarfSelectedRepoTags([]);
-    fetch(`/api/zarf/registry/repository/${repoName}/tags`)
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setZarfSelectedRepoTags(data);
-      })
-      .catch(console.error)
-      .finally(() => setIsFetchingTags(false));
+  const handleDownloadRegistryImage = async (imageRef: string) => {
+    try {
+      const res = await fetch(`/api/zarf/registry/download?imageRef=${encodeURIComponent(imageRef)}`);
+      const data = await res.json();
+      if (res.ok) {
+        setTaskStatus('running');
+        setActiveTaskId(data.taskId);
+        setTaskLogs('Initializing image download preparation...\n');
+        setIsTaskLogsModalOpen(true);
+        
+        // Polling for download readiness
+        const checkReady = setInterval(async () => {
+          const readyRes = await fetch(`/api/tasks/${data.taskId}/logs`);
+          const readyData = await readyRes.json();
+          if (readyData.status === 'success') {
+            clearInterval(checkReady);
+            // Trigger actual browser download
+            window.location.href = data.downloadPath;
+          } else if (readyData.status === 'failed') {
+            clearInterval(checkReady);
+          }
+        }, 2000);
+      } else {
+        alert('Failed to prepare download: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    }
   };
 
   const handleDeleteRegistryImage = async (repoName: string, tag: string) => {
@@ -1344,7 +1211,7 @@ function App() {
       const data = await res.json();
       if (res.ok) {
         alert('Image reference deleted successfully');
-        fetchZarfRegistryTags(repoName);
+        fetchZarfRegistryImages();
       } else {
         alert('Failed to delete image: ' + (data.error || 'Unknown error'));
       }
@@ -1618,7 +1485,7 @@ function App() {
             if (data.status === 'success') {
               fetchResources();
               if (activeTab === 'zarf-registry') {
-                fetchZarfRegistryCatalog();
+                fetchZarfRegistryImages();
               }
             }
           }
@@ -1652,28 +1519,16 @@ function App() {
 
   useEffect(() => {
     if (activeTab === 'zarf-registry') {
-      fetchZarfRegistryCatalog();
-    } else if (activeTab === 'zarf-creds') {
-      fetchZarfCreds();
-    } else if (activeTab === 'zarf-state') {
-      fetchZarfState();
+      fetchZarfRegistryImages();
     } else if (activeTab === 'zarf-sbom') {
-      fetchZarfRegistryCatalog();
+      fetchZarfRegistryImages();
       fetchZarfLocalPackages();
       fetchRunningImages();
-    } else if (activeTab === 'cluster-auditor') {
-      runClusterAudit();
-    } else if (activeTab === 'topology') {
-      if (!clusterAuditResult) {
-        runClusterAudit();
-      }
     } else if (activeTab === 'image-scanner') {
       fetchRunningImages();
       fetchCachedScans();
     } else if (activeTab === 'kubescape') {
       fetchKubescapeStatus();
-    } else if (activeTab === 'gitea') {
-      fetchGiteaConfig();
     }
   }, [activeTab]);
 
@@ -1991,111 +1846,6 @@ function App() {
     }
   };
 
-  const fetchZarfState = () => {
-    setIsFetchingZarfState(true);
-    setZarfState(null);
-    fetch('/api/zarf/state')
-      .then(res => res.json())
-      .then(data => {
-        setZarfState(data);
-        setIsFetchingZarfState(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setIsFetchingZarfState(false);
-      });
-  };
-
-  const renderZarfStateView = () => {
-    if (isFetchingZarfState) {
-      return <div className="loader-container"><div className="loader"></div></div>;
-    }
-    if (!zarfState) {
-      return (
-        <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
-          Zarf state is not initialized or the cluster has not been initialized with Zarf.
-        </div>
-      );
-    }
-    return (
-      <div className="zarf-state-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <h3 style={{ fontSize: '1.1rem', marginBottom: 16, color: 'var(--accent-cyan)' }}>Zarf Cluster Initialization State</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, fontSize: '0.9rem' }}>
-            <div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <tbody>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Kubernetes Distribution:</td>
-                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.distro || 'N/A'}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Storage Class:</td>
-                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.storageClass || 'N/A'}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>IP Family:</td>
-                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.ipFamily || 'N/A'}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Zarf Appliance Mode:</td>
-                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.zarfAppliance ? 'Yes' : 'No'}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <tbody>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Internal Registry:</td>
-                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.registryInfo?.address || 'N/A'}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Registry Mode:</td>
-                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.registryInfo?.registryMode || 'N/A'}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Registry NodePort:</td>
-                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.registryInfo?.nodePort || 'N/A'}</td>
-                  </tr>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>TLS Strategy:</td>
-                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.registryInfo?.mtlsStrategy || 'N/A'}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        
-        {zarfState.agentTLS && (
-          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: 16, color: 'var(--accent-purple)' }}>Agent TLS Configuration</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
-              <div>
-                <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>CA Certificate (PEM):</strong>
-                <textarea 
-                  readOnly 
-                  style={{ width: '100%', height: '80px', background: '#000', border: '1px solid var(--border-color)', borderRadius: 4, padding: 8, color: '#a5d6ff', fontSize: '0.75rem', outline: 'none' }}
-                  value={zarfState.agentTLS.ca}
-                />
-              </div>
-              <div>
-                <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Server Certificate (PEM):</strong>
-                <textarea 
-                  readOnly 
-                  style={{ width: '100%', height: '80px', background: '#000', border: '1px solid var(--border-color)', borderRadius: 4, padding: 8, color: '#a5d6ff', fontSize: '0.75rem', outline: 'none' }}
-                  value={zarfState.agentTLS.cert}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const renderDiffView = () => {
     if (!selectedRevisionValues || !activeRevisionValues) return null;
 
@@ -2192,7 +1942,7 @@ function App() {
       : activeTab === 'helm'
       ? `/api/helm?namespace=${selectedNs}`
       : activeTab === 'zarf'
-      ? (() => { fetchZarfState(); return '/api/zarf/packages'; })()
+      ? '/api/zarf/packages'
       : activeTab === 'crds'
       ? '/api/crds'
       : activeTab === 'custom' && customCrd
@@ -2482,23 +2232,10 @@ function App() {
         if (phase === 'failed') color = '#e00';
         if (phase === 'succeeded') color = '#10b981';
 
-        const lacksNetPol = clusterAuditResult?.issues?.some(
-          (i: any) => i.rule === 'Pod Missing NetworkPolicy' && 
-                      i.namespace === p.metadata.namespace && 
-                      i.resource === `Pod/${p.metadata.name}`
-        );
-
         let borderCol = color;
         let borderDashes = false;
         let nodeLabel = p.metadata.name.length > 20 ? p.metadata.name.substring(0, 17) + '...' : p.metadata.name;
         let nodeTitle = `Pod: ${p.metadata.name}\nStatus: ${p.status?.phase}\nNode: ${p.spec?.nodeName}`;
-
-        if (lacksNetPol) {
-          borderCol = '#f59e0b'; // orange warning border
-          borderDashes = true;
-          nodeLabel = `⚠️ ${nodeLabel}`;
-          nodeTitle += `\n⚠️ WARNING: Lacks NetworkPolicy Isolation`;
-        }
 
         nodesList.push({
           id: `pod-${p.metadata.name}`,
@@ -2664,7 +2401,7 @@ function App() {
         networkInstance.current = null;
       }
     };
-  }, [activeTab, topologyMode, topologyData, clusterAuditResult]);
+  }, [activeTab, topologyMode, topologyData]);
 
   useEffect(() => {
     setResources([]);
@@ -4463,9 +4200,18 @@ function App() {
             </div>
           </div>
           {zarfStatus.installed && (
-            <button className="btn btn-primary" onClick={() => setActiveTab('zarf-deploy')}>
-              <Package size={14} /> Deploy Package
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button 
+                className="btn btn-danger" 
+                onClick={handleClearZarfCache}
+                disabled={isClearingZarfCache}
+              >
+                <Trash2 size={14} /> Clear Cache
+              </button>
+              <button className="btn btn-primary" onClick={() => setActiveTab('zarf-deploy')}>
+                <Package size={14} /> Deploy Package
+              </button>
+            </div>
           )}
         </div>
 
@@ -4667,6 +4413,39 @@ function App() {
             </div>
           </div>
 
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '16px 20px', marginBottom: 16 }}>
+            <h4 style={{ fontSize: '0.9rem', marginBottom: 8, color: 'var(--text-main)' }}>Optional: Zarf Configuration (zarf-config.yaml)</h4>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <input 
+                type="file" 
+                id="zarf-config-input" 
+                style={{ display: 'none' }} 
+                accept=".yaml,.yml"
+                onChange={e => {
+                  const files = e.target.files;
+                  if (files && files.length > 0) {
+                    setZarfConfigFile(files[0]);
+                  }
+                }}
+              />
+              <button 
+                className="btn" 
+                onClick={() => document.getElementById('zarf-config-input')?.click()}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <FileText size={14} /> {zarfConfigFile ? 'Change Config' : 'Browse Config'}
+              </button>
+              {zarfConfigFile ? (
+                <div style={{ fontSize: '0.85rem', color: 'var(--accent-green)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Shield size={14} /> {zarfConfigFile.name}
+                  <button className="btn btn-sm btn-icon" onClick={() => setZarfConfigFile(null)}><X size={12}/></button>
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No config file selected (optional)</div>
+              )}
+            </div>
+          </div>
+
           {zarfUploadFile && (
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button 
@@ -4740,6 +4519,15 @@ function App() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
+                      {pkg.name.endsWith('.yaml') || pkg.name.endsWith('.yml') ? (
+                        <button 
+                          className={`btn ${selectedZarfConfigPath === pkg.path ? 'btn-primary' : ''}`}
+                          onClick={() => setSelectedZarfConfigPath(selectedZarfConfigPath === pkg.path ? '' : pkg.path)}
+                          style={selectedZarfConfigPath === pkg.path ? { background: 'var(--accent-green)', color: '#000' } : {}}
+                        >
+                          {selectedZarfConfigPath === pkg.path ? 'Active Config' : 'Set as Config'}
+                        </button>
+                      ) : null}
                       {pkg.isDir && (
                         <button 
                           className="btn" 
@@ -5582,154 +5370,6 @@ function App() {
     );
   };
 
-  const renderGiteaView = () => {
-    return (
-      <div className="gitea-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px' }}>
-          <h3 style={{ fontSize: '1.1rem', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Code size={18} style={{ color: '#fb923c' }} /> Git Server CLI Console (Gitea)
-          </h3>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Configure external Gitea server credentials and run command-line actions using the <code>tea</code> CLI emulator.
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20, alignItems: 'start' }}>
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-            <h4 style={{ fontSize: '0.95rem', margin: '0 0 16px 0', color: 'var(--text-main)' }}>Gitea Server Connection</h4>
-            
-            <form onSubmit={saveGiteaConfig} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Gitea API URL</label>
-                <input 
-                  type="text" 
-                  className="exec-input"
-                  value={giteaUrl}
-                  onChange={e => setGiteaUrl(e.target.value)}
-                  placeholder="e.g. http://shiloh:3000"
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Personal Access Token {giteaHasToken && <span style={{ color: 'var(--accent-success)', fontSize: '0.75rem' }}>(Token Saved)</span>}
-                </label>
-                <input 
-                  type="password" 
-                  className="exec-input"
-                  value={giteaToken}
-                  onChange={e => setGiteaToken(e.target.value)}
-                  placeholder={giteaHasToken ? "••••••••••••••••" : "Enter personal access token"}
-                  style={{ width: '100%' }}
-                />
-              </div>
-
-              <button 
-                type="submit" 
-                className="btn btn-primary"
-                style={{ width: '100%', marginTop: 8, background: '#fb923c', color: '#000', border: 'none', fontWeight: 600 }}
-              >
-                Save Gitea Credentials
-              </button>
-            </form>
-
-            <div style={{ marginTop: 24, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
-              <h5 style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10, letterSpacing: '0.5px' }}>Quick Commands Guide</h5>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div 
-                  onClick={() => setGiteaCmd('tea repo list')}
-                  style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                >
-                  <span>tea repo list</span>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>List repos</span>
-                </div>
-                <div 
-                  onClick={() => setGiteaCmd('tea repo create new-repo')}
-                  style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                >
-                  <span>tea repo create [name]</span>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Create repo</span>
-                </div>
-                <div 
-                  onClick={() => setGiteaCmd('tea user list')}
-                  style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                >
-                  <span>tea user list</span>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>List users (admin)</span>
-                </div>
-                <div 
-                  onClick={() => setGiteaCmd('tea org list')}
-                  style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                >
-                  <span>tea org list</span>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>List orgs</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ background: '#090d16', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#ef4444' }} />
-                <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#f59e0b' }} />
-                <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#10b981' }} />
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginLeft: 8 }}>tea@periscope-console</span>
-              </div>
-              <button 
-                className="btn btn-sm" 
-                style={{ padding: '2px 8px', fontSize: '0.7rem', background: 'rgba(255,255,255,0.02)' }}
-                onClick={() => setGiteaLogs('tea CLI emulator v0.9.2\nType "tea help" for available commands.\n\n')}
-              >
-                Clear Terminal
-              </button>
-            </div>
-
-            <pre 
-              style={{ 
-                margin: 0, 
-                padding: 16, 
-                background: '#040711', 
-                border: '1px solid rgba(255,255,255,0.02)', 
-                borderRadius: 6, 
-                fontFamily: 'var(--font-mono)', 
-                fontSize: '0.8rem', 
-                height: '350px', 
-                overflowY: 'auto', 
-                color: '#38bdf8',
-                whiteSpace: 'pre-wrap'
-              }}
-            >
-              {giteaLogs}
-            </pre>
-
-            <form onSubmit={runGiteaCommand} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-green)', fontSize: '0.85rem', fontWeight: 600 }}>$</span>
-              <input 
-                type="text" 
-                className="exec-input"
-                value={giteaCmd}
-                onChange={e => setGiteaCmd(e.target.value)}
-                placeholder="tea repo list"
-                disabled={isExecutingGiteaCmd}
-                style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.85rem', background: '#040711', color: '#fff' }}
-              />
-              <button 
-                type="submit" 
-                className="btn btn-primary"
-                disabled={isExecutingGiteaCmd || !giteaCmd.trim()}
-                style={{ background: '#fb923c', color: '#000', border: 'none', fontWeight: 600, padding: '8px 16px', fontSize: '0.8rem' }}
-              >
-                {isExecutingGiteaCmd ? 'Running...' : 'Execute'}
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const renderZarfRegistryView = () => {
     return (
       <div className="zarf-registry-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -5817,411 +5457,97 @@ function App() {
           </div>
         </div>
 
-        {/* Repositories & Tags Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          {/* Repositories catalog list */}
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Repositories Catalog</h3>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn" onClick={handlePruneRegistry}>
-                  Prune Unused
-                </button>
-                <button className="btn btn-icon" onClick={fetchZarfRegistryCatalog} disabled={isFetchingRegistry}>
-                  <RefreshCw size={14} />
-                </button>
-              </div>
+        {/* Combined Images List */}
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Local Registry Images ({zarfRegistryImages.length})</h3>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn" onClick={handlePruneRegistry}>
+                Prune Unused
+              </button>
+              <button className="btn btn-icon" onClick={fetchZarfRegistryImages} disabled={isFetchingRegistry}>
+                <RefreshCw size={14} />
+              </button>
             </div>
-
-            {isFetchingRegistry ? (
-              <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
-                Querying repositories catalog...
-              </div>
-            ) : zarfRegistryRepos.length === 0 ? (
-              <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
-                No repositories found in local registry.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {zarfRegistryRepos.map(repo => {
-                  const isSelected = zarfSelectedRepo === repo;
-                  return (
-                    <div 
-                      key={repo}
-                      className={`resource-row ${isSelected ? 'active' : ''}`}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        padding: '10px 14px',
-                        background: 'rgba(255,255,255,0.02)',
-                        border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border-color)'}`,
-                        borderRadius: 6,
-                        cursor: 'pointer'
-                      }}
-                      onClick={() => fetchZarfRegistryTags(repo)}
-                    >
-                      <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{repo}</div>
-                      <Search size={14} style={{ color: 'var(--text-muted)' }} />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
 
-          {/* Selected Repository Tags */}
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: 16 }}>
-              {zarfSelectedRepo ? `Tags for ${zarfSelectedRepo}` : 'Select a Repository'}
-            </h3>
-
-            {!zarfSelectedRepo ? (
-              <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
-                Select a repository from the left panel to list its tags.
-              </div>
-            ) : isFetchingTags ? (
-              <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
-                Fetching tags...
-              </div>
-            ) : zarfSelectedRepoTags.length === 0 ? (
-              <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
-                No tags found for this repository.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {zarfSelectedRepoTags.map(tag => (
-                  <div 
-                    key={tag}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '10px 14px',
-                      background: 'rgba(255,255,255,0.02)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: 6
-                    }}
-                  >
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>{zarfSelectedRepo}:</span>
-                      <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{tag}</span>
-                    </div>
-                    <button 
-                      className="btn btn-danger" 
-                      style={{ padding: '4px 8px' }} 
-                      onClick={() => handleDeleteRegistryImage(zarfSelectedRepo, tag)}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderClusterAuditorView = () => {
-    const criticals = (clusterAuditResult?.issues || []).filter((i: any) => i.severity === 'Critical');
-    const errors = (clusterAuditResult?.issues || []).filter((i: any) => i.severity === 'Error');
-    const warnings = (clusterAuditResult?.issues || []).filter((i: any) => i.severity === 'Warning');
-    const infos = (clusterAuditResult?.issues || []).filter((i: any) => i.severity === 'Info');
-
-    const gradeColor = 
-      clusterAuditResult?.grade?.startsWith('A') ? '#10b981' :
-      clusterAuditResult?.grade?.startsWith('B') || clusterAuditResult?.grade?.startsWith('C') ? '#f59e0b' : '#ef4444';
-
-    return (
-      <div className="cluster-auditor-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Summary Card */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: '1fr 3fr', 
-          gap: 20, 
-          background: 'rgba(255,255,255,0.01)', 
-          border: '1px solid var(--border-color)', 
-          borderRadius: 8, 
-          padding: 24 
-        }}>
-          {/* Grade Display */}
-          <div style={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            borderRight: '1px solid var(--border-color)',
-            paddingRight: 20
-          }}>
-            <div style={{ 
-              width: 100, 
-              height: 100, 
-              borderRadius: '50%', 
-              border: `4px solid ${gradeColor}`, 
-              display: 'flex', 
-              flexDirection: 'column',
-              alignItems: 'center', 
-              justifyContent: 'center',
-              boxShadow: `0 0 15px ${gradeColor}22`,
-              background: `radial-gradient(circle, ${gradeColor}11 0%, transparent 70%)`
-            }}>
-              <span style={{ fontSize: '2.2rem', fontWeight: 800, color: gradeColor }}>
-                {clusterAuditResult ? clusterAuditResult.grade : '-'}
-              </span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: -2 }}>
-                Score: {clusterAuditResult ? clusterAuditResult.score : 'N/A'}/100
-              </span>
+          {isFetchingRegistry ? (
+            <div style={{ color: 'var(--text-muted)', padding: '40px 0', textAlign: 'center' }}>
+              <div className="loader" style={{ margin: '0 auto 12px auto' }}></div>
+              Fetching images and tags from registry...
             </div>
-            <button 
-              className="btn btn-primary" 
-              style={{ marginTop: 16, width: '100%' }}
-              onClick={runClusterAudit}
-              disabled={isAuditingCluster}
-            >
-              {isAuditingCluster ? 'Running Audit...' : 'Re-scan Cluster'}
-            </button>
-          </div>
-
-          {/* Finding Metrics */}
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 16 }}>
-            <div>
-              <h3 style={{ fontSize: '1.25rem', margin: '0 0 4px 0' }}>Kubernetes Configuration & Security Audit</h3>
-              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Programmatic scans of pods, deployments, services, and nodes checking for misconfigurations, security vulnerabilities, and reliability concerns.
-              </p>
-            </div>
-            
-            {clusterAuditResult ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
-                <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 6, padding: 12 }}>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ef4444' }}>{criticals.length}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Critical Violations</div>
-                </div>
-                <div style={{ background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.15)', borderRadius: 6, padding: 12 }}>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f59e0b' }}>{errors.length}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Config Errors</div>
-                </div>
-                <div style={{ background: 'rgba(252, 211, 77, 0.05)', border: '1px solid rgba(252, 211, 77, 0.15)', borderRadius: 6, padding: 12 }}>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fbbf24' }}>{warnings.length}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Config Warnings</div>
-                </div>
-                <div style={{ background: 'rgba(96, 165, 250, 0.05)', border: '1px solid rgba(96, 165, 250, 0.15)', borderRadius: 6, padding: 12 }}>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#60a5fa' }}>{infos.length}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Optimizations</div>
-                </div>
-              </div>
-            ) : (
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No audit report generated. Click "Re-scan Cluster" to run diagnostics.</div>
-            )}
-          </div>
-        </div>
-
-        {/* Detailed Findings */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Detailed Auditor Findings ({clusterAuditResult?.issues?.length || 0})</h3>
-            {clusterAuditResult && (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn" onClick={exportAuditMarkdown} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
-                  Export Report (Markdown)
-                </button>
-                <button className="btn" onClick={exportAuditJson} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
-                  Export Report (JSON)
-                </button>
-              </div>
-            )}
-          </div>
-          
-          {isAuditingCluster ? (
+          ) : zarfRegistryImages.length === 0 ? (
             <div style={{ color: 'var(--text-muted)', padding: '40px 0', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
-              <div className="loader" style={{ margin: '0 auto 10px auto' }}></div>
-              Evaluating Kubernetes audit rules against cluster resources...
-            </div>
-          ) : !clusterAuditResult || clusterAuditResult.issues.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
-              No audit findings reported. Your cluster conforms to all audited rules!
+              No images found in the local Zarf registry.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {clusterAuditResult.issues.map((issue: any, index: number) => {
-                const badgeColor = 
-                  issue.severity === 'Critical' ? '#ef4444' :
-                  issue.severity === 'Error' ? '#dc2626' :
-                  issue.severity === 'Warning' ? '#fbbf24' : '#60a5fa';
-
-                const badgeBg = 
-                  issue.severity === 'Critical' ? 'rgba(239, 68, 68, 0.05)' :
-                  issue.severity === 'Error' ? 'rgba(220, 38, 38, 0.05)' :
-                  issue.severity === 'Warning' ? 'rgba(251, 191, 36, 0.05)' : 'rgba(96, 165, 250, 0.05)';
-
-                return (
-                  <div 
-                    key={index} 
-                    style={{ 
-                      background: 'rgba(255,255,255,0.02)', 
-                      border: '1px solid var(--border-color)', 
-                      borderRadius: 6, 
-                      padding: 14,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ 
-                          fontSize: '0.7rem', 
-                          fontWeight: 700, 
-                          color: badgeColor, 
-                          background: badgeBg, 
-                          border: `1px solid ${badgeColor}22`,
-                          borderRadius: 4,
-                          padding: '2px 6px'
-                        }}>
-                          {issue.severity}
-                        </span>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                          [{issue.category}]
-                        </span>
-                        <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>
-                          {issue.rule}
-                        </span>
-                      </div>
-                      
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        NS: <span style={{ color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>{issue.namespace}</span>
-                      </div>
-                    </div>
-
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                      {issue.message}
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '0.8rem', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.02)', paddingTop: 8, flexDirection: 'column', gap: 6 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                        <div>
-                          Resource: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>{issue.resource}</span>
-                          {issue.codeFix && (
-                            <button
-                              className="btn"
-                              style={{ 
-                                marginLeft: 12, 
-                                padding: '2px 8px', 
-                                fontSize: '0.7rem', 
-                                background: 'var(--accent-success)', 
-                                color: '#000', 
-                                border: 'none',
-                                fontWeight: 700,
-                                borderRadius: 4
-                              }}
-                              onClick={() => handleApplyRemediation(issue.id, issue.resource)}
-                            >
-                              Apply Configuration Patch
-                            </button>
-                          )}
-                        </div>
-                        {issue.remediation && (
-                          <div style={{ color: '#10b981', fontSize: '0.75rem', fontWeight: 500 }}>
-                            💡 Recommendation: {issue.remediation}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {issue.codeFix && (
-                        <div style={{ width: '100%', marginTop: 4 }}>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4, fontWeight: 600, letterSpacing: '0.5px' }}>SUGGESTED CONFIGURATION PATCH:</div>
-                          <pre style={{ margin: 0, padding: 8, background: '#111', border: '1px solid var(--border-color)', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: '0.75rem', overflowX: 'auto', color: 'var(--accent-cyan)', width: '100%' }}>
-                            {issue.codeFix}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px 180px', padding: '0 14px 8px 14px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                <div>REPOSITORY:TAG</div>
+                <div>TAG</div>
+                <div style={{ textAlign: 'right' }}>ACTIONS</div>
+              </div>
+              {zarfRegistryImages.map((img, idx) => (
+                <div 
+                  key={idx}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 150px 180px',
+                    alignItems: 'center',
+                    padding: '12px 14px',
+                    background: 'rgba(255,255,255,0.02)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 6
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>
+                    {img.repository}
                   </div>
-                );
-              })}
+                  <div>
+                    <span style={{ 
+                      fontSize: '0.75rem', 
+                      background: 'rgba(96, 165, 250, 0.1)', 
+                      color: 'var(--accent-blue)', 
+                      padding: '2px 8px', 
+                      borderRadius: 4, 
+                      border: '1px solid rgba(96, 165, 250, 0.2)' 
+                    }}>
+                      {img.tag}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button 
+                      className="btn btn-sm" 
+                      title="Download as TAR"
+                      onClick={() => handleDownloadRegistryImage(img.full)}
+                      style={{ padding: '4px 8px' }}
+                    >
+                      <Download size={14} />
+                    </button>
+                    <button 
+                      className="btn btn-sm" 
+                      title="Copy Pull Command"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`docker pull zarf-docker-registry.zarf.svc.cluster.local:5000/${img.full}`);
+                        alert('Pull command copied to clipboard!');
+                      }}
+                      style={{ padding: '4px 8px' }}
+                    >
+                      <Copy size={14} />
+                    </button>
+                    <button 
+                      className="btn btn-danger btn-sm" 
+                      title="Delete Image"
+                      onClick={() => handleDeleteRegistryImage(img.repository, img.tag)}
+                      style={{ padding: '4px 8px' }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderZarfCredsView = () => {
-    return (
-      <div className="zarf-creds-view animate-fade-in" style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20 }}>
-        {/* Credentials Card */}
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Registry & Cluster Credentials</h3>
-            <button className="btn btn-icon" onClick={fetchZarfCreds} disabled={isFetchingZarfCreds}>
-              <RefreshCw size={14} />
-            </button>
-          </div>
-
-          {isFetchingZarfCreds ? (
-            <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
-              Querying Zarf credentials...
-            </div>
-          ) : zarfCreds.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
-              No credentials found. Ensure Zarf is initialized in this cluster.
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="crd-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Application</th>
-                    <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Username</th>
-                    <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Password</th>
-                    <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'right' }}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {zarfCreds.map((c: any, idx: number) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td style={{ padding: '8px 12px', fontWeight: 600, fontSize: '0.85rem' }}>{c.application}</td>
-                      <td style={{ padding: '8px 12px', fontSize: '0.85rem' }}>{c.username}</td>
-                      <td style={{ padding: '8px 12px', fontSize: '0.85rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>••••••••</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                        <button 
-                          className="btn" 
-                          style={{ padding: '2px 8px', fontSize: '0.75rem' }} 
-                          onClick={() => {
-                            navigator.clipboard.writeText(c.password);
-                            alert(`Copied password for ${c.application} to clipboard!`);
-                          }}
-                        >
-                          <Copy size={12} /> Password
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* Maintenance card */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Zarf Maintenance</h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: 16 }}>
-              Clear the cache directory of Zarf tools. This removes downloaded repository caches, compressed package images, and incomplete tars to free up host disk space.
-            </p>
-            <button 
-              className="btn btn-danger" 
-              style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}
-              onClick={handleClearZarfCache}
-              disabled={isClearingZarfCache}
-            >
-              <Trash2 size={14} /> 
-              {isClearingZarfCache ? 'Clearing Cache...' : 'Clear Zarf Local Cache'}
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -6445,7 +5771,6 @@ function App() {
           </div>
           {!collapsedSections['security'] && (
             <nav className="nav-menu">
-              <a className={`nav-item ${activeTab === 'cluster-auditor' ? 'active' : ''}`} onClick={() => { setActiveTab('cluster-auditor'); setSearch(''); }}><Shield size={16} /> Cluster Auditor</a>
               <a className={`nav-item ${activeTab === 'image-scanner' ? 'active' : ''}`} onClick={() => { setActiveTab('image-scanner'); setSearch(''); }}><Shield size={16} style={{ color: '#60a5fa' }} /> Image Scanner</a>
               <a className={`nav-item ${activeTab === 'kubescape' ? 'active' : ''}`} onClick={() => { setActiveTab('kubescape'); setSearch(''); }}><Shield size={16} style={{ color: '#10b981' }} /> Compliance (Kubescape)</a>
             </nav>
@@ -6554,10 +5879,7 @@ function App() {
               <a className={`nav-item ${activeTab === 'zarf' ? 'active' : ''}`} onClick={() => { setZarfViewMode('packages'); setActiveTab('zarf'); setSearch(''); }}><Package size={16} /> Deployed Packages</a>
               <a className={`nav-item ${activeTab === 'zarf-deploy' ? 'active' : ''}`} onClick={() => { setZarfViewMode('local'); setActiveTab('zarf-deploy'); setSearch(''); }}><Save size={16} /> Deploy Zarf Package</a>
               <a className={`nav-item ${activeTab === 'zarf-registry' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-registry'); setSearch(''); }}><Database size={16} /> Zarf Registry</a>
-              <a className={`nav-item ${activeTab === 'zarf-creds' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-creds'); setSearch(''); }}><Key size={16} /> Zarf Credentials</a>
-              <a className={`nav-item ${activeTab === 'gitea' ? 'active' : ''}`} onClick={() => { setActiveTab('gitea'); setSearch(''); }}><Code size={16} style={{ color: '#fb923c' }} /> Gitea CLI Console</a>
               <a className={`nav-item ${activeTab === 'zarf-sbom' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-sbom'); setSearch(''); }}><Shield size={16} /> Zarf SBOMs</a>
-              <a className={`nav-item ${activeTab === 'zarf-state' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-state'); setSearch(''); }}><Settings size={16} /> Zarf State & Config</a>
             </nav>
           )}
         </div>
@@ -6755,20 +6077,14 @@ function App() {
                   ? 'Repo Manager'
                   : activeTab === 'zarf' 
                   ? 'Deployed Packages'
-                  : activeTab === 'zarf-state'
-                  ? 'Zarf State & Config'
                   : activeTab === 'zarf-deploy'
                   ? 'Deploy Zarf Package'
                   : activeTab === 'zarf-registry'
                   ? 'Zarf Registry'
-                  : activeTab === 'zarf-creds'
-                  ? 'Zarf Credentials'
                   : activeTab === 'zarf-sbom'
                   ? 'Zarf SBOMs'
                   : activeTab === 'image-scanner'
                   ? 'Security Image Scanner'
-                  : activeTab === 'cluster-auditor'
-                  ? 'Cluster Auditor'
                   : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
               </h1>
               <div className="subtitle">
@@ -6776,20 +6092,14 @@ function App() {
                   ? `Visualizing cluster relationships in ${selectedNs}` 
                   : activeTab === 'zarf'
                   ? 'Manage in-cluster deployed Zarf packages'
-                  : activeTab === 'zarf-state'
-                  ? 'Inspect initialized Zarf cluster settings and configurations'
                   : activeTab === 'zarf-deploy'
                   ? 'Upload, compress/decompress, and deploy local package archives'
                   : activeTab === 'zarf-registry'
                   ? 'Manage containers and tag images inside the in-cluster registry'
-                  : activeTab === 'zarf-creds'
-                  ? 'Inspect and connect to Zarf cluster services'
                   : activeTab === 'zarf-sbom'
                   ? 'Extract CycloneDX package reports from local Zarf packages'
                   : activeTab === 'image-scanner'
                   ? 'Real-time cluster container vulnerability & package registry scanning'
-                  : activeTab === 'cluster-auditor'
-                  ? 'Scan cluster resources for security vulnerabilities, configuration errors, and best practices'
                   : activeTab === 'helm-install'
                   ? 'Install Helm charts from configured repositories'
                   : activeTab === 'helm-repos'
@@ -6835,24 +6145,16 @@ function App() {
             renderTopologyView()
           ) : activeTab === 'zarf' ? (
             renderZarfPackagesView()
-          ) : activeTab === 'zarf-state' ? (
-            renderZarfStateView()
           ) : activeTab === 'zarf-deploy' ? (
             renderZarfDeployView()
           ) : activeTab === 'zarf-registry' ? (
             renderZarfRegistryView()
-          ) : activeTab === 'zarf-creds' ? (
-            renderZarfCredsView()
           ) : activeTab === 'zarf-sbom' ? (
             renderZarfSbomView()
           ) : activeTab === 'image-scanner' ? (
             renderImageScannerView()
-          ) : activeTab === 'cluster-auditor' ? (
-            renderClusterAuditorView()
           ) : activeTab === 'kubescape' ? (
             renderKubescapeView()
-          ) : activeTab === 'gitea' ? (
-            renderGiteaView()
           ) : activeTab === 'helm' ? (
             renderHelmReleasesView()
           ) : activeTab === 'helm-install' ? (
@@ -8291,11 +7593,9 @@ function App() {
                 })),
 
                 // Security & Scans
-                { name: 'Open Cluster Auditor', category: 'Security & Scans', action: () => { setActiveTab('cluster-auditor'); setIsCmdPaletteOpen(false); } },
                 { name: 'Open Image Scanner', category: 'Security & Scans', action: () => { setActiveTab('image-scanner'); setIsCmdPaletteOpen(false); } },
                 { name: 'Open Kubescape Compliance', category: 'Security & Scans', action: () => { setActiveTab('kubescape'); setIsCmdPaletteOpen(false); } },
                 { name: 'Scan All Running Images', category: 'Security & Scans', action: () => { fetchRunningImagesAndScan(); setIsCmdPaletteOpen(false); } },
-                { name: 'Open Gitea CLI Console', category: 'Zarf & Git Server', action: () => { setActiveTab('gitea'); setIsCmdPaletteOpen(false); } },
 
                 // Actions
                 { name: 'Refresh Active Tab View', category: 'Commands', action: () => { fetchResources(); setIsCmdPaletteOpen(false); } },
