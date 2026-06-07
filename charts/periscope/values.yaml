@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: periscope
+  repository: ghcr.io/jdmldm1/periscope-kubernetes
   pullPolicy: Always
   tag: "latest"
 

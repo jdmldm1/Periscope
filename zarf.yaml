@@ -9,9 +9,8 @@ components:
   - name: periscope
     required: true
 
-    # 🔥 CRITICAL: this is what Zarf actually imports into containerd
     images:
-      - periscope:latest
+      - ghcr.io/jdmldm1/periscope-kubernetes:latest
 
     charts:
       - name: periscope
@@ -20,9 +19,3 @@ components:
         localPath: ./charts/periscope
         valuesFiles:
           - ./charts/periscope/values.yaml
-
-    actions:
-      onCreate:
-        before:
-          - cmd: docker build -t periscope:latest .
-            description: Build Periscope image locally
