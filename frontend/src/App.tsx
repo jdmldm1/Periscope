@@ -8,11 +8,11 @@ import {
 } from 'lucide-react';
 import './index.css';
 
-type ResourceKind = 'pods' | 'deployments' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state' | 'kubescape';
+type ResourceKind = 'pods' | 'deployments' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state' | 'kubescape' | 'gitea';
 type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history' | 'files' | 'values';
 
 // Unit parsers for metrics
-const parseCpu = (cpuStr: string) => {
+export const parseCpu = (cpuStr: string) => {
   if (!cpuStr) return 0;
   if (cpuStr.endsWith('n')) return parseFloat(cpuStr) / 1000000000;
   if (cpuStr.endsWith('u')) return parseFloat(cpuStr) / 1000000;
@@ -20,7 +20,7 @@ const parseCpu = (cpuStr: string) => {
   return parseFloat(cpuStr);
 };
 
-const parseMem = (memStr: string) => {
+export const parseMem = (memStr: string) => {
   if (!memStr) return 0;
   if (memStr.endsWith('Ki')) return parseFloat(memStr) * 1024;
   if (memStr.endsWith('Mi')) return parseFloat(memStr) * 1024 * 1024;
@@ -332,6 +332,17 @@ function App() {
   const [kubescapeSearchQuery, setKubescapeSearchQuery] = useState('');
   const [kubescapeSeverityFilter, setKubescapeSeverityFilter] = useState('all');
   const [expandedControlId, setExpandedControlId] = useState<string | null>(null);
+
+  // Gitea CLI console states
+  const [giteaUrl, setGiteaUrl] = useState('http://shiloh:3000');
+  const [giteaToken, setGiteaToken] = useState('');
+  const [giteaHasToken, setGiteaHasToken] = useState(false);
+  const [giteaCmd, setGiteaCmd] = useState('tea repo list');
+  const [giteaLogs, setGiteaLogs] = useState('tea CLI emulator v0.9.2\nType "tea help" for available commands.\n\n');
+  const [isExecutingGiteaCmd, setIsExecutingGiteaCmd] = useState(false);
+
+  // Zarf graph state
+  const [selectedZarfGraphPkg, setSelectedZarfGraphPkg] = useState<string | null>(null);
 
   const filteredResources = resources.filter(r => {
     const term = search.toLowerCase();
@@ -1035,6 +1046,29 @@ function App() {
     }
   };
 
+  const handleApplyRemediation = async (id: string, resource: string) => {
+    if (!confirm(`Are you sure you want to programmatically apply the remediation patch for control ${id} on ${resource}? This will patch the workload specification in the cluster.`)) {
+      return;
+    }
+    
+    try {
+      const res = await fetch('/api/cluster/remediate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, resource })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || 'Patch applied successfully!');
+        runClusterAudit();
+      } else {
+        alert('Failed to apply patch: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error applying patch: ' + err.message);
+    }
+  };
+
   const fetchRunningImages = () => {
     fetch('/api/zarf/running-images')
       .then(res => res.json())
@@ -1102,6 +1136,59 @@ function App() {
     } catch (err: any) {
       alert('Error triggering compliance scan: ' + err.message);
       setIsScanningKubescape(false);
+    }
+  };
+
+  const fetchGiteaConfig = () => {
+    fetch('/api/gitea/config')
+      .then(res => res.json())
+      .then(data => {
+        setGiteaUrl(data.url);
+        setGiteaHasToken(data.hasToken);
+      })
+      .catch(console.error);
+  };
+
+  const saveGiteaConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/gitea/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: giteaUrl, token: giteaToken })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || 'Config saved successfully!');
+        setGiteaToken('');
+        fetchGiteaConfig();
+      } else {
+        alert('Failed to save config: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error saving config: ' + err.message);
+    }
+  };
+
+  const runGiteaCommand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!giteaCmd.trim()) return;
+    setIsExecutingGiteaCmd(true);
+    setGiteaLogs(prev => prev + `> ${giteaCmd}\n`);
+    
+    try {
+      const res = await fetch('/api/gitea/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: giteaCmd })
+      });
+      const data = await res.json();
+      setGiteaLogs(prev => prev + (data.output || 'No output returned.') + '\n\n');
+      setGiteaCmd('');
+    } catch (err: any) {
+      setGiteaLogs(prev => prev + `Error running command: ${err.message}\n\n`);
+    } finally {
+      setIsExecutingGiteaCmd(false);
     }
   };
 
@@ -1585,6 +1672,8 @@ function App() {
       fetchCachedScans();
     } else if (activeTab === 'kubescape') {
       fetchKubescapeStatus();
+    } else if (activeTab === 'gitea') {
+      fetchGiteaConfig();
     }
   }, [activeTab]);
 
@@ -4224,6 +4313,128 @@ function App() {
     );
   };
 
+  const buildZarfGraphData = (pkg: any, pods: any[]) => {
+    const nodes: any[] = [];
+    const edges: any[] = [];
+    const pkgName = pkg.name || pkg.Name || pkg.package || pkg.Package || 'zarf-package';
+    
+    nodes.push({
+      id: 'package',
+      label: `📦 ${pkgName}\n(Zarf Package)`,
+      shape: 'box',
+      margin: 12,
+      font: { color: '#fff', size: 13, bold: true },
+      color: {
+        background: '#1e293b',
+        border: '#3b82f6',
+        highlight: { background: '#334155', border: '#60a5fa' }
+      },
+      borderWidth: 2
+    });
+
+    const componentsList = Array.isArray(pkg.deployedComponents)
+      ? pkg.deployedComponents.map((c: any) => c.name || c)
+      : (Array.isArray(pkg.components) 
+         ? pkg.components.map((c: any) => c.name || c)
+         : []);
+
+    componentsList.forEach((compName: string, idx: number) => {
+      const compPods = pods.filter(p => p.metadata?.labels?.['zarf.dev/component'] === compName);
+      const isHealthy = compPods.length > 0 && compPods.every(p => p.status?.phase === 'Running');
+      const isPending = compPods.length > 0 && compPods.some(p => p.status?.phase === 'Pending');
+      
+      let nodeColor = '#64748b';
+      if (compPods.length > 0) {
+        if (isHealthy) nodeColor = '#10b981';
+        else if (isPending) nodeColor = '#f59e0b';
+        else nodeColor = '#ef4444';
+      }
+
+      nodes.push({
+        id: `comp-${compName}`,
+        label: `⚙️ ${compName}\n(${compPods.length} pods)`,
+        shape: 'box',
+        margin: 10,
+        font: { color: '#fff', size: 11 },
+        color: {
+          background: '#0f172a',
+          border: nodeColor,
+          highlight: { background: '#1e293b', border: nodeColor }
+        },
+        borderWidth: 2
+      });
+
+      edges.push({
+        from: 'package',
+        to: `comp-${compName}`,
+        arrows: 'to',
+        dashes: true,
+        color: { color: '#475569', highlight: '#94a3b8' }
+      });
+
+      if (idx > 0) {
+        const prevCompName = componentsList[idx - 1];
+        edges.push({
+          from: `comp-${prevCompName}`,
+          to: `comp-${compName}`,
+          arrows: 'to',
+          label: 'deploy order',
+          font: { size: 8, color: 'var(--text-muted)', align: 'horizontal' },
+          color: { color: '#fb923c', highlight: '#fdba74' },
+          smooth: { type: 'curvedCW', roundness: 0.15 }
+        });
+      }
+    });
+
+    return { nodes, edges };
+  };
+
+  const ZarfComponentGraph = ({ pkg, pods }: { pkg: any, pods: any[] }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    
+    useEffect(() => {
+      if (!containerRef.current) return;
+      
+      const graphData = buildZarfGraphData(pkg, pods);
+      const options = {
+        physics: {
+          stabilization: true,
+          barnesHut: {
+            gravitationalConstant: -1800,
+            centralGravity: 0.25,
+            smoothCurves: true,
+            springLength: 90,
+            springConstant: 0.035
+          }
+        },
+        layout: {
+          hierarchical: {
+            enabled: true,
+            direction: 'UD',
+            sortMethod: 'directed',
+            nodeSpacing: 160
+          }
+        }
+      };
+      
+      const network = new Network(containerRef.current, graphData, options);
+      return () => network.destroy();
+    }, [pkg, pods]);
+
+    return (
+      <div 
+        ref={containerRef} 
+        style={{ 
+          height: '240px', 
+          background: '#040711', 
+          border: '1px solid var(--border-color)', 
+          borderRadius: 6,
+          position: 'relative'
+        }} 
+      />
+    );
+  };
+
   const renderZarfPackagesView = () => {
     return (
       <div className="zarf-packages-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -4283,41 +4494,62 @@ function App() {
                     key={name}
                     className="resource-row animate-fade-in"
                     style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
                       padding: '16px 20px',
                       background: 'rgba(255,255,255,0.02)',
                       border: '1px solid var(--border-color)',
-                      borderRadius: 8
+                      borderRadius: 8,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12
                     }}
                   >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-main)' }}>{name}</span>
-                        <span className="badge badge-running" style={{ textTransform: 'none' }}>{arch}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-main)' }}>{name}</span>
+                          <span className="badge badge-running" style={{ textTransform: 'none' }}>{arch}</span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          Version: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{version}</span>
+                          Components: <span style={{ color: 'var(--text-main)' }}>{components}</span>
+                        </div>
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        Version: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{version}</span>
-                        Components: <span style={{ color: 'var(--text-main)' }}>{components}</span>
+                      
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button 
+                          className="btn"
+                          onClick={() => setSelectedZarfGraphPkg(selectedZarfGraphPkg === name ? null : name)}
+                          style={{
+                            background: selectedZarfGraphPkg === name ? 'rgba(59, 130, 246, 0.15)' : 'none',
+                            borderColor: selectedZarfGraphPkg === name ? 'var(--accent-blue)' : 'var(--border-color)'
+                          }}
+                        >
+                          <Activity size={14} style={{ marginRight: 4 }} /> Graph
+                        </button>
+                        <button 
+                          className="btn"
+                          onClick={() => handleInspectDeployedZarfPackage(name)}
+                          disabled={isFetchingPackageDetail}
+                        >
+                          <Search size={14} /> Inspect
+                        </button>
+                        <button 
+                          className="btn btn-danger"
+                          onClick={() => handleRemoveZarfPackage(name)}
+                        >
+                          <Trash2 size={14} /> Remove
+                        </button>
                       </div>
                     </div>
-                    
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button 
-                        className="btn"
-                        onClick={() => handleInspectDeployedZarfPackage(name)}
-                        disabled={isFetchingPackageDetail}
-                      >
-                        <Search size={14} /> Inspect
-                      </button>
-                      <button 
-                        className="btn btn-danger"
-                        onClick={() => handleRemoveZarfPackage(name)}
-                      >
-                        <Trash2 size={14} /> Remove
-                      </button>
-                    </div>
+
+                    {selectedZarfGraphPkg === name && (
+                      <div style={{ width: '100%', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 12 }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600, letterSpacing: '0.5px' }}>
+                          ZARF COMPONENT DEPLOYMENT DEPENDENCY TREE:
+                        </div>
+                        <ZarfComponentGraph pkg={pkg} pods={resources.filter((r: any) => r.kind === 'Pod')} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -5350,6 +5582,154 @@ function App() {
     );
   };
 
+  const renderGiteaView = () => {
+    return (
+      <div className="gitea-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px' }}>
+          <h3 style={{ fontSize: '1.1rem', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Code size={18} style={{ color: '#fb923c' }} /> Git Server CLI Console (Gitea)
+          </h3>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Configure external Gitea server credentials and run command-line actions using the <code>tea</code> CLI emulator.
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20, alignItems: 'start' }}>
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+            <h4 style={{ fontSize: '0.95rem', margin: '0 0 16px 0', color: 'var(--text-main)' }}>Gitea Server Connection</h4>
+            
+            <form onSubmit={saveGiteaConfig} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Gitea API URL</label>
+                <input 
+                  type="text" 
+                  className="exec-input"
+                  value={giteaUrl}
+                  onChange={e => setGiteaUrl(e.target.value)}
+                  placeholder="e.g. http://shiloh:3000"
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Personal Access Token {giteaHasToken && <span style={{ color: 'var(--accent-success)', fontSize: '0.75rem' }}>(Token Saved)</span>}
+                </label>
+                <input 
+                  type="password" 
+                  className="exec-input"
+                  value={giteaToken}
+                  onChange={e => setGiteaToken(e.target.value)}
+                  placeholder={giteaHasToken ? "••••••••••••••••" : "Enter personal access token"}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <button 
+                type="submit" 
+                className="btn btn-primary"
+                style={{ width: '100%', marginTop: 8, background: '#fb923c', color: '#000', border: 'none', fontWeight: 600 }}
+              >
+                Save Gitea Credentials
+              </button>
+            </form>
+
+            <div style={{ marginTop: 24, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
+              <h5 style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10, letterSpacing: '0.5px' }}>Quick Commands Guide</h5>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div 
+                  onClick={() => setGiteaCmd('tea repo list')}
+                  style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                >
+                  <span>tea repo list</span>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>List repos</span>
+                </div>
+                <div 
+                  onClick={() => setGiteaCmd('tea repo create new-repo')}
+                  style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                >
+                  <span>tea repo create [name]</span>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Create repo</span>
+                </div>
+                <div 
+                  onClick={() => setGiteaCmd('tea user list')}
+                  style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                >
+                  <span>tea user list</span>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>List users (admin)</span>
+                </div>
+                <div 
+                  onClick={() => setGiteaCmd('tea org list')}
+                  style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                >
+                  <span>tea org list</span>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>List orgs</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: '#090d16', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#ef4444' }} />
+                <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#f59e0b' }} />
+                <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#10b981' }} />
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginLeft: 8 }}>tea@periscope-console</span>
+              </div>
+              <button 
+                className="btn btn-sm" 
+                style={{ padding: '2px 8px', fontSize: '0.7rem', background: 'rgba(255,255,255,0.02)' }}
+                onClick={() => setGiteaLogs('tea CLI emulator v0.9.2\nType "tea help" for available commands.\n\n')}
+              >
+                Clear Terminal
+              </button>
+            </div>
+
+            <pre 
+              style={{ 
+                margin: 0, 
+                padding: 16, 
+                background: '#040711', 
+                border: '1px solid rgba(255,255,255,0.02)', 
+                borderRadius: 6, 
+                fontFamily: 'var(--font-mono)', 
+                fontSize: '0.8rem', 
+                height: '350px', 
+                overflowY: 'auto', 
+                color: '#38bdf8',
+                whiteSpace: 'pre-wrap'
+              }}
+            >
+              {giteaLogs}
+            </pre>
+
+            <form onSubmit={runGiteaCommand} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-green)', fontSize: '0.85rem', fontWeight: 600 }}>$</span>
+              <input 
+                type="text" 
+                className="exec-input"
+                value={giteaCmd}
+                onChange={e => setGiteaCmd(e.target.value)}
+                placeholder="tea repo list"
+                disabled={isExecutingGiteaCmd}
+                style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.85rem', background: '#040711', color: '#fff' }}
+              />
+              <button 
+                type="submit" 
+                className="btn btn-primary"
+                disabled={isExecutingGiteaCmd || !giteaCmd.trim()}
+                style={{ background: '#fb923c', color: '#000', border: 'none', fontWeight: 600, padding: '8px 16px', fontSize: '0.8rem' }}
+              >
+                {isExecutingGiteaCmd ? 'Running...' : 'Execute'}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderZarfRegistryView = () => {
     return (
       <div className="zarf-registry-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -5723,6 +6103,24 @@ function App() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
                         <div>
                           Resource: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>{issue.resource}</span>
+                          {issue.codeFix && (
+                            <button
+                              className="btn"
+                              style={{ 
+                                marginLeft: 12, 
+                                padding: '2px 8px', 
+                                fontSize: '0.7rem', 
+                                background: 'var(--accent-success)', 
+                                color: '#000', 
+                                border: 'none',
+                                fontWeight: 700,
+                                borderRadius: 4
+                              }}
+                              onClick={() => handleApplyRemediation(issue.id, issue.resource)}
+                            >
+                              Apply Configuration Patch
+                            </button>
+                          )}
                         </div>
                         {issue.remediation && (
                           <div style={{ color: '#10b981', fontSize: '0.75rem', fontWeight: 500 }}>
@@ -6157,6 +6555,7 @@ function App() {
               <a className={`nav-item ${activeTab === 'zarf-deploy' ? 'active' : ''}`} onClick={() => { setZarfViewMode('local'); setActiveTab('zarf-deploy'); setSearch(''); }}><Save size={16} /> Deploy Zarf Package</a>
               <a className={`nav-item ${activeTab === 'zarf-registry' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-registry'); setSearch(''); }}><Database size={16} /> Zarf Registry</a>
               <a className={`nav-item ${activeTab === 'zarf-creds' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-creds'); setSearch(''); }}><Key size={16} /> Zarf Credentials</a>
+              <a className={`nav-item ${activeTab === 'gitea' ? 'active' : ''}`} onClick={() => { setActiveTab('gitea'); setSearch(''); }}><Code size={16} style={{ color: '#fb923c' }} /> Gitea CLI Console</a>
               <a className={`nav-item ${activeTab === 'zarf-sbom' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-sbom'); setSearch(''); }}><Shield size={16} /> Zarf SBOMs</a>
               <a className={`nav-item ${activeTab === 'zarf-state' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-state'); setSearch(''); }}><Settings size={16} /> Zarf State & Config</a>
             </nav>
@@ -6452,6 +6851,8 @@ function App() {
             renderClusterAuditorView()
           ) : activeTab === 'kubescape' ? (
             renderKubescapeView()
+          ) : activeTab === 'gitea' ? (
+            renderGiteaView()
           ) : activeTab === 'helm' ? (
             renderHelmReleasesView()
           ) : activeTab === 'helm-install' ? (
@@ -7894,6 +8295,7 @@ function App() {
                 { name: 'Open Image Scanner', category: 'Security & Scans', action: () => { setActiveTab('image-scanner'); setIsCmdPaletteOpen(false); } },
                 { name: 'Open Kubescape Compliance', category: 'Security & Scans', action: () => { setActiveTab('kubescape'); setIsCmdPaletteOpen(false); } },
                 { name: 'Scan All Running Images', category: 'Security & Scans', action: () => { fetchRunningImagesAndScan(); setIsCmdPaletteOpen(false); } },
+                { name: 'Open Gitea CLI Console', category: 'Zarf & Git Server', action: () => { setActiveTab('gitea'); setIsCmdPaletteOpen(false); } },
 
                 // Actions
                 { name: 'Refresh Active Tab View', category: 'Commands', action: () => { fetchResources(); setIsCmdPaletteOpen(false); } },
@@ -7958,6 +8360,7 @@ function App() {
                             else if (['audit'].includes(command)) targetTab = 'cluster-auditor';
                             else if (['scan', 'scanner'].includes(command)) targetTab = 'image-scanner';
                             else if (['kube', 'compliance', 'kubescape'].includes(command)) targetTab = 'kubescape';
+                            else if (['gitea', 'git', 'tea'].includes(command)) targetTab = 'gitea';
                             else if (['topo', 'topology'].includes(command)) targetTab = 'topology';
                             else if (['event', 'events'].includes(command)) targetTab = 'events';
 

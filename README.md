@@ -24,10 +24,10 @@
 
 ## 🛡️ Built-in Security Integrations
 
-Periscope is engineered with security and auditing at its core to ensure complete situational awareness and threat detection in your Kubernetes clusters:
+Periscope is intended to provide threat detection in your Kubernetes clusters:
 
 1. **Vulnerability Scanning via Anchore Grype**
-   - **On-Demand CVE Inspections**: Run real-time container image vulnerability scans directly from the console.
+   - **On-Demand CVE Inspections**: container image vulnerability scans.
    - **SBOM Analysis**: Scans images matching active workloads or registry catalogs to analyze all packages and binaries.
    - **Air-Gap Compliance**: Runs fully offline using a cached database, enabling vulnerability detection in secure, disconnected environments.
 

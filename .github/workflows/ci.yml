@@ -1,0 +1,134 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/periscope
+  ZARF_VERSION: v0.75.1
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Run backend unit tests
+        run: npm test
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run frontend unit tests
+        run: |
+          cd frontend
+          npm run test
+
+      - name: Build frontend to verify build sanity
+        run: |
+          cd frontend
+          npm run build
+
+  build-and-push-oci:
+    needs: test-and-lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: actions/setup-qemu-action@v3
+        
+      - name: Set up Docker Buildx
+        uses: actions/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image to OCI
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  helm-package-oci:
+    needs: build-and-push-oci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm CLI
+        uses: azure/setup-helm@v4
+
+      - name: Log in to GHCR for Helm OCI
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password-stdin
+
+      - name: Lint Helm Chart
+        run: helm lint charts/periscope
+
+      - name: Package Helm Chart
+        run: helm package charts/periscope --destination dist/
+
+      - name: Push Helm Chart to OCI Registry
+        run: |
+          helm push dist/periscope-*.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+
+  zarf-package-oci:
+    needs: build-and-push-oci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Zarf CLI
+        run: |
+          curl -sL "https://github.com/zarf-dev/zarf/releases/download/${{ env.ZARF_VERSION }}/zarf_${{ env.ZARF_VERSION }}_Linux_amd64" -o /usr/local/bin/zarf
+          chmod +x /usr/local/bin/zarf
+          zarf version
+
+      - name: Log in to GHCR for Zarf OCI
+        run: |
+          zarf registry login ${{ env.REGISTRY }} -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Zarf Package
+        run: |
+          # Use local docker socket if building images inline, or pull image from registry
+          zarf package create --confirm
+
+      - name: Publish Zarf Package to OCI Registry
+        run: |
+          zarf package publish zarf-package-periscope-*.tar.zst oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/packages

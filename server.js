@@ -2419,6 +2419,98 @@ app.get('/api/cluster/audit', async (req, res) => {
     }
 });
 
+// One-Click Compliance Auto-Fixer Endpoint
+app.post('/api/cluster/remediate', async (req, res) => {
+    const { id, resource } = req.body;
+    if (!id || !resource) {
+        return res.status(400).json({ error: 'id and resource are required' });
+    }
+
+    try {
+        const parts = resource.split(': ');
+        const kind = (parts[0] || '').trim().toLowerCase();
+        const nsAndName = (parts[1] || '').trim();
+        const subParts = nsAndName.split('/');
+        
+        let namespace = 'default';
+        let name = nsAndName;
+        if (subParts.length > 1) {
+            namespace = subParts[0];
+            name = subParts[1];
+        }
+
+        console.log(`[Auto-Fixer] Remediating ${kind}/${name} in namespace ${namespace} for control ${id}`);
+
+        const getCmd = `kubectl get ${kind} ${name} -n ${namespace} -o json`;
+        const { execSync } = require('child_process');
+        
+        let rawManifest;
+        try {
+            rawManifest = execSync(getCmd, { encoding: 'utf8' });
+        } catch (getErr) {
+            throw new Error(`Failed to fetch manifest: ${getErr.message}`);
+        }
+
+        const manifest = JSON.parse(rawManifest);
+
+        const applyContainerFix = (specObj) => {
+            const containers = [...(specObj.containers || []), ...(specObj.initContainers || [])];
+            containers.forEach(c => {
+                c.securityContext = c.securityContext || {};
+                if (id === 'C-0016') {
+                    c.securityContext.privileged = false;
+                } else if (id === 'C-0012') {
+                    c.securityContext.allowPrivilegeEscalation = false;
+                } else if (id === 'C-0046') {
+                    c.securityContext.runAsNonRoot = true;
+                    if (c.securityContext.runAsUser === 0) {
+                        c.securityContext.runAsUser = 1000;
+                    }
+                } else if (id === 'C-0009') {
+                    c.resources = c.resources || {};
+                    c.resources.limits = c.resources.limits || {};
+                    c.resources.limits.cpu = c.resources.limits.cpu || "500m";
+                    c.resources.limits.memory = c.resources.limits.memory || "512Mi";
+                    c.resources.requests = c.resources.requests || {};
+                    c.resources.requests.cpu = c.resources.requests.cpu || "100m";
+                    c.resources.requests.memory = c.resources.requests.memory || "256Mi";
+                }
+            });
+        };
+
+        if (kind === 'pod') {
+            if (manifest.spec) applyContainerFix(manifest.spec);
+        } else if (['deployment', 'statefulset', 'daemonset', 'job'].includes(kind)) {
+            if (manifest.spec && manifest.spec.template && manifest.spec.template.spec) {
+                applyContainerFix(manifest.spec.template.spec);
+            }
+        } else if (kind === 'cronjob') {
+            if (manifest.spec && manifest.spec.jobTemplate && manifest.spec.jobTemplate.spec && manifest.spec.jobTemplate.spec.template && manifest.spec.jobTemplate.spec.template.spec) {
+                applyContainerFix(manifest.spec.jobTemplate.spec.template.spec);
+            }
+        } else {
+            throw new Error(`Auto-remediation not supported for resource kind: ${kind}`);
+        }
+
+        const tempPath = path.join(os.tmpdir(), `remedy-${Date.now()}.json`);
+        fs.writeFileSync(tempPath, JSON.stringify(manifest, null, 2), 'utf8');
+
+        try {
+            execSync(`kubectl replace -f "${tempPath}"`);
+            console.log(`[Auto-Fixer] Successfully applied fix for ${id} on ${kind}/${name}`);
+            res.json({ success: true, message: `Successfully remediated control ${id} on ${kind}/${name}` });
+        } catch (applyErr) {
+            throw new Error(`Kubectl replace failed: ${applyErr.message}`);
+        } finally {
+            try { fs.unlinkSync(tempPath); } catch (e) {}
+        }
+
+    } catch (err) {
+        console.error(`[Auto-Fixer] Failed to apply remediation:`, err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Zarf Deployed Package Inspector Secret Reader
 app.get('/api/zarf/packages/:name', async (req, res) => {
     const { name } = req.params;
@@ -2866,6 +2958,186 @@ app.post('/api/security/kubescape/scan', async (req, res) => {
             isKubescapeScanning = false;
         }
     })();
+});
+
+// Gitea configuration and terminal CLI emulator
+const giteaConfigFile = path.join(os.tmpdir(), 'periscope-gitea-config.json');
+let giteaConfig = {
+    url: 'http://shiloh:3000',
+    token: ''
+};
+
+try {
+    if (fs.existsSync(giteaConfigFile)) {
+        giteaConfig = JSON.parse(fs.readFileSync(giteaConfigFile, 'utf8'));
+    }
+} catch (err) {
+    console.error('[Gitea] Failed to load config:', err.message);
+}
+
+app.get('/api/gitea/config', (req, res) => {
+    res.json({
+        url: giteaConfig.url,
+        hasToken: !!giteaConfig.token
+    });
+});
+
+app.post('/api/gitea/config', (req, res) => {
+    const { url, token } = req.body;
+    if (!url) return res.status(400).json({ error: 'url is required' });
+    
+    giteaConfig.url = url;
+    if (token) giteaConfig.token = token;
+    
+    try {
+        fs.writeFileSync(giteaConfigFile, JSON.stringify(giteaConfig, null, 2), 'utf8');
+        res.json({ success: true, message: 'Gitea configuration saved successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/gitea/exec', async (req, res) => {
+    const { command } = req.body;
+    if (!command) return res.status(400).json({ error: 'command is required' });
+
+    const args = command.trim().split(/\s+/);
+    if (args[0] !== 'tea') {
+        return res.json({ output: `Error: command must start with 'tea' (e.g. 'tea repo list')` });
+    }
+
+    const sub = args[1];
+    const action = args[2];
+
+    const fetchGitea = async (method, path, body = null) => {
+        const url = `${giteaConfig.url}/api/v1${path}`;
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        if (giteaConfig.token) {
+            headers['Authorization'] = `token ${giteaConfig.token}`;
+        }
+
+        const urlObj = new URL(url);
+        const httpLib = urlObj.protocol === 'https:' ? require('https') : require('http');
+        
+        return new Promise((resolve, reject) => {
+            const reqOpts = {
+                hostname: urlObj.hostname,
+                port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+                path: urlObj.pathname + urlObj.search,
+                method: method,
+                headers: headers
+            };
+
+            const req = httpLib.request(reqOpts, (response) => {
+                let data = '';
+                response.on('data', chunk => data += chunk);
+                response.on('end', () => {
+                    if (response.statusCode >= 200 && response.statusCode < 300) {
+                        try {
+                            resolve(JSON.parse(data));
+                        } catch (e) {
+                            resolve(data);
+                        }
+                    } else {
+                        reject(new Error(`Gitea returned status ${response.statusCode}: ${data}`));
+                    }
+                });
+            });
+
+            req.on('error', err => reject(err));
+            if (body) {
+                req.write(JSON.stringify(body));
+            }
+            req.end();
+        });
+    };
+
+    try {
+        if (sub === 'help' || !sub) {
+            let help = `Gitea CLI Console (tea emulator)\n\n`;
+            help += `Usage: tea <command> <action> [options]\n\n`;
+            help += `Commands:\n`;
+            help += `  tea repo list                   List repositories for the authenticated user\n`;
+            help += `  tea repo create <name>          Create a new repository\n`;
+            help += `  tea user list                   List all Gitea users (requires admin rights)\n`;
+            help += `  tea org list                    List organizations\n`;
+            help += `  tea version                     Display emulator version info\n`;
+            return res.json({ output: help });
+        }
+
+        if (sub === 'version') {
+            return res.json({ output: `tea version v0.9.2 (periscope-emulator)` });
+        }
+
+        if (sub === 'repo') {
+            if (action === 'list' || action === 'ls') {
+                const repos = await fetchGitea('GET', '/user/repos');
+                if (!Array.isArray(repos)) {
+                    return res.json({ output: 'No repositories found.' });
+                }
+                
+                let out = `Listing repositories:\n\n`;
+                out += `ID\tName\tOwner\tPrivate\tClone URL\n`;
+                out += `--------------------------------------------------------\n`;
+                repos.forEach(r => {
+                    out += `${r.id}\t${r.name}\t${r.owner?.login}\t${r.private}\t${r.clone_url}\n`;
+                });
+                return res.json({ output: out });
+            }
+            
+            if (action === 'create' || action === 'new') {
+                const name = args[3];
+                if (!name) return res.json({ output: 'Error: repository name is required (e.g. tea repo create my-repo)' });
+                const newRepo = await fetchGitea('POST', '/user/repos', { name });
+                return res.json({ output: `Successfully created repository '${newRepo.name}'!\nClone URL: ${newRepo.clone_url}` });
+            }
+
+            return res.json({ output: `Error: unknown action '${action}' for 'tea repo'. Run 'tea help'.` });
+        }
+
+        if (sub === 'user') {
+            if (action === 'list' || action === 'ls') {
+                const users = await fetchGitea('GET', '/admin/users');
+                if (!Array.isArray(users)) {
+                    return res.json({ output: 'No users found.' });
+                }
+                
+                let out = `Listing Gitea users:\n\n`;
+                out += `ID\tUsername\tEmail\tAdmin\tActive\n`;
+                out += `--------------------------------------------------------\n`;
+                users.forEach(u => {
+                    out += `${u.id}\t${u.username}\t${u.email || 'N/A'}\t${u.is_admin}\t${u.active}\n`;
+                });
+                return res.json({ output: out });
+            }
+
+            return res.json({ output: `Error: unknown action '${action}' for 'tea user'. Run 'tea help'.` });
+        }
+
+        if (sub === 'org') {
+            if (action === 'list' || action === 'ls') {
+                const orgs = await fetchGitea('GET', '/orgs');
+                if (!Array.isArray(orgs)) {
+                    return res.json({ output: 'No organizations found.' });
+                }
+                
+                let out = `Listing organizations:\n\n`;
+                out += `ID\tName\tFull Name\tDescription\n`;
+                out += `--------------------------------------------------------\n`;
+                orgs.forEach(o => {
+                    out += `${o.id}\t${o.username}\t${o.full_name || 'N/A'}\t${o.description || 'N/A'}\n`;
+                });
+                return res.json({ output: out });
+            }
+        }
+
+        return res.json({ output: `Error: unknown command 'tea ${sub}'. Run 'tea help'.` });
+
+    } catch (err) {
+        res.json({ output: `Error executing command: ${err.message}` });
+    }
 });
 
 // Serve frontend in production
