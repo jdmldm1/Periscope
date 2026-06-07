@@ -1021,3 +1021,66 @@ div.vis-tooltip {
 .topology-graph-canvas canvas:active {
   cursor: grabbing;
 }
+
+/* Slide in animations */
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* Alert pulse effect */
+@keyframes pulseRed {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+.pulse-error {
+  animation: pulseRed 2s infinite;
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  color: var(--accent-error) !important;
+}
+
+/* Custom scrollbars inside diagnostics and logs */
+.diagnostics-log-tail {
+  background: #000;
+  color: #ededed;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  overflow-y: auto;
+  max-height: 250px;
+  white-space: pre-wrap;
+}
+
+/* Diff View Highlights */
+.diff-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  background: #000;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  max-height: 400px;
+  overflow-y: auto;
+}
+.diff-line {
+  display: flex;
+  padding: 2px 4px;
+}
+.diff-line-added {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+.diff-line-removed {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+.diff-line-unchanged {
+  color: #888;
+}

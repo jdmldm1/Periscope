@@ -22,7 +22,9 @@ RUN apk add --no-cache curl ca-certificates && \
     curl -sL "https://dl.k8s.io/release/v1.30.0/bin/linux/${ZARF_ARCH}/kubectl" -o /usr/local/bin/kubectl && \
     chmod +x /usr/local/bin/kubectl && \
     printf '#!/bin/sh\nexec zarf tools helm "$@"\n' > /usr/local/bin/helm && \
-    chmod +x /usr/local/bin/helm
+    chmod +x /usr/local/bin/helm && \
+    curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin && \
+    grype db update
 
 COPY server.js ./
 COPY --from=builder /app/frontend/dist ./frontend/dist

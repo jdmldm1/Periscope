@@ -1,11 +1,11 @@
-# 🔭 Periscope
+# 🔭 Periscope - K8s
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-%23326ce5.svg?style=flat&logo=kubernetes&logoColor=white)](https://kubernetes.io)
 [![React](https://img.shields.io/badge/react-%2320232a.svg?style=flat&logo=react&logoColor=%2361dafb)](https://reactjs.org/)
 [![Node.js](https://img.shields.io/badge/node.js-6DA55F?style=flat&logo=node.js&logoColor=white)](https://nodejs.org/)
 
-**Periscope** is a premium, real-time Kubernetes cluster explorer and visualization dashboard. Styled in a custom dark steel-blue design system, it provides a high-fidelity window into your cluster topologies, helm releases, and zarf packages.
+**Periscope** is a Kubernetes cluster explorer and visualization dashboard which allows you to view and manage your cluster state, helm releases, and zarf packages.
 
 <p align="center">
   <img src="frontend/public/logo.png" alt="Periscope Logo" width="220" />
@@ -13,26 +13,45 @@
 
 ---
 
-## ✨ Features
+## Features
 
-- **📊 Dynamic Topology Graph**: A force-directed 2D network layout powered by `vis.js` visualizing relationships between K8s Nodes, Deployments, Services, and Pods.
-- **📄 Interactive YAML Inspector**: Double-click any node in the topology view or select a resource card to view, inspect, and modify live Kubernetes YAML configs.
-- **🐚 Built-in Pod Terminal**: Run interactive commands (`/bin/sh` or `/bin/bash`) directly inside your container pods from a dark steel terminal terminal window.
-- **📝 Real-time Log Streamer**: Streams pod logs with customizable regex filters and automatic syntax-coloring for errors, warnings, successes, and info messages.
-- **📦 Helm & Zarf Integrations**: Inspect deployed Helm releases, Helm revision history, and manage Zarf packages directly from the dashboard.
-- **🎨 Dark Steel-Blue Aesthetic**: Fully customized glassmorphism design system replacing classic neon aesthetics with a polished, developer-centric navy steel theme.
+- **Dynamic Topology Graph**: 2D network visualation of relationships between K8s Nodes, Deployments, Services, and Pods.
+- **Built-in Pod Terminal**: Run interactive commands (`/bin/sh` or `/bin/bash`) directly inside your container pods from a terminal terminal window.
+- **Real-time Log Streamer**: Streams pod logs with customizable regex filters and automatic syntax-coloring for errors, warnings, successes, and info messages.
+- **Helm & Zarf Integrations**: Inspect deployed Helm releases, Helm revision history, and manage Zarf packages directly from the dashboard.
 
 ---
 
-## 🛠️ Tech Stack
+## 🛡️ Built-in Security Integrations
 
-- **Frontend**: React (TypeScript), CSS Custom Properties, Lucide Icons, and `vis-network`.
+Periscope is engineered with security and auditing at its core to ensure complete situational awareness and threat detection in your Kubernetes clusters:
+
+1. **Vulnerability Scanning via Anchore Grype**
+   - **On-Demand CVE Inspections**: Run real-time container image vulnerability scans directly from the console.
+   - **SBOM Analysis**: Scans images matching active workloads or registry catalogs to analyze all packages and binaries.
+   - **Air-Gap Compliance**: Runs fully offline using a cached database, enabling vulnerability detection in secure, disconnected environments.
+
+2. **Kubernetes Configuration & RBAC Security Auditor**
+   - **RBAC Overprivilege Checker**: Identifies overprivileged `ServiceAccounts` bound to risky `Roles`/`ClusterRoles` (e.g., wildcard resource permissions or execution access).
+   - **Pod Hardening Checks**: Audits container specs for privileged modes, `allowPrivilegeEscalation` defaults, and running as the root user.
+   - **Host Namespace Isolation**: Flags pods sharing the host's networking (`hostNetwork`), processes (`hostPID`), or IPC (`hostIPC`) namespaces.
+   - **Filesystem Security**: Alerts on dangerous `hostPath` mounts that could expose the host's filesystem to container breakout risks.
+   - **Network Policy Auditor**: Highlights pods running without network isolation (`NetworkPolicy` coverage).
+   - **Plaintext Secret Detector**: Automatically scans container environment variables for exposed secrets, passwords, keys, and tokens.
+   - **Resource & Reliability Linter**: Flags missing CPU/Memory requests/limits, missing Liveness/Readiness probes, single-replica deployments, and deprecated API versions.
+   - **Cluster Health Grade**: Computes a dynamic, relative compliance grade (A+ through F) based on violation density and resource counts.
+
+---
+
+## Tech Stack
+
+- **Frontend**: React (TypeScript) and vis.js
 - **Backend**: Express (Node.js), Client-side Server-Sent Events, WebSockets, and `@kubernetes/client-node`.
 - **Infrastructure**: Helm and Zarf.
 
 ---
 
-## 🚀 Quick Start (Local Development)
+## Quick Start (Local Development)
 
 ### Prerequisites
 
