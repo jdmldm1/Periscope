@@ -6,6 +6,8 @@ const stream = require('stream');
 const net = require('net');
 const { exec } = require('child_process');
 const http = require('http');
+const fs = require('fs');
+
 
 
 const app = express();
@@ -22,6 +24,11 @@ let k8sBatchApi = kc.makeApiClient(k8s.BatchV1Api);
 let k8sNetApi = kc.makeApiClient(k8s.NetworkingV1Api);
 let k8sCustom = kc.makeApiClient(k8s.CustomObjectsApi);
 let k8sExtensionsApi = kc.makeApiClient(k8s.ApiextensionsV1Api);
+let k8sRbacApi = kc.makeApiClient(k8s.RbacAuthorizationV1Api);
+
+let pulseClients = [];
+let pulseWatchReq = null;
+
 
 // Kubeconfig Context Switcher
 app.get('/api/kube/contexts', async (req, res) => {
@@ -60,7 +67,11 @@ app.post('/api/kube/contexts', async (req, res) => {
                 k8sNetApi = kc.makeApiClient(k8s.NetworkingV1Api);
                 k8sCustom = kc.makeApiClient(k8s.CustomObjectsApi);
                 k8sExtensionsApi = kc.makeApiClient(k8s.ApiextensionsV1Api);
+                k8sRbacApi = kc.makeApiClient(k8s.RbacAuthorizationV1Api);
                 
+                if (pulseClients.length > 0) {
+                    startClusterPulseWatcher();
+                }
                 res.json({ success: true, currentContext: kc.currentContext });
             } catch (reloadErr) {
                 res.status(500).json({ error: reloadErr.message });
@@ -253,6 +264,236 @@ app.get('/api/events/:namespace/:uid', async (req, res) => {
         const response = await k8sCoreApi.listNamespacedEvent({ namespace, fieldSelector: `involvedObject.uid=${uid}` });
         res.json(response.items || []);
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Live Event Streamer SSE route
+function broadcastPulse(event) {
+    const data = JSON.stringify(event);
+    pulseClients.forEach(client => {
+        try {
+            client.res.write(`data: ${data}\n\n`);
+        } catch (e) {
+            console.error('Failed to write to client:', e);
+        }
+    });
+}
+
+function startClusterPulseWatcher() {
+    if (pulseWatchReq) {
+        try { pulseWatchReq.abort(); } catch(e) {}
+        pulseWatchReq = null;
+    }
+    
+    try {
+        const watch = new k8s.Watch(kc);
+        watch.watch(
+            '/api/v1/events',
+            {},
+            (type, event) => {
+                broadcastPulse({ type, event });
+            },
+            (err) => {
+                if (err) {
+                    console.error('Pulse Watch error/close:', err);
+                }
+                if (pulseClients.length > 0) {
+                    setTimeout(startClusterPulseWatcher, 5000);
+                }
+            }
+        ).then(req => {
+            pulseWatchReq = req;
+        }).catch(err => {
+            console.error('Failed to start Pulse Watcher promise:', err);
+            if (pulseClients.length > 0) {
+                setTimeout(startClusterPulseWatcher, 5000);
+            }
+        });
+    } catch (err) {
+        console.error('Pulse Watcher synchronous error:', err);
+        if (pulseClients.length > 0) {
+            setTimeout(startClusterPulseWatcher, 5000);
+        }
+    }
+}
+
+app.get('/api/cluster/pulse', (req, res) => {
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+    });
+    res.write('\n');
+
+    const clientId = Date.now();
+    pulseClients.push({ id: clientId, res });
+
+    if (pulseClients.length === 1) {
+        startClusterPulseWatcher();
+    }
+
+    req.on('close', () => {
+        pulseClients = pulseClients.filter(c => c.id !== clientId);
+        if (pulseClients.length === 0 && pulseWatchReq) {
+            try { pulseWatchReq.abort(); } catch(e) {}
+            pulseWatchReq = null;
+        }
+    });
+});
+
+// Smart Pod Doctor diagnostics check route
+app.get('/api/diagnose/:namespace/:podName', async (req, res) => {
+    const { namespace, podName } = req.params;
+    try {
+        const pod = await k8sCoreApi.readNamespacedPod({ name: podName, namespace });
+        const eventsResponse = await k8sCoreApi.listNamespacedEvent({ namespace });
+        const allEvents = eventsResponse.items || [];
+        const events = allEvents.filter(e => e.involvedObject && e.involvedObject.uid === pod.metadata.uid);
+        
+        let targetContainer = null;
+        if (pod.status?.containerStatuses) {
+            const failing = pod.status.containerStatuses.find(cs => cs.state?.waiting || (cs.state?.terminated && cs.state.terminated.exitCode !== 0));
+            if (failing) {
+                targetContainer = failing.name;
+            }
+        }
+        if (!targetContainer && pod.spec?.containers?.length > 0) {
+            targetContainer = pod.spec.containers[0].name;
+        }
+
+        let logTail = '';
+        if (targetContainer) {
+            try {
+                const logRes = await k8sCoreApi.readNamespacedPodLog({
+                    name: podName,
+                    namespace,
+                    container: targetContainer,
+                    tailLines: 50
+                });
+                logTail = logRes;
+            } catch (logErr) {
+                logTail = `Could not fetch logs for container ${targetContainer}: ${logErr.message}`;
+            }
+        } else {
+            logTail = 'No containers found in pod spec.';
+        }
+
+        let diagnosis = {
+            status: 'Healthy',
+            summary: 'No issues detected. The pod is running normally.',
+            details: [],
+            events: events.map(e => ({
+                type: e.type,
+                reason: e.reason,
+                message: e.message,
+                firstTimestamp: e.firstTimestamp || e.metadata.creationTimestamp,
+                count: e.count
+            })),
+            logTail: logTail
+        };
+
+        const containerStatuses = [
+            ...(pod.status?.containerStatuses || []),
+            ...(pod.status?.initContainerStatuses || [])
+        ];
+
+        let hasIssue = false;
+
+        containerStatuses.forEach(cs => {
+            const name = cs.name;
+            const state = cs.state || {};
+            const lastState = cs.lastState || {};
+            
+            if (state.waiting) {
+                hasIssue = true;
+                const reason = state.waiting.reason;
+                const message = state.waiting.message || '';
+                
+                if (reason === 'CrashLoopBackOff') {
+                    diagnosis.status = 'Critical';
+                    const exitCode = lastState.terminated?.exitCode;
+                    const termReason = lastState.terminated?.reason;
+                    let detail = `Container '${name}' is in CrashLoopBackOff.`;
+                    if (exitCode !== undefined) {
+                        detail += ` It terminated with exit code ${exitCode} (${termReason || 'unknown reason'}).`;
+                    }
+                    if (exitCode === 137 || termReason === 'OOMKilled') {
+                        detail += ` Root cause: Out Of Memory (OOMKilled). The container exceeded its memory limit.`;
+                    } else if (exitCode === 1) {
+                        detail += ` This usually indicates an application crash or misconfiguration.`;
+                    } else if (exitCode === 127) {
+                        detail += ` Command or entrypoint binary not found.`;
+                    }
+                    diagnosis.details.push(detail);
+                } else if (reason === 'ErrImagePull' || reason === 'ImagePullBackOff') {
+                    diagnosis.status = 'Critical';
+                    diagnosis.details.push(`Container '${name}' failed to pull image. Reason: ${reason}. Check if the image reference is correct, the registry exists, and credentials are correct.`);
+                } else if (reason === 'CreateContainerConfigError' || reason === 'CreateContainerError') {
+                    diagnosis.status = 'Critical';
+                    diagnosis.details.push(`Container '${name}' failed to create. Reason: ${reason}. This is often caused by a missing ConfigMap, Secret, or invalid command arguments.`);
+                } else {
+                    diagnosis.status = 'Warning';
+                    diagnosis.details.push(`Container '${name}' is waiting. Reason: ${reason}. Message: ${message}`);
+                }
+            }
+            
+            if (state.terminated && state.terminated.exitCode !== 0) {
+                hasIssue = true;
+                const term = state.terminated;
+                let detail = `Container '${name}' terminated with non-zero exit code ${term.exitCode}. Reason: ${term.reason}.`;
+                if (term.reason === 'OOMKilled') {
+                    diagnosis.status = 'Critical';
+                    detail += ` The container was terminated because it ran out of memory. Try increasing the memory limits in the deployment spec.`;
+                } else {
+                    if (diagnosis.status !== 'Critical') diagnosis.status = 'Warning';
+                }
+                diagnosis.details.push(detail);
+            }
+        });
+
+        if (pod.status?.phase === 'Pending') {
+            hasIssue = true;
+            diagnosis.status = 'Critical';
+            let unschedulable = false;
+            (pod.status.conditions || []).forEach(cond => {
+                if (cond.type === 'PodScheduled' && cond.status === 'False' && cond.reason === 'Unschedulable') {
+                    unschedulable = true;
+                    diagnosis.details.push(`Pod scheduling failed. Reason: Unschedulable. Message: ${cond.message || 'No resources available.'}`);
+                }
+            });
+            if (!unschedulable) {
+                diagnosis.details.push(`Pod is pending. Current conditions: ${(pod.status.conditions || []).map(c => `${c.type}=${c.status}`).join(', ')}`);
+            }
+        }
+
+        const warnings = events.filter(e => e.type === 'Warning');
+        warnings.forEach(w => {
+            if (w.reason === 'Unhealthy') {
+                hasIssue = true;
+                if (diagnosis.status !== 'Critical') diagnosis.status = 'Warning';
+                diagnosis.details.push(`Probe failure: ${w.message} (Reason: ${w.reason}, Count: ${w.count})`);
+            } else if (w.reason === 'FailedScheduling') {
+                hasIssue = true;
+                diagnosis.status = 'Critical';
+                diagnosis.details.push(`Scheduling issue: ${w.message}`);
+            } else if (w.reason === 'FailedMount') {
+                hasIssue = true;
+                diagnosis.status = 'Critical';
+                diagnosis.details.push(`Volume mount failure: ${w.message}`);
+            }
+        });
+
+        if (hasIssue) {
+            if (diagnosis.status === 'Critical') {
+                diagnosis.summary = `Critical issues detected in pod '${podName}'. Actions are required to restore service.`;
+            } else {
+                diagnosis.summary = `Warnings detected in pod '${podName}'. The resource may be unstable or misconfigured.`;
+            }
+        }
+
+        res.json(diagnosis);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 
@@ -605,6 +846,60 @@ app.post('/api/helm/:namespace/:name/rollback', (req, res) => {
     });
 });
 
+// Helm upgrade values
+app.post('/api/helm/:namespace/:name/upgrade', (req, res) => {
+    const { namespace, name } = req.params;
+    const { valuesYaml } = req.body;
+    if (!valuesYaml) return res.status(400).json({ error: 'valuesYaml is required' });
+    
+    // Find chart name from helm list
+    exec(`helm list --namespace ${namespace} -o json`, (errList, stdoutList) => {
+        let chartRef = '';
+        if (!errList) {
+            try {
+                const list = JSON.parse(stdoutList);
+                const rel = list.find(r => r.name === name);
+                if (rel && rel.chart) {
+                    const lastDashIdx = rel.chart.lastIndexOf('-');
+                    const baseChartName = lastDashIdx > 0 ? rel.chart.substring(0, lastDashIdx) : rel.chart;
+                    
+                    const localPath = path.join(__dirname, 'charts', baseChartName);
+                    if (fs.existsSync(localPath)) {
+                        chartRef = `./charts/${baseChartName}`;
+                    } else {
+                        chartRef = baseChartName;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to parse helm list in upgrade:', e);
+            }
+        }
+        
+        if (!chartRef) {
+            chartRef = name;
+        }
+        
+        let cmd = `helm upgrade ${name} ${chartRef} --namespace ${namespace}`;
+        const tempFileName = `temp-values-${Date.now()}-${Math.floor(Math.random() * 1000)}.yaml`;
+        const tempFilePath = path.join(__dirname, tempFileName);
+        
+        try {
+            fs.writeFileSync(tempFilePath, valuesYaml, 'utf8');
+            cmd += ` -f "${tempFilePath}"`;
+        } catch (err) {
+            return res.status(500).json({ error: 'Failed to write temporary values file: ' + err.message });
+        }
+        
+        exec(cmd, (error, stdout, stderr) => {
+            if (fs.existsSync(tempFilePath)) {
+                try { fs.unlinkSync(tempFilePath); } catch (e) {}
+            }
+            if (error) return res.status(500).json({ error: error.message || stderr });
+            res.json({ success: true, output: stdout });
+        });
+    });
+});
+
 // Helm deploy
 app.post('/api/helm/deploy', (req, res) => {
     const { releaseName, namespace, chartName, valuesYaml } = req.body;
@@ -904,7 +1199,7 @@ app.delete('/api/custom/:group/:version/:plural/:namespace/:name', async (req, r
 const { spawn } = require('child_process');
 const activeTasks = {};
 
-function startTask(cmd, args, cwd = __dirname) {
+function startTask(cmd, args, cwd = __dirname, onClose = null) {
     const taskId = `task-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const child = spawn(cmd, args, { cwd, shell: true });
     
@@ -930,11 +1225,17 @@ function startTask(cmd, args, cwd = __dirname) {
     child.on('close', (code) => {
         activeTasks[taskId].status = code === 0 ? 'success' : 'failed';
         activeTasks[taskId].exitCode = code;
+        if (onClose) {
+            try { onClose(code); } catch(e) { console.error('onClose callback error:', e); }
+        }
     });
     
     child.on('error', (err) => {
         activeTasks[taskId].status = 'failed';
         activeTasks[taskId].logs += `\nError: ${err.message}\n`;
+        if (onClose) {
+            try { onClose(-1); } catch(e) { console.error('onClose callback error:', e); }
+        }
     });
     
     return taskId;
@@ -1055,6 +1356,26 @@ app.get('/api/helm/:namespace/:name/values', (req, res) => {
     exec(`helm get values ${name} --namespace ${namespace} -o json`, (error, stdout, stderr) => {
         if (error) {
             exec(`helm get values ${name} --namespace ${namespace}`, (error2, stdout2, stderr2) => {
+                if (error2) return res.status(500).json({ error: error2.message || stderr2 });
+                res.json({ raw: stdout2 });
+            });
+        } else {
+            try {
+                res.json(JSON.parse(stdout));
+            } catch (e) {
+                res.json({ raw: stdout });
+            }
+        }
+    });
+});
+
+// Helm get revision values route
+app.get('/api/helm/:namespace/:name/values/revision/:revision', (req, res) => {
+    const { namespace, name, revision } = req.params;
+    const cmd = `helm get values ${name} --revision ${revision} --namespace ${namespace} -o json`;
+    exec(cmd, (error, stdout, stderr) => {
+        if (error) {
+            exec(`helm get values ${name} --revision ${revision} --namespace ${namespace}`, (error2, stdout2, stderr2) => {
                 if (error2) return res.status(500).json({ error: error2.message || stderr2 });
                 res.json({ raw: stdout2 });
             });
@@ -1287,21 +1608,138 @@ app.post('/api/zarf/sbom/inspect', (req, res) => {
     });
 });
 
+// In-memory caches for scans
+const sbomScanCache = new Map();
+const vulnsScanCache = new Map();
+
 // Perform a real-time SBOM scan of a container image
 app.post('/api/zarf/sbom/scan', (req, res) => {
     const { imageRef } = req.body;
     if (!imageRef) return res.status(400).json({ error: 'imageRef is required' });
     
-    exec(`zarf tools sbom scan "${imageRef}" -o json`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-        if (error) {
-            return res.status(500).json({ error: error.message || stderr });
+    if (sbomScanCache.has(imageRef)) {
+        return res.json(sbomScanCache.get(imageRef));
+    }
+    
+    let targetRef = imageRef;
+    const isLocalRegistry = targetRef.includes('127.0.0.1:31999') || 
+                            targetRef.includes('localhost:31999') || 
+                            targetRef.includes('zarf-docker-registry.zarf.svc.cluster.local:5000');
+
+    targetRef = targetRef
+        .replace('127.0.0.1:31999', 'zarf-docker-registry.zarf.svc.cluster.local:5000')
+        .replace('localhost:31999', 'zarf-docker-registry.zarf.svc.cluster.local:5000');
+
+    if (isLocalRegistry) {
+        // Force registry scheme for local in-cluster registry scan (no docker daemon in pod)
+        if (!targetRef.startsWith('registry:')) {
+            targetRef = `registry:${targetRef}`;
         }
-        try {
-            res.json(JSON.parse(stdout));
-        } catch (parseErr) {
-            res.status(500).json({ error: 'Failed to parse SBOM JSON: ' + parseErr.message, raw: stdout.substring(0, 1000) });
+        
+        const runScan = () => {
+            exec(`zarf tools sbom scan "${targetRef}" -o json`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+                if (error) {
+                    return res.status(500).json({ error: error.message || stderr });
+                }
+                try {
+                    const parsed = JSON.parse(stdout);
+                    sbomScanCache.set(imageRef, parsed);
+                    res.json(parsed);
+                } catch (parseErr) {
+                    res.status(500).json({ error: 'Failed to parse SBOM JSON: ' + parseErr.message, raw: stdout.substring(0, 1000) });
+                }
+            });
+        };
+        
+        ensureZarfRegistryLogin(runScan, (err) => {
+            res.status(500).json({ error: 'Local registry authentication failed: ' + err.message });
+        });
+    } else {
+        exec(`zarf tools sbom scan "${targetRef}" -o json`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+            if (error) {
+                return res.status(500).json({ error: error.message || stderr });
+            }
+            try {
+                const parsed = JSON.parse(stdout);
+                sbomScanCache.set(imageRef, parsed);
+                res.json(parsed);
+            } catch (parseErr) {
+                res.status(500).json({ error: 'Failed to parse SBOM JSON: ' + parseErr.message, raw: stdout.substring(0, 1000) });
+            }
+        });
+    }
+});
+
+// Perform a real-time vulnerability scan of a container image using Grype
+app.post('/api/zarf/sbom/vulnerabilities', (req, res) => {
+    const { imageRef } = req.body;
+    if (!imageRef) return res.status(400).json({ error: 'imageRef is required' });
+    
+    if (vulnsScanCache.has(imageRef)) {
+        return res.json(vulnsScanCache.get(imageRef));
+    }
+    
+    let targetRef = imageRef;
+    const isLocalRegistry = targetRef.includes('127.0.0.1:31999') || 
+                            targetRef.includes('localhost:31999') || 
+                            targetRef.includes('zarf-docker-registry.zarf.svc.cluster.local:5000');
+
+    targetRef = targetRef
+        .replace('127.0.0.1:31999', 'zarf-docker-registry.zarf.svc.cluster.local:5000')
+        .replace('localhost:31999', 'zarf-docker-registry.zarf.svc.cluster.local:5000');
+
+    const execOptions = {
+        maxBuffer: 25 * 1024 * 1024,
+        env: {
+            ...process.env,
+            GRYPE_DB_AUTO_UPDATE: 'false',
+            GRYPE_CHECK_FOR_APP_UPDATE: 'false',
+            GRYPE_REGISTRY_INSECURE_USE_HTTP: 'true',
+            GRYPE_REGISTRY_INSECURE_SKIP_TLS_VERIFY: 'true'
         }
-    });
+    };
+
+    if (isLocalRegistry) {
+        if (!targetRef.startsWith('registry:')) {
+            targetRef = `registry:${targetRef}`;
+        }
+        
+        const runScan = () => {
+            exec(`grype "${targetRef}" -o json`, execOptions, (error, stdout, stderr) => {
+                if (error) {
+                    return res.status(500).json({ error: error.message || stderr });
+                }
+                try {
+                    const parsed = JSON.parse(stdout);
+                    vulnsScanCache.set(imageRef, parsed);
+                    res.json(parsed);
+                } catch (parseErr) {
+                    res.status(500).json({ error: 'Failed to parse Vulnerability JSON: ' + parseErr.message, raw: stdout.substring(0, 1000) });
+                }
+            });
+        };
+        
+        ensureZarfRegistryLogin(runScan, (err) => {
+            res.status(500).json({ error: 'Local registry authentication failed: ' + err.message });
+        });
+    } else {
+        let scanRef = targetRef;
+        if (!scanRef.startsWith('registry:')) {
+            scanRef = `registry:${scanRef}`;
+        }
+        exec(`grype "${scanRef}" -o json`, execOptions, (error, stdout, stderr) => {
+            if (error) {
+                return res.status(500).json({ error: error.message || stderr });
+            }
+            try {
+                const parsed = JSON.parse(stdout);
+                vulnsScanCache.set(imageRef, parsed);
+                res.json(parsed);
+            } catch (parseErr) {
+                res.status(500).json({ error: 'Failed to parse Vulnerability JSON: ' + parseErr.message, raw: stdout.substring(0, 1000) });
+            }
+        });
+    }
 });
 
 // Zarf tools credentials viewer
@@ -1428,10 +1866,76 @@ app.post('/api/zarf/registry/prune', (req, res) => {
     res.json({ success: true, taskId });
 });
 
+// Zarf tools registry pull (copy from upstream)
+app.post('/api/zarf/registry/pull', (req, res) => {
+    const { source, target } = req.body;
+    if (!source || !target) return res.status(400).json({ error: 'source and target are required' });
+    
+    const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
+    const runPull = () => {
+        const targetRef = target.includes(':') ? target : `${target}:latest`;
+        const fullTarget = `${registryUrl}/${targetRef}`;
+        
+        const taskId = startTask('zarf', [
+            'tools', 'registry', 'copy',
+            source,
+            fullTarget,
+            '--insecure'
+        ]);
+        res.json({ success: true, taskId });
+    };
+    ensureZarfRegistryLogin(runPull, (err) => res.status(500).json({ error: err.message }));
+});
+
+// Zarf tools registry push (tarball upload)
+app.post('/api/zarf/registry/push', (req, res) => {
+    const targetRef = req.headers['x-target-ref'];
+    if (!targetRef) return res.status(400).json({ error: 'x-target-ref header is required' });
+
+    const tempDir = '/tmp';
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+    }
+    const tempPath = path.join(tempDir, `image-${Date.now()}-${Math.floor(Math.random() * 1000)}.tar`);
+    const outStream = fs.createWriteStream(tempPath);
+    
+    req.pipe(outStream);
+    
+    outStream.on('error', (err) => {
+        console.error('File write error:', err);
+        res.status(500).json({ error: 'Failed to write uploaded image' });
+    });
+
+    outStream.on('finish', () => {
+        const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
+        const fullTarget = `${registryUrl}/${targetRef}`;
+        
+        const runPush = () => {
+            const taskId = startTask('zarf', [
+                'tools', 'registry', 'push',
+                tempPath,
+                fullTarget,
+                '--insecure'
+            ], __dirname, () => {
+                fs.unlink(tempPath, (err) => {
+                    if (err) console.error('Failed to delete temp image upload:', err);
+                });
+            });
+            res.json({ success: true, taskId });
+        };
+        
+        ensureZarfRegistryLogin(runPush, (err) => {
+            fs.unlink(tempPath, () => {});
+            res.status(500).json({ error: err.message });
+        });
+    });
+});
+
+
 // Pod File Explorer: Download File
 app.get('/api/resource/pods/:namespace/:name/files/download', async (req, res) => {
     const { namespace, name } = req.params;
-    const { path: filePath, container } = req.query;
+    const { path: filePath, container, isDir } = req.query;
     if (!filePath) return res.status(400).json({ error: 'path is required' });
     
     try {
@@ -1441,19 +1945,43 @@ app.get('/api/resource/pods/:namespace/:name/files/download', async (req, res) =
             containerName = podInfo.spec.containers[0].name;
         }
         
-        const filename = filePath.split('/').pop() || 'file';
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.setHeader('Content-Type', 'application/octet-stream');
-        
         const { spawn } = require('child_process');
-        const cp = spawn('kubectl', [
-            'exec',
-            '-n', namespace,
-            name,
-            '-c', containerName,
-            '--',
-            'cat', filePath
-        ]);
+        let cp;
+        
+        if (isDir === 'true') {
+            let normalizedPath = filePath;
+            if (normalizedPath.endsWith('/') && normalizedPath !== '/') {
+                normalizedPath = normalizedPath.slice(0, -1);
+            }
+            const parts = normalizedPath.split('/');
+            const folderName = parts.pop() || 'folder';
+            const parentDir = parts.join('/') || '/';
+
+            res.setHeader('Content-Disposition', `attachment; filename="${folderName}.tar.gz"`);
+            res.setHeader('Content-Type', 'application/gzip');
+
+            cp = spawn('kubectl', [
+                'exec',
+                '-n', namespace,
+                name,
+                '-c', containerName,
+                '--',
+                'tar', '-czf', '-', '-C', parentDir, folderName
+            ]);
+        } else {
+            const filename = filePath.split('/').pop() || 'file';
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.setHeader('Content-Type', 'application/octet-stream');
+
+            cp = spawn('kubectl', [
+                'exec',
+                '-n', namespace,
+                name,
+                '-c', containerName,
+                '--',
+                'cat', filePath
+            ]);
+        }
         
         cp.stdout.pipe(res);
         
@@ -1529,6 +2057,82 @@ app.post('/api/resource/pods/:namespace/:name/files/upload', async (req, res) =>
     }
 });
 
+// Pod File Explorer: View File (cat)
+app.get('/api/resource/pods/:namespace/:name/files/view', async (req, res) => {
+    const { namespace, name } = req.params;
+    const { path: filePath, container } = req.query;
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
+    
+    try {
+        let containerName = container;
+        if (!containerName) {
+            const podInfo = await k8sCoreApi.readNamespacedPod({ name, namespace });
+            containerName = podInfo.spec.containers[0].name;
+        }
+        
+        exec(`kubectl exec -n ${namespace} ${name} -c ${containerName} -- cat "${filePath.replace(/"/g, '\\"')}"`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+            if (error) {
+                return res.status(500).json({ error: error.message || stderr });
+            }
+            res.json({ content: stdout });
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Pod File Explorer: Save File (cat >)
+app.post('/api/resource/pods/:namespace/:name/files/save', async (req, res) => {
+    const { namespace, name } = req.params;
+    const { path: filePath, content, container } = req.body;
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
+    if (content === undefined) return res.status(400).json({ error: 'content is required' });
+    
+    try {
+        let containerName = container;
+        if (!containerName) {
+            const podInfo = await k8sCoreApi.readNamespacedPod({ name, namespace });
+            containerName = podInfo.spec.containers[0].name;
+        }
+        
+        const cmd = `cat > "${filePath.replace(/"/g, '\\"')}"`;
+        const { spawn } = require('child_process');
+        const cp = spawn('kubectl', [
+            'exec',
+            '-i',
+            '-n', namespace,
+            name,
+            '-c', containerName,
+            '--',
+            'sh', '-c', cmd
+        ]);
+        
+        cp.stdin.write(content);
+        cp.stdin.end();
+        
+        let errData = '';
+        cp.stderr.on('data', chunk => errData += chunk.toString());
+        
+        cp.on('close', (code) => {
+            if (code === 0) {
+                res.json({ success: true, message: 'File saved successfully' });
+            } else {
+                res.status(500).json({ error: errData || `Failed to save file with exit code ${code}` });
+            }
+        });
+        
+        cp.on('error', (err) => {
+            if (!res.headersSent) {
+                res.status(500).json({ error: err.message });
+            }
+        });
+    } catch (err) {
+        if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+        }
+    }
+});
+
 // Pod File Explorer: Delete File or Folder
 app.delete('/api/resource/pods/:namespace/:name/files', async (req, res) => {
     const { namespace, name } = req.params;
@@ -1547,6 +2151,637 @@ app.delete('/api/resource/pods/:namespace/:name/files', async (req, res) => {
             if (error) return res.status(500).json({ error: error.message || stderr });
             res.json({ success: true });
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Kubernetes Configuration Linter & Security Auditor
+app.get('/api/cluster/audit', async (req, res) => {
+    try {
+        const [
+            podsRes,
+            deploymentsRes,
+            servicesRes,
+            nodesRes,
+            namespacesRes,
+            netpolsRes,
+            quotasRes,
+            limitRangesRes,
+            rolesRes,
+            roleBindingsRes,
+            clusterRolesRes,
+            clusterRoleBindingsRes,
+            ingressesRes,
+            cronJobsRes,
+            versionRes
+        ] = await Promise.all([
+            k8sCoreApi.listPodForAllNamespaces(),
+            k8sAppsApi.listDeploymentForAllNamespaces(),
+            k8sCoreApi.listServiceForAllNamespaces(),
+            k8sCoreApi.listNode(),
+            k8sCoreApi.listNamespace(),
+            k8sNetApi.listNetworkPolicyForAllNamespaces(),
+            k8sCoreApi.listResourceQuotaForAllNamespaces(),
+            k8sCoreApi.listLimitRangeForAllNamespaces(),
+            k8sRbacApi.listRoleForAllNamespaces(),
+            k8sRbacApi.listRoleBindingForAllNamespaces(),
+            k8sRbacApi.listClusterRole(),
+            k8sRbacApi.listClusterRoleBinding(),
+            k8sNetApi.listIngressForAllNamespaces(),
+            k8sBatchApi.listCronJobForAllNamespaces(),
+            kc.makeApiClient(k8s.VersionApi).getCode().catch(err => {
+                console.warn('Failed to fetch cluster version:', err);
+                return { gitVersion: 'v1.30.0' }; // fallback
+            })
+        ]);
+
+        const pods = podsRes.items || [];
+        const deployments = deploymentsRes.items || [];
+        const services = servicesRes.items || [];
+        const nodes = nodesRes.items || [];
+        const namespaces = namespacesRes.items || [];
+        const netpols = netpolsRes.items || [];
+        const quotas = quotasRes.items || [];
+        const limitRanges = limitRangesRes.items || [];
+        const roles = rolesRes.items || [];
+        const roleBindings = roleBindingsRes.items || [];
+        const clusterRoles = clusterRolesRes.items || [];
+        const clusterRoleBindings = clusterRoleBindingsRes.items || [];
+        const ingresses = ingressesRes.items || [];
+        const cronJobs = cronJobsRes.items || [];
+        const clusterVersion = versionRes.gitVersion || 'v1.30.0';
+
+        const minorMatch = clusterVersion.match(/v?1\.(\d+)/);
+        const minorVersion = minorMatch ? parseInt(minorMatch[1], 10) : 30;
+
+        const issues = [];
+        let criticalCount = 0;
+        let errorCount = 0;
+        let warningCount = 0;
+        let infoCount = 0;
+
+        const addIssue = (severity, category, rule, message, resource, namespace = 'N/A') => {
+            if (severity === 'Critical') criticalCount++;
+            else if (severity === 'Error') errorCount++;
+            else if (severity === 'Warning') warningCount++;
+            else if (severity === 'Info') infoCount++;
+
+            issues.push({
+                severity,
+                category,
+                rule,
+                message,
+                resource,
+                namespace
+            });
+        };
+
+        // 1. Audit Nodes
+        nodes.forEach(node => {
+            const name = node.metadata.name;
+            const readyCond = (node.status?.conditions || []).find(c => c.type === 'Ready');
+            if (!readyCond || readyCond.status !== 'True') {
+                addIssue(
+                    'Critical',
+                    'Reliability',
+                    'Node Not Ready',
+                    `Node '${name}' is not reporting a Ready status. Current status: ${readyCond ? readyCond.status : 'Unknown'}.`,
+                    `Node/${name}`
+                );
+            }
+        });
+
+        // Helper to check container specs
+        const auditContainers = (containers, podName, namespace, controllerName, kind) => {
+            if (!containers) return;
+            containers.forEach(c => {
+                const cName = c.name;
+                const refName = controllerName ? `${kind}/${controllerName} (Container: ${cName})` : `${kind}/${podName} (Container: ${cName})`;
+
+                // Resource Limits
+                if (!c.resources?.limits || !c.resources.limits.cpu || !c.resources.limits.memory) {
+                    addIssue(
+                        'Warning',
+                        'Efficiency',
+                        'No CPU/Memory Limit',
+                        `Container '${cName}' has no resource limits configured. A runaway container can exhaust host node resources.`,
+                        refName,
+                        namespace
+                    );
+                }
+
+                // Resource Requests
+                if (!c.resources?.requests || !c.resources.requests.cpu || !c.resources.requests.memory) {
+                    addIssue(
+                        'Warning',
+                        'Efficiency',
+                        'No CPU/Memory Request',
+                        `Container '${cName}' has no resource requests configured. Kubernetes scheduler cannot guarantee optimal node scheduling without requests.`,
+                        refName,
+                        namespace
+                    );
+                }
+
+                // Security: Privileged
+                if (c.securityContext?.privileged === true) {
+                    addIssue(
+                        'Critical',
+                        'Security',
+                        'Privileged Container',
+                        `Container '${cName}' is running in privileged mode. This grants root-level privileges on the host kernel.`,
+                        refName,
+                        namespace
+                    );
+                }
+
+                // Security: Allow Privilege Escalation
+                if (c.securityContext?.allowPrivilegeEscalation !== false) {
+                    addIssue(
+                        'Warning',
+                        'Security',
+                        'Privilege Escalation Allowed',
+                        `Container '${cName}' allows privilege escalation. Container processes can gain more privileges than their parent process.`,
+                        refName,
+                        namespace
+                    );
+                }
+
+                // Security: Run as Non Root
+                const runAsNonRoot = c.securityContext?.runAsNonRoot === true || c.securityContext?.runAsUser > 0;
+                if (!runAsNonRoot) {
+                    addIssue(
+                        'Warning',
+                        'Security',
+                        'Running as Root',
+                        `Container '${cName}' is not explicitly restricted to run as a non-root user. Running containerized processes as root is a security risk.`,
+                        refName,
+                        namespace
+                    );
+                }
+
+                // Bare Secrets in Env
+                if (c.env) {
+                    c.env.forEach(envVar => {
+                        const nameUpper = (envVar.name || '').toUpperCase();
+                        
+                        // Flag plain text values containing sensitive names
+                        const isSensitiveName = nameUpper.includes('PASSWORD') || nameUpper.includes('SECRET') || nameUpper.includes('TOKEN') || nameUpper.includes('KEY') || nameUpper.includes('PASS') || nameUpper.includes('AUTH');
+                        const isPlainValue = envVar.value !== undefined && !envVar.valueFrom;
+
+                        if (isSensitiveName && isPlainValue && String(envVar.value).length > 0) {
+                            addIssue(
+                                'Warning',
+                                'Security',
+                                'Plaintext Secret in Env',
+                                `Container '${cName}' exposes sensitive environment variable '${envVar.name}' in plaintext. Use secretKeyRef instead.`,
+                                refName,
+                                namespace
+                            );
+                        }
+                    });
+                }
+            });
+        };
+
+        // 2. Audit Pods
+        pods.forEach(pod => {
+            const name = pod.metadata.name;
+            const ns = pod.metadata.namespace;
+            const ownerRef = pod.metadata.ownerReferences?.[0];
+            const controllerName = ownerRef ? ownerRef.name : null;
+            const controllerKind = ownerRef ? ownerRef.kind : 'Pod';
+
+            // Check Host Namespaces
+            if (pod.spec?.hostNetwork === true) {
+                addIssue(
+                    'Critical',
+                    'Security',
+                    'Host Network Shared',
+                    `Pod '${name}' shares the host network namespace. This allows access to host loopback devices and network traffic.`,
+                    `${controllerKind}/${controllerName || name}`,
+                    ns
+                );
+            }
+            if (pod.spec?.hostPID === true) {
+                addIssue(
+                    'Critical',
+                    'Security',
+                    'Host PID Shared',
+                    `Pod '${name}' shares the host process ID (PID) namespace. It can inspect and terminate processes on the host.`,
+                    `${controllerKind}/${controllerName || name}`,
+                    ns
+                );
+            }
+            if (pod.spec?.hostIPC === true) {
+                addIssue(
+                    'Critical',
+                    'Security',
+                    'Host IPC Shared',
+                    `Pod '${name}' shares the host IPC namespace. It can read/write shared memory segments on the host.`,
+                    `${controllerKind}/${controllerName || name}`,
+                    ns
+                );
+            }
+
+            // Check HostPath volumes
+            const volumes = pod.spec?.volumes || [];
+            volumes.forEach(vol => {
+                if (vol.hostPath) {
+                    addIssue(
+                        'Critical',
+                        'Security',
+                        'HostPath Volume Mounted',
+                        `Pod '${name}' mounts host directory '${vol.hostPath.path}' via hostPath volume '${vol.name}'. If compromised, the pod can access the host filesystem.`,
+                        `${controllerKind}/${controllerName || name}`,
+                        ns
+                    );
+                }
+            });
+
+            // Container Checks (only if direct Pod, to avoid duplicate alerts if we already check templates via Deployments)
+            if (!ownerRef || ownerRef.kind !== 'ReplicaSet') {
+                auditContainers(pod.spec?.containers, name, ns, null, 'Pod');
+                auditContainers(pod.spec?.initContainers, name, ns, null, 'Pod');
+            }
+        });
+
+        // 3. Audit Deployments
+        deployments.forEach(dep => {
+            const name = dep.metadata.name;
+            const ns = dep.metadata.namespace;
+
+            // Single Replica Check
+            const replicas = dep.spec?.replicas ?? 1;
+            if (replicas === 1) {
+                addIssue(
+                    'Warning',
+                    'Reliability',
+                    'Single Replica Deployment',
+                    `Deployment '${name}' has only 1 replica. A single node crash or pod restart will cause downtime.`,
+                    `Deployment/${name}`,
+                    ns
+                );
+            }
+
+            // Container Checks on Deployment Templates
+            const templateSpec = dep.spec?.template?.spec;
+            if (templateSpec) {
+                auditContainers(templateSpec.containers, name, ns, name, 'Deployment');
+                auditContainers(templateSpec.initContainers, name, ns, name, 'Deployment');
+
+                // Probes Check (Liveness / Readiness)
+                templateSpec.containers.forEach(c => {
+                    if (!c.livenessProbe || !c.readinessProbe) {
+                        addIssue(
+                            'Warning',
+                            'Reliability',
+                            'Missing Probes',
+                            `Deployment '${name}' container '${c.name}' is missing liveness or readiness probes. Kubernetes cannot monitor healthy containers.`,
+                            `Deployment/${name} (Container: ${c.name})`,
+                            ns
+                        );
+                    }
+                });
+            }
+        });
+
+        // 4. Audit Services
+        services.forEach(svc => {
+            const name = svc.metadata.name;
+            const ns = svc.metadata.namespace;
+            const selector = svc.spec?.selector;
+
+            // Skip Headless/ExternalName/Kube-system services
+            if (svc.spec?.type === 'ExternalName' || name === 'kubernetes') return;
+
+            if (selector && Object.keys(selector).length > 0) {
+                // Find matching pods
+                const matchingPods = pods.filter(pod => {
+                    if (pod.metadata.namespace !== ns) return false;
+                    const labels = pod.metadata.labels || {};
+                    return Object.entries(selector).every(([k, v]) => labels[k] === v);
+                });
+
+                if (matchingPods.length === 0) {
+                    addIssue(
+                        'Error',
+                        'Reliability',
+                        'Service Lacks Matching Pods',
+                        `Service '${name}' selector does not match any running pods. Incoming traffic to this service will fail.`,
+                        `Service/${name}`,
+                        ns
+                    );
+                }
+            } else {
+                if (svc.spec?.type !== 'ExternalName' && svc.spec?.clusterIP !== 'None') {
+                     addIssue(
+                        'Info',
+                        'Reliability',
+                        'Service Without Selector',
+                        `Service '${name}' does not define a pod selector.`,
+                        `Service/${name}`,
+                        ns
+                    );
+                }
+            }
+        });
+
+        // 5. Audit Network Policy Coverage
+        pods.forEach(pod => {
+            const podName = pod.metadata.name;
+            const ns = pod.metadata.namespace;
+            const podLabels = pod.metadata.labels || {};
+
+            if (ns === 'kube-system' || ns === 'kube-public' || ns === 'kube-node-lease' || ns === 'local-path-storage') {
+                return;
+            }
+
+            const nsNetpols = netpols.filter(np => np.metadata.namespace === ns);
+            let hasCoverage = false;
+            
+            if (nsNetpols.length > 0) {
+                hasCoverage = nsNetpols.some(np => {
+                    const selector = np.spec?.podSelector;
+                    if (!selector || !selector.matchLabels || Object.keys(selector.matchLabels).length === 0) {
+                        return true;
+                    }
+                    return Object.entries(selector.matchLabels).every(([k, v]) => podLabels[k] === v);
+                });
+            }
+
+            if (!hasCoverage) {
+                addIssue(
+                    'Warning',
+                    'Security',
+                    'Pod Missing NetworkPolicy',
+                    `Pod '${podName}' is not targeted by any NetworkPolicy. It runs without ingress/egress network isolation.`,
+                    `Pod/${podName}`,
+                    ns
+                );
+            }
+        });
+
+        // 6. Audit RBAC Policies for Overprivileged ServiceAccounts
+        const analyzeRoleRules = (rules) => {
+            if (!rules || rules.length === 0) return null;
+            const risks = [];
+            rules.forEach(rule => {
+                const verbs = rule.verbs || [];
+                const resources = rule.resources || [];
+                
+                const hasWildcardVerb = verbs.includes('*');
+                const hasEscalate = verbs.includes('escalate');
+                const hasBind = verbs.includes('bind');
+                const hasExec = verbs.includes('exec') || (verbs.includes('create') && resources.includes('pods/exec'));
+                
+                const hasWildcardResource = resources.includes('*');
+                const hasSecrets = resources.includes('secrets');
+                const hasPods = resources.includes('pods');
+                
+                if (hasWildcardVerb && hasWildcardResource) {
+                    risks.push('wildcard verbs on all resources (*/*)');
+                } else {
+                    const highRiskVerbs = [];
+                    if (hasWildcardVerb) highRiskVerbs.push('*');
+                    if (hasEscalate) highRiskVerbs.push('escalate');
+                    if (hasBind) highRiskVerbs.push('bind');
+                    if (hasExec) highRiskVerbs.push('exec');
+                    
+                    const criticalResources = [];
+                    if (hasWildcardResource) criticalResources.push('*');
+                    if (hasSecrets) criticalResources.push('secrets');
+                    if (hasPods) criticalResources.push('pods');
+                    
+                    if (highRiskVerbs.length > 0 && criticalResources.length > 0) {
+                        risks.push(`verbs [${highRiskVerbs.join(',')}] on resources [${criticalResources.join(',')}]`);
+                    }
+                }
+            });
+            return risks.length > 0 ? risks : null;
+        };
+
+        const roleMap = new Map();
+        roles.forEach(r => roleMap.set(`${r.metadata.namespace}/${r.metadata.name}`, r));
+        
+        const clusterRoleMap = new Map();
+        clusterRoles.forEach(cr => clusterRoleMap.set(cr.metadata.name, cr));
+
+        const checkBinding = (binding, isClusterScope) => {
+            const bindingName = binding.metadata.name;
+            const ns = binding.metadata.namespace || 'Cluster';
+            const roleRef = binding.roleRef;
+            if (!roleRef) return;
+
+            let referencedRole = null;
+            if (roleRef.kind === 'ClusterRole') {
+                referencedRole = clusterRoleMap.get(roleRef.name);
+            } else if (roleRef.kind === 'Role') {
+                const searchNs = isClusterScope ? 'default' : ns;
+                referencedRole = roleMap.get(`${binding.metadata.namespace}/${roleRef.name}`);
+            }
+
+            if (!referencedRole) return;
+            const risks = analyzeRoleRules(referencedRole.rules);
+            if (risks) {
+                const subjects = binding.subjects || [];
+                subjects.forEach(sub => {
+                    if (sub.kind === 'ServiceAccount') {
+                        const saNs = sub.namespace || binding.metadata.namespace || 'default';
+                        const saName = sub.name;
+                        
+                        if ((saNs === 'kube-system' || saNs === 'zarf') && (saName === 'default' || saName.startsWith('kube-') || saName.startsWith('zarf-'))) {
+                            return;
+                        }
+
+                        addIssue(
+                            'Critical',
+                            'Security',
+                            'Overprivileged ServiceAccount',
+                            `ServiceAccount '${saName}' is bound to ${roleRef.kind} '${roleRef.name}' via Binding '${bindingName}', granting: ${risks.join('; ')}.`,
+                            `ServiceAccount/${saName}`,
+                            saNs
+                        );
+                    }
+                });
+            }
+        };
+
+        roleBindings.forEach(b => checkBinding(b, false));
+        clusterRoleBindings.forEach(b => checkBinding(b, true));
+
+        // 7. Audit Namespace ResourceQuotas & LimitRanges
+        const systemNamespaces = ['kube-system', 'kube-public', 'kube-node-lease', 'local-path-storage', 'zarf'];
+        namespaces.forEach(nsObj => {
+            const nsName = nsObj.metadata.name;
+            if (systemNamespaces.includes(nsName)) return;
+
+            const nsQuotas = quotas.filter(q => q.metadata.namespace === nsName);
+            if (nsQuotas.length === 0) {
+                addIssue(
+                    'Warning',
+                    'Efficiency',
+                    'Namespace Missing ResourceQuota',
+                    `Namespace '${nsName}' has no ResourceQuota configured. CPU/Memory usage is unrestricted at the namespace scope.`,
+                    `Namespace/${nsName}`,
+                    nsName
+                );
+            }
+
+            const nsLimitRanges = limitRanges.filter(lr => lr.metadata.namespace === nsName);
+            if (nsLimitRanges.length === 0) {
+                addIssue(
+                    'Warning',
+                    'Efficiency',
+                    'Namespace Missing LimitRange',
+                    `Namespace '${nsName}' has no LimitRange configured. Container requests/limits will default to host-level defaults if omitted.`,
+                    `Namespace/${nsName}`,
+                    nsName
+                );
+            }
+        });
+
+        // 8. Audit API Deprecations
+        const deprecationRules = [
+            {
+                kind: 'Ingress',
+                apiGroup: 'networking.k8s.io/v1beta1',
+                removedIn: 22,
+                alternative: 'networking.k8s.io/v1'
+            },
+            {
+                kind: 'CronJob',
+                apiGroup: 'batch/v1beta1',
+                removedIn: 21,
+                alternative: 'batch/v1'
+            },
+            {
+                kind: 'HorizontalPodAutoscaler',
+                apiGroup: 'autoscaling/v2beta2',
+                removedIn: 26,
+                alternative: 'autoscaling/v2'
+            }
+        ];
+
+        const checkDeprecation = (resourcesList, kind) => {
+            resourcesList.forEach(res => {
+                const apiVersion = res.apiVersion || '';
+                const name = res.metadata.name;
+                const ns = res.metadata.namespace || 'default';
+                
+                const matchedRule = deprecationRules.find(rule => rule.kind === kind && apiVersion.startsWith(rule.apiGroup));
+                if (matchedRule && minorVersion >= matchedRule.removedIn) {
+                    addIssue(
+                        'Error',
+                        'Reliability',
+                        'Deprecated API Version',
+                        `${kind} '${name}' uses apiVersion '${apiVersion}' which is deprecated/removed in v1.${matchedRule.removedIn}+. Use '${matchedRule.alternative}' instead.`,
+                        `${kind}/${name}`,
+                        ns
+                    );
+                }
+            });
+        };
+
+        checkDeprecation(ingresses, 'Ingress');
+        checkDeprecation(cronJobs, 'CronJob');
+
+        const weightedViolations = (criticalCount * 4) + (errorCount * 2) + (warningCount * 0.5) + (infoCount * 0.1);
+        const totalResources = Math.max(1, nodes.length + deployments.length + services.length + namespaces.length + pods.length);
+        const density = weightedViolations / totalResources;
+        const score = Math.max(0, Math.round(100 * Math.exp(-0.4 * density)));
+
+        let grade = 'F';
+        if (score >= 95) grade = 'A+';
+        else if (score >= 90) grade = 'A';
+        else if (score >= 80) grade = 'B';
+        else if (score >= 70) grade = 'C';
+        else if (score >= 60) grade = 'D';
+
+        res.json({
+            score,
+            grade,
+            issues,
+            clusterVersion
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Zarf Deployed Package Inspector Secret Reader
+app.get('/api/zarf/packages/:name', async (req, res) => {
+    const { name } = req.params;
+    try {
+        const secretName = `zarf-package-${name}`;
+        const secret = await k8sCoreApi.readNamespacedSecret({ name: secretName, namespace: 'zarf' });
+        
+        if (!secret || !secret.data || !secret.data.data) {
+            return res.status(404).json({ error: `Zarf package secret '${secretName}' not found` });
+        }
+        
+        const base64Data = secret.data.data;
+        const decodedString = Buffer.from(base64Data, 'base64').toString('utf8');
+        const parsedJson = JSON.parse(decodedString);
+        res.json(parsedJson);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Zarf Deployed Package State Endpoint (State Secret Reader)
+app.get('/api/zarf/state', async (req, res) => {
+    try {
+        const secret = await k8sCoreApi.readNamespacedSecret({ name: 'zarf-state', namespace: 'zarf' });
+        if (!secret || !secret.data || !secret.data.state) {
+            return res.status(404).json({ error: "Zarf state secret 'zarf-state' not found in 'zarf' namespace" });
+        }
+        const base64Data = secret.data.state;
+        const decodedString = Buffer.from(base64Data, 'base64').toString('utf8');
+        const parsedJson = JSON.parse(decodedString);
+        
+        if (parsedJson.registryInfo) {
+            if (parsedJson.registryInfo.pushPassword) parsedJson.registryInfo.pushPassword = '●●●●●●●●';
+            if (parsedJson.registryInfo.pullPassword) parsedJson.registryInfo.pullPassword = '●●●●●●●●';
+            if (parsedJson.registryInfo.secret) parsedJson.registryInfo.secret = '●●●●●●●●';
+        }
+        if (parsedJson.gitServer) {
+            if (parsedJson.gitServer.pushPassword) parsedJson.gitServer.pushPassword = '●●●●●●●●';
+            if (parsedJson.gitServer.pullPassword) parsedJson.gitServer.pullPassword = '●●●●●●●●';
+        }
+        if (parsedJson.artifactServer) {
+            if (parsedJson.artifactServer.pushPassword) parsedJson.artifactServer.pushPassword = '●●●●●●●●';
+        }
+        if (parsedJson.agentTLS) {
+            if (parsedJson.agentTLS.key) parsedJson.agentTLS.key = '●●●●●●●●';
+        }
+        
+        res.json(parsedJson);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get all running unique container images in the cluster
+app.get('/api/zarf/running-images', async (req, res) => {
+    try {
+        const pods = await k8sCoreApi.listPodForAllNamespaces();
+        const images = new Set();
+        
+        pods.items.forEach(pod => {
+            const containers = [...(pod.spec?.containers || []), ...(pod.spec?.initContainers || [])];
+            containers.forEach(c => {
+                if (c.image) {
+                    images.add(c.image);
+                }
+            });
+            const statuses = [...(pod.status?.containerStatuses || []), ...(pod.status?.initContainerStatuses || [])];
+            statuses.forEach(s => {
+                if (s.image) images.add(s.image);
+            });
+        });
+        
+        res.json(Array.from(images).sort());
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

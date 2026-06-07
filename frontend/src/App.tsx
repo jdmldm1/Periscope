@@ -3,12 +3,13 @@ import { Network } from 'vis-network';
 import { 
   Box, Layers, Server, Activity, Trash2, Terminal,
   FileText, Shield, Key, GitCommit, RefreshCw, X, Save, Search, Settings, Info, Power, SlidersHorizontal,
-  ArrowDown, Copy, Database, Package, Radio, Command, Code, List, Globe, ExternalLink
+  ArrowDown, Copy, Database, Package, Radio, Command, Code, List, Globe, ExternalLink, Download, Upload,
+  Bell
 } from 'lucide-react';
 import './index.css';
 
-type ResourceKind = 'pods' | 'deployments' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'dashboard';
-type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history' | 'files';
+type ResourceKind = 'pods' | 'deployments' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state';
+type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history' | 'files' | 'values';
 
 // Unit parsers for metrics
 const parseCpu = (cpuStr: string) => {
@@ -175,10 +176,26 @@ function App() {
   const graphRef = useRef<HTMLDivElement>(null);
   const networkInstance = useRef<any>(null);
 
+  // Command Executor Ref & Zarf Registry States
+  const cmdInputRef = useRef<HTMLInputElement>(null);
+  const [registryPullSource, setRegistryPullSource] = useState('');
+  const [registryPullTarget, setRegistryPullTarget] = useState('');
+  const [registryPushTarget, setRegistryPushTarget] = useState('');
+  const [isPullingRegistry, setIsPullingRegistry] = useState(false);
+  const [isPushingRegistry, setIsPushingRegistry] = useState(false);
+
+
   // Custom states for CRD & Command Palette
   const [customCrd, setCustomCrd] = useState<{group: string, version: string, plural: string, name: string} | null>(null);
   const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false);
   const [cmdPaletteSearch, setCmdPaletteSearch] = useState('');
+  const [activePaletteIndex, setActivePaletteIndex] = useState(0);
+  
+  // Advanced Diagnostics & Interactivity States
+  const [selectedTopologyNode, setSelectedTopologyNode] = useState<string | null>(null);
+  const [helmValuesEdit, setHelmValuesEdit] = useState<string>('');
+  const [isSavingHelmValues, setIsSavingHelmValues] = useState<boolean>(false);
+  const [podMetricsHistory, setPodMetricsHistory] = useState<Record<string, { cpu: number[]; mem: number[] }>>({});
 
   // Zarf & Helm Management States
   const [zarfStatus, setZarfStatus] = useState<{installed: boolean, version?: string}>({ installed: false });
@@ -283,15 +300,53 @@ function App() {
   const [isUpgradingHelm, setIsUpgradingHelm] = useState(false);
 
   // Zarf SBOM states
-  const [sbomActiveTab, setSbomActiveTab] = useState<'inspect' | 'scan'>('inspect');
   const [sbomPackageName, setSbomPackageName] = useState<string>('');
   const [sbomExtractedFiles, setSbomExtractedFiles] = useState<Array<{ name: string, url: string }>>([]);
   const [sbomSelectedFileUrl, setSbomSelectedFileUrl] = useState<string>('');
   const [isExtractingSbom, setIsExtractingSbom] = useState(false);
-  const [sbomImageRef, setSbomImageRef] = useState<string>('');
-  const [sbomScanResult, setSbomScanResult] = useState<any>(null);
-  const [isScanningSbomImage, setIsScanningSbomImage] = useState(false);
-  const [sbomScanSearchQuery, setSbomScanSearchQuery] = useState<string>('');
+
+  // Zarf Deployed Package Inspect & Cluster Auditor & Image List States
+  const [selectedZarfPackageDetail, setSelectedZarfPackageDetail] = useState<any>(null);
+  const [isPackageDetailModalOpen, setIsPackageDetailModalOpen] = useState(false);
+  const [isFetchingPackageDetail, setIsFetchingPackageDetail] = useState(false);
+  
+  const [clusterAuditResult, setClusterAuditResult] = useState<any>(null);
+  const [isAuditingCluster, setIsAuditingCluster] = useState(false);
+  
+  const [runningImages, setRunningImages] = useState<string[]>([]);
+  
+  // Standalone Image Scanner States
+  const [runningImagesScanResults, setRunningImagesScanResults] = useState<Record<string, { sbom: any, vulnerabilities: any, status: 'pending' | 'scanning' | 'success' | 'failed', error?: string }>>({});
+  const [isScanningAllRunningImages, setIsScanningAllRunningImages] = useState(false);
+  const [selectedScanFilterImage, setSelectedScanFilterImage] = useState<string>('all');
+  const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'images'>('vulnerabilities');
+  const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
+  const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
+
+  // Cluster Pulse States
+  const [pulseAlerts, setPulseAlerts] = useState<any[]>([]);
+  const [isAlertsDrawerOpen, setIsAlertsDrawerOpen] = useState(false);
+  const [toasts, setToasts] = useState<any[]>([]);
+  const [hasNewAlerts, setHasNewAlerts] = useState(false);
+
+  // Smart Pod Doctor States
+  const [podDiagnostics, setPodDiagnostics] = useState<any>(null);
+  const [isDiagnosticsModalOpen, setIsDiagnosticsModalOpen] = useState(false);
+  const [isFetchingDiagnostics, setIsFetchingDiagnostics] = useState(false);
+
+  // Helm Revision Diff States
+  const [selectedRevisionValues, setSelectedRevisionValues] = useState<any>(null);
+  const [activeRevisionValues, setActiveRevisionValues] = useState<any>(null);
+  const [isLoadingRevisionValues, setIsLoadingRevisionValues] = useState(false);
+
+  // Pod Inline File Editor States
+  const [editingFile, setEditingFile] = useState<{ path: string; content: string; isSaving: boolean } | null>(null);
+  const [isEditingFileModalOpen, setIsEditingFileModalOpen] = useState(false);
+
+  // Zarf Global State
+  const [zarfState, setZarfState] = useState<any>(null);
+  const [isFetchingZarfState, setIsFetchingZarfState] = useState(false);
+  const [zarfDetailActiveTab, setZarfDetailActiveTab] = useState<'overview' | 'config' | 'variables'>('overview');
 
   const fetchHelmRepos = () => {
     fetch('/api/helm/repos')
@@ -660,28 +715,194 @@ function App() {
     }
   };
 
-  const handleScanImageSbom = async (imgRef?: string) => {
-    const targetImage = imgRef || sbomImageRef;
-    if (!targetImage.trim()) return alert('Please enter or select a container image reference.');
-    setIsScanningSbomImage(true);
-    setSbomScanResult(null);
-    try {
-      const res = await fetch('/api/zarf/sbom/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageRef: targetImage })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSbomScanResult(data);
-      } else {
-        alert('Failed to scan image: ' + (data.error || 'Unknown error'));
+  const getFilteredVulnerabilities = () => {
+    const list: any[] = [];
+    Object.keys(runningImagesScanResults).forEach(imgRef => {
+      if (selectedScanFilterImage !== 'all' && selectedScanFilterImage !== imgRef) return;
+      const res = runningImagesScanResults[imgRef];
+      if (res && res.status === 'success' && res.vulnerabilities && res.vulnerabilities.matches) {
+        res.vulnerabilities.matches.forEach((m: any) => {
+          list.push({ ...m, imageRef: imgRef });
+        });
       }
-    } catch (err: any) {
-      alert('Error scanning image: ' + err.message);
-    } finally {
-      setIsScanningSbomImage(false);
+    });
+
+    return list.filter((m: any) => {
+      const vuln = m.vulnerability || {};
+      const art = m.artifact || {};
+      const severity = vuln.severity || 'Unknown';
+      const imageRef = m.imageRef || '';
+
+      if (imageScanSeverityFilter !== 'all' && severity.toLowerCase() !== imageScanSeverityFilter.toLowerCase()) {
+        return false;
+      }
+
+      if (imageScanSearchQuery.trim()) {
+        const q = imageScanSearchQuery.toLowerCase();
+        return (
+          (vuln.id || '').toLowerCase().includes(q) ||
+          (severity || '').toLowerCase().includes(q) ||
+          (art.name || '').toLowerCase().includes(q) ||
+          (imageRef || '').toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  };
+
+  const getFilteredPackages = () => {
+    const list: any[] = [];
+    Object.keys(runningImagesScanResults).forEach(imgRef => {
+      if (selectedScanFilterImage !== 'all' && selectedScanFilterImage !== imgRef) return;
+      const res = runningImagesScanResults[imgRef];
+      if (res && res.status === 'success' && res.sbom && res.sbom.artifacts) {
+        res.sbom.artifacts.forEach((art: any) => {
+          list.push({ ...art, imageRef: imgRef });
+        });
+      }
+    });
+
+    return list.filter((art: any) => {
+      if (imageScanSearchQuery.trim()) {
+        const q = imageScanSearchQuery.toLowerCase();
+        const name = (art.name || '').toLowerCase();
+        const ver = (art.version || '').toLowerCase();
+        const type = (art.type || '').toLowerCase();
+        const imageRef = (art.imageRef || '').toLowerCase();
+        const licenses = Array.isArray(art.licenses)
+          ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || '')).join(' ').toLowerCase()
+          : '';
+        return name.includes(q) || ver.includes(q) || type.includes(q) || licenses.includes(q) || imageRef.includes(q);
+      }
+      return true;
+    });
+  };
+
+  const exportImageScannerVulnerabilitiesJson = () => {
+    const data = getFilteredVulnerabilities();
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `security-vulnerabilities-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const exportImageScannerVulnerabilitiesCsv = () => {
+    const data = getFilteredVulnerabilities();
+    const headers = ['Image', 'Vulnerability ID', 'Severity', 'Package', 'Installed Version', 'Fixed In'];
+    const rows = data.map((m: any) => {
+      const vuln = m.vulnerability || {};
+      const art = m.artifact || {};
+      const fixedIn = vuln.fix?.versions?.join(', ') || 'Not Fixed';
+      return [
+        `"${m.imageRef}"`,
+        `"${vuln.id}"`,
+        `"${vuln.severity}"`,
+        `"${art.name}"`,
+        `"${art.version}"`,
+        `"${fixedIn}"`
+      ];
+    });
+    const csvContent = [headers.join(','), ...rows.map((r: any) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", url);
+    downloadAnchor.setAttribute("download", `security-vulnerabilities-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.csv`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const exportImageScannerPackagesJson = () => {
+    const data = getFilteredPackages();
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `security-packages-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const exportImageScannerPackagesCsv = () => {
+    const data = getFilteredPackages();
+    const headers = ['Image', 'Package Name', 'Version', 'Type', 'Licenses', 'Language'];
+    const rows = data.map((art: any) => {
+      const licenseStrs = Array.isArray(art.licenses)
+        ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || ''))
+        : [];
+      return [
+        `"${art.imageRef}"`,
+        `"${art.name}"`,
+        `"${art.version}"`,
+        `"${art.type}"`,
+        `"${licenseStrs.join(', ')}"`,
+        `"${art.language || 'N/A'}"`
+      ];
+    });
+    const csvContent = [headers.join(','), ...rows.map((r: any) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", url);
+    downloadAnchor.setAttribute("download", `security-packages-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.csv`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const exportAuditJson = () => {
+    if (!clusterAuditResult) return;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(clusterAuditResult, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `cluster-audit-report.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const exportAuditMarkdown = () => {
+    if (!clusterAuditResult) return;
+    const issues = clusterAuditResult.issues || [];
+    const criticals = issues.filter((i: any) => i.severity === 'Critical');
+    const errors = issues.filter((i: any) => i.severity === 'Error');
+    const warnings = issues.filter((i: any) => i.severity === 'Warning');
+    const infos = issues.filter((i: any) => i.severity === 'Info');
+
+    let md = `# Periscope Cluster Configuration & Security Audit Report\n\n`;
+    md += `Generated on: ${new Date().toLocaleString()}\n`;
+    md += `Kubernetes Version: ${clusterAuditResult.clusterVersion || 'N/A'}\n`;
+    md += `Overall Grade: **${clusterAuditResult.grade}** (Score: **${clusterAuditResult.score}**/100)\n\n`;
+    md += `## Metrics Summary\n\n`;
+    md += `- **Critical Violations**: ${criticals.length}\n`;
+    md += `- **Configuration Errors**: ${errors.length}\n`;
+    md += `- **Configuration Warnings**: ${warnings.length}\n`;
+    md += `- **Optimizations**: ${infos.length}\n\n`;
+    
+    md += `## Detailed Findings\n\n`;
+    
+    if (issues.length === 0) {
+      md += `*No issues found! Your cluster conforms to all rules.*\n`;
+    } else {
+      md += `| Severity | Category | Rule | Resource | Namespace | Message |\n`;
+      md += `| --- | --- | --- | --- | --- | --- |\n`;
+      issues.forEach((issue: any) => {
+        md += `| ${issue.severity} | ${issue.category} | ${issue.rule} | \`${issue.resource}\` | \`${issue.namespace}\` | ${issue.message.replace(/\|/g, '\\|')} |\n`;
+      });
     }
+    
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", url);
+    downloadAnchor.setAttribute("download", `cluster-audit-report.md`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
   };
 
   const handleZarfUpload = async () => {
@@ -744,6 +965,165 @@ function App() {
     }
   };
 
+  const handleInspectDeployedZarfPackage = async (packageName: string) => {
+    setIsFetchingPackageDetail(true);
+    try {
+      const res = await fetch(`/api/zarf/packages/${packageName}`);
+      const data = await res.json();
+      if (res.ok) {
+        setSelectedZarfPackageDetail(data);
+        setIsPackageDetailModalOpen(true);
+      } else {
+        alert('Failed to inspect package: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error fetching package details: ' + err.message);
+    } finally {
+      setIsFetchingPackageDetail(false);
+    }
+  };
+
+  const runClusterAudit = async () => {
+    setIsAuditingCluster(true);
+    try {
+      const res = await fetch('/api/cluster/audit');
+      const data = await res.json();
+      if (res.ok) {
+        setClusterAuditResult(data);
+      } else {
+        alert('Failed to audit cluster: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error auditing cluster: ' + err.message);
+    } finally {
+      setIsAuditingCluster(false);
+    }
+  };
+
+  const fetchRunningImages = () => {
+    fetch('/api/zarf/running-images')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setRunningImages(data);
+      })
+      .catch(console.error);
+  };
+
+  const fetchRunningImagesAndScan = async () => {
+    setIsScanningAllRunningImages(true);
+    try {
+      const res = await fetch('/api/zarf/running-images');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setRunningImages(data);
+        await startScanAllImages(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch running images for scanner:', err);
+    } finally {
+      setIsScanningAllRunningImages(false);
+    }
+  };
+
+  const startScanAllImages = async (imagesList: string[]) => {
+    const initial: Record<string, any> = {};
+    imagesList.forEach(img => {
+      if (runningImagesScanResults[img]?.status === 'success') {
+        initial[img] = runningImagesScanResults[img];
+      } else {
+        initial[img] = { sbom: null, vulnerabilities: null, status: 'scanning' };
+      }
+    });
+    setRunningImagesScanResults(prev => ({ ...prev, ...initial }));
+
+    imagesList.forEach(async (img) => {
+      if (runningImagesScanResults[img]?.status === 'success') {
+        return; // skip already scanned
+      }
+      try {
+        const [sbomRes, vulnRes] = await Promise.all([
+          fetch('/api/zarf/sbom/scan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageRef: img })
+          }),
+          fetch('/api/zarf/sbom/vulnerabilities', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageRef: img })
+          })
+        ]);
+
+        const sbomData = await sbomRes.json();
+        const vulnData = await vulnRes.json();
+
+        setRunningImagesScanResults(prev => ({
+          ...prev,
+          [img]: {
+            sbom: sbomRes.ok ? sbomData : null,
+            vulnerabilities: vulnRes.ok ? vulnData : null,
+            status: (sbomRes.ok && vulnRes.ok) ? 'success' : 'failed',
+            error: (!sbomRes.ok ? sbomData.error : '') || (!vulnRes.ok ? vulnData.error : '')
+          }
+        }));
+      } catch (err: any) {
+        setRunningImagesScanResults(prev => ({
+          ...prev,
+          [img]: {
+            sbom: null,
+            vulnerabilities: null,
+            status: 'failed',
+            error: err.message
+          }
+        }));
+      }
+    });
+  };
+
+  const scanSingleImage = async (img: string) => {
+    setRunningImagesScanResults(prev => ({
+      ...prev,
+      [img]: { sbom: null, vulnerabilities: null, status: 'scanning' }
+    }));
+    try {
+      const [sbomRes, vulnRes] = await Promise.all([
+        fetch('/api/zarf/sbom/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageRef: img })
+        }),
+        fetch('/api/zarf/sbom/vulnerabilities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageRef: img })
+        })
+      ]);
+
+      const sbomData = await sbomRes.json();
+      const vulnData = await vulnRes.json();
+
+      setRunningImagesScanResults(prev => ({
+        ...prev,
+        [img]: {
+          sbom: sbomRes.ok ? sbomData : null,
+          vulnerabilities: vulnRes.ok ? vulnData : null,
+          status: (sbomRes.ok && vulnRes.ok) ? 'success' : 'failed',
+          error: (!sbomRes.ok ? sbomData.error : '') || (!vulnRes.ok ? vulnData.error : '')
+        }
+      }));
+    } catch (err: any) {
+      setRunningImagesScanResults(prev => ({
+        ...prev,
+        [img]: {
+          sbom: null,
+          vulnerabilities: null,
+          status: 'failed',
+          error: err.message
+        }
+      }));
+    }
+  };
+
   const fetchZarfRegistryCatalog = () => {
     setIsFetchingRegistry(true);
     setZarfRegistryRepos([]);
@@ -803,6 +1183,77 @@ function App() {
     } catch (err: any) {
       alert('Error: ' + err.message);
     }
+  };
+
+  const handlePullRegistryImage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!registryPullSource.trim() || !registryPullTarget.trim()) {
+      alert('Source and target image references are required.');
+      return;
+    }
+    
+    setIsPullingRegistry(true);
+    try {
+      const res = await fetch('/api/zarf/registry/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: registryPullSource, target: registryPullTarget })
+      });
+      const data = await res.json();
+      if (res.ok && data.taskId) {
+        startTaskLogsStreaming(data.taskId);
+        setRegistryPullSource('');
+        setRegistryPullTarget('');
+      } else {
+        alert('Failed to start registry pull: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setIsPullingRegistry(false);
+    }
+  };
+
+  const handlePushRegistryImage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!registryPushTarget.trim()) {
+      alert('Target image reference is required (e.g. library/nginx:alpine)');
+      return;
+    }
+    const fileInput = document.getElementById('registry-image-file-input') as HTMLInputElement;
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+      alert('Please select a Docker image tarball file to push.');
+      return;
+    }
+    const file = fileInput.files[0];
+    
+    setIsPushingRegistry(true);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/zarf/registry/push', true);
+    xhr.setRequestHeader('x-target-ref', registryPushTarget);
+    
+    xhr.onload = () => {
+      setIsPushingRegistry(false);
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status === 200 && data.taskId) {
+          startTaskLogsStreaming(data.taskId);
+          setRegistryPushTarget('');
+          fileInput.value = '';
+        } else {
+          alert('Failed to start registry push: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Failed to parse push response');
+      }
+    };
+    
+    xhr.onerror = () => {
+      setIsPushingRegistry(false);
+      alert('Network error during push upload.');
+    };
+    
+    xhr.send(file);
   };
 
   const fetchPodFilesList = (path: string) => {
@@ -896,10 +1347,10 @@ function App() {
       .finally(() => setIsListingFiles(false));
   };
 
-  const handleDownloadPodFile = (fileName: string) => {
+  const handleDownloadPodFile = (fileName: string, isDir = false) => {
     if (!modal) return;
     const filePath = currentDirPath + fileName;
-    const url = `/api/resource/pods/${modal.namespace}/${modal.name}/files/download?path=${encodeURIComponent(filePath)}&container=${selectedContainer}`;
+    const url = `/api/resource/pods/${modal.namespace}/${modal.name}/files/download?path=${encodeURIComponent(filePath)}&container=${selectedContainer}&isDir=${isDir}`;
     window.open(url, '_blank');
   };
 
@@ -983,6 +1434,9 @@ function App() {
             clearInterval(interval);
             if (data.status === 'success') {
               fetchResources();
+              if (activeTab === 'zarf-registry') {
+                fetchZarfRegistryCatalog();
+              }
             }
           }
         })
@@ -990,7 +1444,16 @@ function App() {
     }, 1500);
     
     return () => clearInterval(interval);
-  }, [activeTaskId]);
+  }, [activeTaskId, activeTab]);
+
+  useEffect(() => {
+    if (modal?.type === 'terminal' && !cmdLoading) {
+      const timer = setTimeout(() => {
+        cmdInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [cmdLoading, modal?.type]);
 
   useEffect(() => {
     if (activeTab === 'helm-repos' || activeTab === 'helm-install') {
@@ -1009,9 +1472,20 @@ function App() {
       fetchZarfRegistryCatalog();
     } else if (activeTab === 'zarf-creds') {
       fetchZarfCreds();
+    } else if (activeTab === 'zarf-state') {
+      fetchZarfState();
     } else if (activeTab === 'zarf-sbom') {
       fetchZarfRegistryCatalog();
       fetchZarfLocalPackages();
+      fetchRunningImages();
+    } else if (activeTab === 'cluster-auditor') {
+      runClusterAudit();
+    } else if (activeTab === 'topology') {
+      if (!clusterAuditResult) {
+        runClusterAudit();
+      }
+    } else if (activeTab === 'image-scanner') {
+      fetchRunningImages();
     }
   }, [activeTab]);
 
@@ -1159,6 +1633,322 @@ function App() {
       .catch(console.error);
   };
 
+  // Heuristic-based JSON to YAML converter
+  const jsonToYaml = (val: any, depth = 0): string => {
+    const indent = '  '.repeat(depth);
+    if (val === null) return 'null';
+    if (typeof val !== 'object') {
+      if (typeof val === 'string') {
+        if (val.includes('\n') || val.length > 60) {
+          return `|\n${val.split('\n').map(line => indent + '  ' + line).join('\n')}`;
+        }
+        if (/[#:*?[\]{}|&%@`]/.test(val) || val === 'true' || val === 'false') {
+          return `"${val.replace(/"/g, '\\"')}"`;
+        }
+        return val;
+      }
+      return String(val);
+    }
+    if (Array.isArray(val)) {
+      if (val.length === 0) return '[]';
+      return val.map((item: any) => {
+        const itemStr = jsonToYaml(item, depth + 1).trimStart();
+        return `${indent}- ${itemStr}`;
+      }).join('\n');
+    }
+    const keys = Object.keys(val);
+    if (keys.length === 0) return '{}';
+    return keys.map((key: string) => {
+      const v = val[key];
+      if (v === undefined) return '';
+      const vStr = jsonToYaml(v, depth + 1);
+      if (typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length > 0) {
+        return `${indent}${key}:\n${vStr}`;
+      }
+      if (Array.isArray(v) && v.length > 0) {
+        return `${indent}${key}:\n${vStr}`;
+      }
+      return `${indent}${key}: ${vStr.trimStart()}`;
+    }).filter(Boolean).join('\n');
+  };
+
+  const handleOpenDiagnostics = async (podName: string, namespace: string) => {
+    setIsFetchingDiagnostics(true);
+    setPodDiagnostics(null);
+    setIsDiagnosticsModalOpen(true);
+    try {
+      const res = await fetch(`/api/diagnose/${namespace}/${podName}`);
+      const data = await res.json();
+      if (res.ok) {
+        setPodDiagnostics({
+          name: podName,
+          namespace: namespace,
+          ...data
+        });
+      } else {
+        alert('Diagnostics failed: ' + (data.error || 'Unknown error'));
+        setIsDiagnosticsModalOpen(false);
+      }
+    } catch (err: any) {
+      alert('Error fetching diagnostics: ' + err.message);
+      setIsDiagnosticsModalOpen(false);
+    } finally {
+      setIsFetchingDiagnostics(false);
+    }
+  };
+
+  const handleInspectRevisionValues = async (namespace: string, name: string, revision: number) => {
+    setIsLoadingRevisionValues(true);
+    setSelectedRevisionValues(null);
+    try {
+      const resSelected = await fetch(`/api/helm/${namespace}/${name}/values/revision/${revision}`);
+      const dataSelected = await resSelected.json();
+      
+      const resActive = await fetch(`/api/helm/${namespace}/${name}/values`);
+      const dataActive = await resActive.json();
+
+      setSelectedRevisionValues({
+        revision,
+        values: dataSelected.raw || JSON.stringify(dataSelected, null, 2)
+      });
+      setActiveRevisionValues(dataActive.raw || JSON.stringify(dataActive, null, 2));
+    } catch (err: any) {
+      alert('Error fetching revision values: ' + err.message);
+    } finally {
+      setIsLoadingRevisionValues(false);
+    }
+  };
+
+  const handleEditPodFile = async (fileName: string) => {
+    if (!modal) return;
+    const fullPath = currentDirPath + fileName;
+    
+    setEditingFile({
+      path: fullPath,
+      content: '',
+      isSaving: false
+    });
+    setIsEditingFileModalOpen(true);
+    
+    try {
+      const containerParam = selectedContainer ? `&container=${selectedContainer}` : '';
+      const res = await fetch(`/api/resource/pods/${modal.namespace}/${modal.name}/files/view?path=${encodeURIComponent(fullPath)}${containerParam}`);
+      const data = await res.json();
+      if (res.ok) {
+        setEditingFile({
+          path: fullPath,
+          content: data.content || '',
+          isSaving: false
+        });
+      } else {
+        alert('Failed to read file: ' + (data.error || 'Unknown error'));
+        setIsEditingFileModalOpen(false);
+        setEditingFile(null);
+      }
+    } catch (err: any) {
+      alert('Error fetching file content: ' + err.message);
+      setIsEditingFileModalOpen(false);
+      setEditingFile(null);
+    }
+  };
+
+  const handleSavePodFile = async () => {
+    if (!modal || !editingFile) return;
+    
+    setEditingFile(prev => prev ? { ...prev, isSaving: true } : null);
+    
+    try {
+      const bodyPayload = {
+        path: editingFile.path,
+        content: editingFile.content,
+        container: selectedContainer || undefined
+      };
+      
+      const res = await fetch(`/api/resource/pods/${modal.namespace}/${modal.name}/files/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyPayload)
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        alert('File saved successfully.');
+        setIsEditingFileModalOpen(false);
+        setEditingFile(null);
+        fetchPodFilesList(currentDirPath);
+      } else {
+        alert('Failed to save file: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error saving file: ' + err.message);
+    } finally {
+      setEditingFile(prev => prev ? { ...prev, isSaving: false } : null);
+    }
+  };
+
+  const fetchZarfState = () => {
+    setIsFetchingZarfState(true);
+    setZarfState(null);
+    fetch('/api/zarf/state')
+      .then(res => res.json())
+      .then(data => {
+        setZarfState(data);
+        setIsFetchingZarfState(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setIsFetchingZarfState(false);
+      });
+  };
+
+  const renderZarfStateView = () => {
+    if (isFetchingZarfState) {
+      return <div className="loader-container"><div className="loader"></div></div>;
+    }
+    if (!zarfState) {
+      return (
+        <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
+          Zarf state is not initialized or the cluster has not been initialized with Zarf.
+        </div>
+      );
+    }
+    return (
+      <div className="zarf-state-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: 16, color: 'var(--accent-cyan)' }}>Zarf Cluster Initialization State</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, fontSize: '0.9rem' }}>
+            <div>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Kubernetes Distribution:</td>
+                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.distro || 'N/A'}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Storage Class:</td>
+                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.storageClass || 'N/A'}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>IP Family:</td>
+                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.ipFamily || 'N/A'}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Zarf Appliance Mode:</td>
+                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.zarfAppliance ? 'Yes' : 'No'}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <tbody>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Internal Registry:</td>
+                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.registryInfo?.address || 'N/A'}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Registry Mode:</td>
+                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.registryInfo?.registryMode || 'N/A'}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>Registry NodePort:</td>
+                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.registryInfo?.nodePort || 'N/A'}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                    <td style={{ padding: '10px 0', color: 'var(--text-muted)' }}>TLS Strategy:</td>
+                    <td style={{ padding: '10px 0', fontWeight: 600 }}>{zarfState.registryInfo?.mtlsStrategy || 'N/A'}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        
+        {zarfState.agentTLS && (
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: 16, color: 'var(--accent-purple)' }}>Agent TLS Configuration</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+              <div>
+                <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>CA Certificate (PEM):</strong>
+                <textarea 
+                  readOnly 
+                  style={{ width: '100%', height: '80px', background: '#000', border: '1px solid var(--border-color)', borderRadius: 4, padding: 8, color: '#a5d6ff', fontSize: '0.75rem', outline: 'none' }}
+                  value={zarfState.agentTLS.ca}
+                />
+              </div>
+              <div>
+                <strong style={{ color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Server Certificate (PEM):</strong>
+                <textarea 
+                  readOnly 
+                  style={{ width: '100%', height: '80px', background: '#000', border: '1px solid var(--border-color)', borderRadius: 4, padding: 8, color: '#a5d6ff', fontSize: '0.75rem', outline: 'none' }}
+                  value={zarfState.agentTLS.cert}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderDiffView = () => {
+    if (!selectedRevisionValues || !activeRevisionValues) return null;
+
+    const activeLines = activeRevisionValues.split('\n');
+    const selectedLines = selectedRevisionValues.values.split('\n');
+
+    const diffs: Array<{ type: 'added' | 'removed' | 'unchanged', text: string }> = [];
+    
+    let i = 0, j = 0;
+    while (i < activeLines.length || j < selectedLines.length) {
+      const activeLine = activeLines[i];
+      const selectedLine = selectedLines[j];
+
+      if (i < activeLines.length && j < selectedLines.length) {
+        if (activeLine === selectedLine) {
+          diffs.push({ type: 'unchanged', text: activeLine });
+          i++;
+          j++;
+        } else {
+          const nextMatchIdx = selectedLines.slice(j).indexOf(activeLine);
+          if (nextMatchIdx !== -1 && nextMatchIdx < 5) {
+            for (let k = 0; k < nextMatchIdx; k++) {
+              diffs.push({ type: 'added', text: selectedLines[j + k] });
+            }
+            j += nextMatchIdx;
+          } else {
+            diffs.push({ type: 'removed', text: activeLine });
+            diffs.push({ type: 'added', text: selectedLine });
+            i++;
+            j++;
+          }
+        }
+      } else if (i < activeLines.length) {
+        diffs.push({ type: 'removed', text: activeLine });
+        i++;
+      } else if (j < selectedLines.length) {
+        diffs.push({ type: 'added', text: selectedLine });
+        j++;
+      }
+    }
+
+    return (
+      <div className="diff-container">
+        {diffs.map((d, idx) => (
+          <div 
+            key={idx} 
+            className={`diff-line ${d.type === 'added' ? 'diff-line-added' : d.type === 'removed' ? 'diff-line-removed' : 'diff-line-unchanged'}`}
+          >
+            <span style={{ width: 20, display: 'inline-block', userSelect: 'none', opacity: 0.5 }}>
+              {d.type === 'added' ? '+' : d.type === 'removed' ? '-' : ' '}
+            </span>
+            <span>{d.text}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const fetchNamespaces = () => {
     fetch('/api/namespaces').then(res => res.json()).then(data => {
       if (Array.isArray(data)) setNamespaces(['all', ...data]);
@@ -1197,7 +1987,7 @@ function App() {
       : activeTab === 'helm'
       ? `/api/helm?namespace=${selectedNs}`
       : activeTab === 'zarf'
-      ? '/api/zarf/packages'
+      ? (() => { fetchZarfState(); return '/api/zarf/packages'; })()
       : activeTab === 'crds'
       ? '/api/crds'
       : activeTab === 'custom' && customCrd
@@ -1304,7 +2094,27 @@ function App() {
     }).catch(console.error);
 
     fetch('/api/metrics/pods').then(res => res.json()).then(data => {
-      if (Array.isArray(data)) setPodMetrics(data);
+      if (Array.isArray(data)) {
+        setPodMetrics(data);
+        setPodMetricsHistory(prev => {
+          const updated = { ...prev };
+          data.forEach((pm: any) => {
+            const key = `${pm.metadata.namespace}/${pm.metadata.name}`;
+            let cpuUsage = 0;
+            let memUsage = 0;
+            pm.containers?.forEach((c: any) => {
+              cpuUsage += parseCpu(c.usage?.cpu || '0');
+              memUsage += parseMem(c.usage?.memory || '0');
+            });
+            const existing = updated[key] || { cpu: [], mem: [] };
+            updated[key] = {
+              cpu: [...existing.cpu.slice(-14), cpuUsage],
+              mem: [...existing.mem.slice(-14), memUsage]
+            };
+          });
+          return updated;
+        });
+      }
     }).catch(console.error);
   };
 
@@ -1467,18 +2277,39 @@ function App() {
         if (phase === 'failed') color = '#e00';
         if (phase === 'succeeded') color = '#10b981';
 
+        const lacksNetPol = clusterAuditResult?.issues?.some(
+          (i: any) => i.rule === 'Pod Missing NetworkPolicy' && 
+                      i.namespace === p.metadata.namespace && 
+                      i.resource === `Pod/${p.metadata.name}`
+        );
+
+        let borderCol = color;
+        let borderDashes = false;
+        let nodeLabel = p.metadata.name.length > 20 ? p.metadata.name.substring(0, 17) + '...' : p.metadata.name;
+        let nodeTitle = `Pod: ${p.metadata.name}\nStatus: ${p.status?.phase}\nNode: ${p.spec?.nodeName}`;
+
+        if (lacksNetPol) {
+          borderCol = '#f59e0b'; // orange warning border
+          borderDashes = true;
+          nodeLabel = `⚠️ ${nodeLabel}`;
+          nodeTitle += `\n⚠️ WARNING: Lacks NetworkPolicy Isolation`;
+        }
+
         nodesList.push({
           id: `pod-${p.metadata.name}`,
-          label: p.metadata.name.length > 20 ? p.metadata.name.substring(0, 17) + '...' : p.metadata.name,
-          title: `Pod: ${p.metadata.name}\nStatus: ${p.status?.phase}\nNode: ${p.spec?.nodeName}`,
+          label: nodeLabel,
+          title: nodeTitle,
           group: 'pods',
           shape: 'dot',
           size: 16,
           color: {
             background: '#0a0a0a',
-            border: color,
-            highlight: { background: '#111111', border: color },
-            hover: { background: '#111111', border: color }
+            border: borderCol,
+            highlight: { background: '#111111', border: borderCol },
+            hover: { background: '#111111', border: borderCol }
+          },
+          shapeProperties: {
+            borderDashes: borderDashes
           },
           font: { color: '#ffffff', face: 'Inter', size: 10 }
         });
@@ -1569,6 +2400,14 @@ function App() {
       networkInstance.current = new Network(graphRef.current, data, options);
 
       // Node double-click / click handler to open modals
+      networkInstance.current.on('click', (params: any) => {
+        if (params.nodes && params.nodes.length > 0) {
+          setSelectedTopologyNode(params.nodes[0]);
+        } else {
+          setSelectedTopologyNode(null);
+        }
+      });
+
       networkInstance.current.on('doubleClick', (params: any) => {
         if (params.nodes && params.nodes.length > 0) {
           const selectedId = params.nodes[0];
@@ -1620,7 +2459,7 @@ function App() {
         networkInstance.current = null;
       }
     };
-  }, [activeTab, topologyMode, topologyData]);
+  }, [activeTab, topologyMode, topologyData, clusterAuditResult]);
 
   useEffect(() => {
     setResources([]);
@@ -1724,6 +2563,12 @@ function App() {
         const res = await fetch(`/api/helm/${modal.namespace}/${modal.name}/history`);
         const data = await res.json();
         setModalData(data);
+      } else if (type === 'values') {
+        const res = await fetch(`/api/helm/${modal.namespace}/${modal.name}/values`);
+        const data = await res.json();
+        const valStr = data.raw || JSON.stringify(data, null, 2);
+        setModalData(valStr);
+        setHelmValuesEdit(valStr);
       } else if (type === 'files') {
         setModalData('files-ready');
         setCurrentDirPath('/');
@@ -1941,6 +2786,148 @@ function App() {
     return false;
   };
 
+  const renderSmallSparkline = (points: number[], color: string) => {
+    if (!points || points.length < 2) return null;
+    const max = Math.max(...points, 0.0001);
+    const min = Math.min(...points, 0);
+    const range = max - min;
+    
+    const width = 60;
+    const height = 15;
+    const padding = 1;
+    
+    const coords = points.map((p, idx) => {
+      const x = padding + (idx / (points.length - 1)) * (width - 2 * padding);
+      const y = height - padding - ((p - min) / range) * (height - 2 * padding);
+      return `${x},${y}`;
+    });
+    
+    return (
+      <svg width={width} height={height} style={{ overflow: 'visible', verticalAlign: 'middle', marginLeft: 6 }}>
+        <polyline
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          points={coords.join(' ')}
+        />
+      </svg>
+    );
+  };
+
+  const renderTopologyOverlay = () => {
+    if (!selectedTopologyNode) return null;
+    const parts = selectedTopologyNode.split('-');
+    const type = parts[0];
+    const name = parts.slice(1).join('-');
+    
+    let item: any = null;
+    let category = '';
+    let namespace = selectedNs === 'all' ? 'default' : selectedNs;
+    let actions: { label: string; icon: any; action: () => void }[] = [];
+    
+    if (type === 'pod') {
+      item = topologyData.pods.find(p => p.metadata.name === name);
+      if (item) {
+        category = 'Pod';
+        namespace = item.metadata.namespace;
+        actions = [
+          { label: 'View Logs', icon: <FileText size={12}/>, action: () => setModal({ type: 'logs', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'pods', uid: item.metadata.uid }) },
+          { label: 'Console', icon: <Terminal size={12}/>, action: () => setModal({ type: 'terminal', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'pods', uid: item.metadata.uid }) },
+          { label: 'Files', icon: <FileText size={12}/>, action: () => setModal({ type: 'files', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'pods', uid: item.metadata.uid }) },
+          { label: 'Smart Doctor', icon: <span>🩺</span>, action: () => handleOpenDiagnostics(item.metadata.name, item.metadata.namespace) },
+          { label: 'View YAML', icon: <Settings size={12}/>, action: () => setModal({ type: 'yaml', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'pods', uid: item.metadata.uid }) }
+        ];
+      }
+    } else if (type === 'deployment') {
+      item = topologyData.deployments.find(d => d.metadata.name === name);
+      if (item) {
+        category = 'Deployment';
+        namespace = item.metadata.namespace;
+        actions = [
+          { label: 'View YAML', icon: <Settings size={12}/>, action: () => setModal({ type: 'yaml', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'deployments', uid: item.metadata.uid }) },
+          { label: 'Restart Rollout', icon: <RefreshCw size={12}/>, action: () => handleRestart(item.metadata.name, item.metadata.namespace) },
+          { label: 'Scale Replicas', icon: <SlidersHorizontal size={12}/>, action: () => handleScale(item.metadata.name, item.metadata.namespace, item.spec?.replicas || 0) }
+        ];
+      }
+    } else if (type === 'service') {
+      item = topologyData.services.find(s => s.metadata.name === name);
+      if (item) {
+        category = 'Service';
+        namespace = item.metadata.namespace;
+        actions = [
+          { label: 'View YAML', icon: <Settings size={12}/>, action: () => setModal({ type: 'yaml', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'services', uid: item.metadata.uid }) },
+          { label: 'Website', icon: <Globe size={12}/>, action: () => handleOpenServiceWebsite(item) }
+        ];
+      }
+    } else if (type === 'node') {
+      item = topologyData.nodes.find(n => n.metadata.name === name);
+      if (item) {
+        category = 'Node';
+        namespace = 'Cluster Scope';
+        actions = [
+          { label: 'View YAML', icon: <Settings size={12}/>, action: () => setModal({ type: 'yaml', name: item.metadata.name, namespace: 'default', kind: 'nodes', uid: item.metadata.uid }) }
+        ];
+      }
+    }
+    
+    if (!item) return null;
+    
+    return (
+      <div style={{
+        position: 'absolute',
+        bottom: 12,
+        left: 12,
+        background: 'rgba(7, 7, 7, 0.9)',
+        backdropFilter: 'blur(12px)',
+        border: '1px solid var(--accent-blue)',
+        borderRadius: 'var(--radius-md)',
+        padding: '12px 16px',
+        zIndex: 20,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.8), 0 0 10px rgba(59, 130, 246, 0.2)',
+        width: '260px',
+        animation: 'slide-in-up 0.2s ease-out'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '6px' }}>
+          <div>
+            <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--accent-blue)', fontWeight: 600 }}>{category} ({namespace})</div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', wordBreak: 'break-all', marginTop: 2 }}>{item.metadata.name}</div>
+          </div>
+          <button 
+            className="btn btn-icon" 
+            style={{ padding: 4 }}
+            onClick={() => setSelectedTopologyNode(null)}
+          >
+            <X size={14} />
+          </button>
+        </div>
+        
+        {category === 'Pod' && (
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Status: <span className={`status-dot ${item.status?.phase?.toLowerCase()}`} style={{ marginRight: 6 }}></span>
+            <span style={{ color: 'var(--text-main)' }}>{item.status?.phase}</span>
+          </div>
+        )}
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+          {actions.map((act, idx) => (
+            <button
+              key={idx}
+              className="btn btn-sm btn-secondary"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-start', padding: '6px 10px', fontSize: '0.75rem' }}
+              onClick={act.action}
+            >
+              {act.icon}
+              <span>{act.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderTopologyView = () => {
     if (topologyMode === 'graph') {
       return (
@@ -2010,8 +2997,9 @@ function App() {
             </div>
           </div>
           <div style={{ position: 'absolute', bottom: 12, right: 12, fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.6)', padding: '4px 8px', borderRadius: 4, zIndex: 10, pointerEvents: 'none' }}>
-            Double-click a node to inspect resource
+            Click a node for actions | Double-click to inspect
           </div>
+          {renderTopologyOverlay()}
         </div>
       );
     }
@@ -2124,7 +3112,20 @@ function App() {
                   onMouseLeave={() => setHoveredTopologyItem(null)}
                   onClick={() => setModal({ type: 'yaml', name: pod.metadata.name, namespace: selectedNs, kind: 'pods', uid: pod.metadata.uid })}
                 >
-                  <div className="topology-card-title">{pod.metadata.name}</div>
+                  <div className="topology-card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pod.metadata.name}</span>
+                    <button 
+                      className="btn btn-icon btn-sm" 
+                      style={{ padding: 2, minHeight: 'auto', background: 'transparent', border: 'none' }}
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        handleOpenDiagnostics(pod.metadata.name, pod.metadata.namespace || selectedNs); 
+                      }}
+                      title="Run Pod Diagnostics"
+                    >
+                      🩺
+                    </button>
+                  </div>
                   <div className="topology-card-subtitle">
                     Status: <span className={`badge ${status}`} style={{ fontSize: '0.65rem', padding: '0px 4px' }}>{status}</span><br/>
                     Node: {pod.spec?.nodeName}
@@ -2412,7 +3413,7 @@ function App() {
               Welcome to Periscope
             </h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5', maxWidth: '620px', margin: 0 }}>
-              Your ultimate interactive control plane for Kubernetes clusters and Zarf package deployments. 
+              Interactive control plane for Kubernetes clusters and Zarf package deployments. 
               Monitor metrics, trace topologies, execute terminal commands, manage Helm charts, and explore container files instantly.
             </p>
             <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
@@ -2599,7 +3600,8 @@ function App() {
                     padding: '16px 20px',
                     background: 'rgba(255,255,255,0.02)',
                     border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border-color)'}`,
-                    borderRadius: 8
+                    borderRadius: 8,
+                    alignItems: 'stretch'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -3058,12 +4060,21 @@ function App() {
                       </div>
                     </div>
                     
-                    <button 
-                      className="btn btn-danger"
-                      onClick={() => handleRemoveZarfPackage(name)}
-                    >
-                      <Trash2 size={14} /> Remove
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button 
+                        className="btn"
+                        onClick={() => handleInspectDeployedZarfPackage(name)}
+                        disabled={isFetchingPackageDetail}
+                      >
+                        <Search size={14} /> Inspect
+                      </button>
+                      <button 
+                        className="btn btn-danger"
+                        onClick={() => handleRemoveZarfPackage(name)}
+                      >
+                        <Trash2 size={14} /> Remove
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -3305,225 +4316,552 @@ function App() {
 
   const renderZarfSbomView = () => {
     const packagesOnly = zarfLocalPackages.filter((pkg: any) => pkg.name.endsWith('.tar.zst') || pkg.name.endsWith('.zst'));
-    const scanArtifacts = sbomScanResult?.artifacts || [];
-    const filteredScanArtifacts = scanArtifacts.filter((art: any) => {
-      if (!sbomScanSearchQuery.trim()) return true;
-      const query = sbomScanSearchQuery.toLowerCase();
-      const name = (art.name || '').toLowerCase();
-      const ver = (art.version || '').toLowerCase();
-      const type = (art.type || '').toLowerCase();
-      const licenses = Array.isArray(art.licenses)
-        ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || '')).join(' ').toLowerCase()
-        : '';
-      return name.includes(query) || ver.includes(query) || type.includes(query) || licenses.includes(query);
-    });
 
     return (
       <div className="zarf-sbom-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', paddingBottom: 10, gap: 16 }}>
-          <button 
-            className={`btn ${sbomActiveTab === 'inspect' ? 'btn-primary' : ''}`}
-            onClick={() => setSbomActiveTab('inspect')}
-          >
-            Package SBOM Inspector
-          </button>
-          <button 
-            className={`btn ${sbomActiveTab === 'scan' ? 'btn-primary' : ''}`}
-            onClick={() => setSbomActiveTab('scan')}
-          >
-            Image Scanner
-          </button>
-        </div>
-
-        {sbomActiveTab === 'inspect' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-              <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Extract CycloneDX Package Reports</h3>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <select 
-                  className="exec-input"
-                  style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)' }}
-                  value={sbomPackageName}
-                  onChange={e => setSbomPackageName(e.target.value)}
-                >
-                  <option value="">-- Select a local Zarf package --</option>
-                  {packagesOnly.map((pkg: any) => (
-                    <option key={pkg.name} value={pkg.name}>{pkg.name}</option>
-                  ))}
-                </select>
-                <button 
-                  className="btn btn-primary"
-                  onClick={handleExtractSbom}
-                  disabled={isExtractingSbom || !sbomPackageName}
-                >
-                  {isExtractingSbom ? 'Extracting...' : 'Extract SBOM'}
-                </button>
-              </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Extract CycloneDX Package Reports</h3>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <select 
+                className="exec-input"
+                style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)' }}
+                value={sbomPackageName}
+                onChange={e => setSbomPackageName(e.target.value)}
+              >
+                <option value="">-- Select a local Zarf package --</option>
+                {packagesOnly.map((pkg: any) => (
+                  <option key={pkg.name} value={pkg.name}>{pkg.name}</option>
+                ))}
+              </select>
+              <button 
+                className="btn btn-primary"
+                onClick={handleExtractSbom}
+                disabled={isExtractingSbom || !sbomPackageName}
+              >
+                {isExtractingSbom ? 'Extracting...' : 'Extract SBOM'}
+              </button>
             </div>
-
-            {sbomExtractedFiles.length > 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: 20 }}>
-                <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, maxHeight: '600px', overflowY: 'auto' }}>
-                  <h4 style={{ fontSize: '0.9rem', marginBottom: 10, color: 'var(--text-muted)' }}>Component Reports</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {sbomExtractedFiles.map(file => {
-                      const cleanName = file.name.replace(/^sbom-viewer-/, '').replace(/\.html$/, '');
-                      const isActive = sbomSelectedFileUrl === file.url;
-                      return (
-                        <button
-                          key={file.name}
-                          className={`btn ${isActive ? 'btn-primary' : ''}`}
-                          style={{ 
-                            justifyContent: 'flex-start', 
-                            textAlign: 'left', 
-                            fontSize: '0.8rem', 
-                            padding: '8px 12px', 
-                            overflow: 'hidden', 
-                            textOverflow: 'ellipsis', 
-                            whiteSpace: 'nowrap',
-                            background: isActive ? 'var(--accent-blue)' : 'rgba(255,255,255,0.02)'
-                          }}
-                          onClick={() => setSbomSelectedFileUrl(file.url)}
-                          title={cleanName}
-                        >
-                          {cleanName}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div style={{ background: '#fff', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', height: '600px' }}>
-                  {sbomSelectedFileUrl ? (
-                    <iframe 
-                      src={sbomSelectedFileUrl}
-                      style={{ width: '100%', height: '100%', border: 'none' }}
-                      title="CycloneDX SBOM Report"
-                    />
-                  ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#333' }}>
-                      Select a component report to view.
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
-        )}
 
-        {sbomActiveTab === 'scan' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-              <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Run Real-time Container Image SBOM Scan</h3>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16 }}>
-                <input 
-                  type="text"
-                  className="exec-input"
-                  style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                  value={sbomImageRef}
-                  onChange={e => setSbomImageRef(e.target.value)}
-                  placeholder="e.g. 127.0.0.1:31999/library/periscope:latest or alpine:latest"
-                />
-                <button 
-                  className="btn btn-primary"
-                  onClick={() => handleScanImageSbom()}
-                  disabled={isScanningSbomImage}
-                >
-                  {isScanningSbomImage ? 'Scanning Image...' : 'Scan Image'}
-                </button>
-              </div>
-
-              {zarfRegistryRepos.length > 0 && (
-                <div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>Registry Image Suggestions (Click to fill):</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {zarfRegistryRepos.map(repo => {
-                      const shortRef = `127.0.0.1:31999/${repo}:latest`;
-                      return (
-                        <button
-                          key={repo}
-                          className="btn"
-                          style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)' }}
-                          onClick={() => setSbomImageRef(shortRef)}
-                        >
-                          {repo}
-                        </button>
-                      );
-                    })}
-                  </div>
+          {sbomExtractedFiles.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: 20 }}>
+              <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, maxHeight: '600px', overflowY: 'auto' }}>
+                <h4 style={{ fontSize: '0.9rem', marginBottom: 10, color: 'var(--text-muted)' }}>Component Reports</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {sbomExtractedFiles.map(file => {
+                    const cleanName = file.name.replace(/^sbom-viewer-/, '').replace(/\.html$/, '');
+                    const isActive = sbomSelectedFileUrl === file.url;
+                    return (
+                      <button
+                        key={file.name}
+                        className={`btn ${isActive ? 'btn-primary' : ''}`}
+                        style={{ 
+                          justifyContent: 'flex-start', 
+                          textAlign: 'left', 
+                          fontSize: '0.8rem', 
+                          padding: '8px 12px', 
+                          overflow: 'hidden', 
+                          textOverflow: 'ellipsis', 
+                          whiteSpace: 'nowrap',
+                          background: isActive ? 'var(--accent-blue)' : 'rgba(255,255,255,0.02)'
+                        }}
+                        onClick={() => setSbomSelectedFileUrl(file.url)}
+                        title={cleanName}
+                      >
+                        {cleanName}
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
-
-            {isScanningSbomImage && (
-              <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
-                <div className="loader" style={{ margin: '0 auto 12px auto' }}></div>
-                Scanning image layers with Syft scanner. This may take up to a minute...
               </div>
-            )}
 
-            {sbomScanResult && (
-              <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <div>
-                    <h4 style={{ fontSize: '1.05rem', margin: 0 }}>Scan Report: {sbomScanResult.source?.target?.imageID || sbomImageRef}</h4>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                      Scanned by {sbomScanResult.descriptor?.name || 'Syft'} {sbomScanResult.descriptor?.version || ''}. Found {scanArtifacts.length} packages.
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Filter packages..."
-                    className="exec-input"
-                    style={{ width: 250, padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, fontSize: '0.85rem' }}
-                    value={sbomScanSearchQuery}
-                    onChange={e => setSbomScanSearchQuery(e.target.value)}
+              <div style={{ background: '#fff', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', height: '600px' }}>
+                {sbomSelectedFileUrl ? (
+                  <iframe 
+                    src={sbomSelectedFileUrl}
+                    style={{ width: '100%', height: '100%', border: 'none' }}
+                    title="CycloneDX SBOM Report"
                   />
-                </div>
-
-                {filteredScanArtifacts.length === 0 ? (
-                  <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
-                    No packages match your search filter.
-                  </div>
                 ) : (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
-                      <thead>
-                        <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                          <th style={{ padding: '8px 12px' }}>Package Name</th>
-                          <th style={{ padding: '8px 12px' }}>Version</th>
-                          <th style={{ padding: '8px 12px' }}>Type</th>
-                          <th style={{ padding: '8px 12px' }}>Licenses</th>
-                          <th style={{ padding: '8px 12px' }}>Language</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredScanArtifacts.map((art: any, i: number) => {
-                          const licenseStrs = Array.isArray(art.licenses)
-                            ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || ''))
-                            : [];
-                          return (
-                            <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                              <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-main)' }}>{art.name}</td>
-                              <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>{art.version}</td>
-                              <td style={{ padding: '8px 12px' }}>
-                                <span className="badge badge-running" style={{ textTransform: 'none', padding: '2px 6px', background: 'rgba(255,255,255,0.03)' }}>
-                                  {art.type}
-                                </span>
-                              </td>
-                              <td style={{ padding: '8px 12px', color: '#ffd700' }}>
-                                {licenseStrs.length > 0 ? licenseStrs.join(', ') : <span style={{ color: 'var(--text-muted)' }}>None</span>}
-                              </td>
-                              <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{art.language || 'N/A'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#333' }}>
+                    Select a component report to view.
                   </div>
                 )}
               </div>
-            )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderImageScannerView = () => {
+    const totalCount = runningImages.length;
+    const scannedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'success').length;
+    const scanningCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'scanning').length;
+    const failedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'failed').length;
+
+    const filteredVulns = getFilteredVulnerabilities();
+    const filteredPkgs = getFilteredPackages();
+
+    const criticalCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'critical').length;
+    const highCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'high').length;
+    const mediumCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'medium').length;
+    const lowCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'low').length;
+    const negligibleCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'negligible').length;
+
+    const renderTablePlaceholder = (tab: 'vulnerabilities' | 'packages') => {
+      if (selectedScanFilterImage === 'all') {
+        if (scannedCount === 0) {
+          return (
+            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
+              <div style={{ color: 'var(--text-muted)', marginBottom: 16 }}>No container images have been scanned yet.</div>
+              <button 
+                className="btn btn-primary"
+                onClick={fetchRunningImagesAndScan}
+                disabled={isScanningAllRunningImages}
+                style={{ margin: '0 auto' }}
+              >
+                <RefreshCw size={14} className={isScanningAllRunningImages ? 'spin' : ''} style={{ marginRight: 6 }} />
+                {isScanningAllRunningImages ? 'Scanning All...' : 'Scan All Running Images'}
+              </button>
+            </div>
+          );
+        }
+        return (
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+            No {tab} found matching current filters.
+          </div>
+        );
+      }
+
+      const scan = runningImagesScanResults[selectedScanFilterImage];
+      const cleanedImg = selectedScanFilterImage.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+
+      if (!scan) {
+        return (
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
+            <div style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+              Image <strong>{cleanedImg}</strong> has not been scanned yet.
+            </div>
+            <button 
+              className="btn btn-primary"
+              onClick={() => scanSingleImage(selectedScanFilterImage)}
+              style={{ margin: '0 auto' }}
+            >
+              Scan Image
+            </button>
+          </div>
+        );
+      }
+
+      if (scan.status === 'scanning') {
+        return (
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+            <div className="loader" style={{ margin: '0 auto 12px auto' }}></div>
+            Scanning image <strong>{cleanedImg}</strong>...
+          </div>
+        );
+      }
+
+      if (scan.status === 'failed') {
+        return (
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
+            <div style={{ color: '#ef4444', marginBottom: 8, fontWeight: 600 }}>Scan Failed</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16, maxWidth: '500px', margin: '0 auto 16px auto' }}>
+              {scan.error || 'Unknown error occurred during scan.'}
+            </div>
+            <button 
+              className="btn"
+              onClick={() => scanSingleImage(selectedScanFilterImage)}
+              style={{ margin: '0 auto', background: 'rgba(255,255,255,0.02)' }}
+            >
+              Retry Scan
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+          No {tab} found for this container image.
+        </div>
+      );
+    };
+
+    return (
+      <div className="image-scanner-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Top Control Bar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h3 style={{ fontSize: '1.1rem', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Shield size={18} style={{ color: 'var(--accent-blue)' }} /> Real-time Container Vulnerabilities
+            </h3>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Images Scanned: <strong style={{ color: 'var(--text-main)' }}>{scannedCount}</strong> / {totalCount}
+              {scanningCount > 0 && <span style={{ marginLeft: 10, color: 'var(--accent-cyan)' }}>({scanningCount} scanning...)</span>}
+              {failedCount > 0 && <span style={{ marginLeft: 10, color: '#ef4444' }}>({failedCount} failed)</span>}
+            </div>
+          </div>
+          <button 
+            className="btn btn-primary"
+            onClick={fetchRunningImagesAndScan}
+            disabled={isScanningAllRunningImages}
+            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            <RefreshCw size={16} className={isScanningAllRunningImages ? 'spin' : ''} />
+            {isScanningAllRunningImages ? 'Scanning Cluster...' : 'Scan All Running Images'}
+          </button>
+        </div>
+
+        {/* Severity Metrics Cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+          <div style={{ background: 'rgba(239, 68, 68, 0.03)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>{criticalCount}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Critical</div>
+          </div>
+          <div style={{ background: 'rgba(245, 158, 11, 0.03)', border: '1px solid rgba(245, 158, 11, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f59e0b', lineHeight: 1.2 }}>{highCount}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>High</div>
+          </div>
+          <div style={{ background: 'rgba(252, 211, 77, 0.03)', border: '1px solid rgba(252, 211, 77, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fbbf24', lineHeight: 1.2 }}>{mediumCount}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Medium</div>
+          </div>
+          <div style={{ background: 'rgba(96, 165, 250, 0.03)', border: '1px solid rgba(96, 165, 250, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#60a5fa', lineHeight: 1.2 }}>{lowCount}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Low</div>
+          </div>
+          <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-main)', lineHeight: 1.2 }}>{negligibleCount}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Negligible</div>
+          </div>
+        </div>
+
+        {/* Tab Selection */}
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', gap: 16 }}>
+          <button 
+            className={`tab-btn ${imageScannerActiveTab === 'vulnerabilities' ? 'active' : ''}`}
+            onClick={() => setImageScannerActiveTab('vulnerabilities')}
+            style={{
+              padding: '10px 20px',
+              background: 'none',
+              border: 'none',
+              borderBottom: imageScannerActiveTab === 'vulnerabilities' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+              color: imageScannerActiveTab === 'vulnerabilities' ? 'var(--text-main)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.9rem'
+            }}
+          >
+            🛡️ Vulnerabilities ({filteredVulns.length})
+          </button>
+          <button 
+            className={`tab-btn ${imageScannerActiveTab === 'packages' ? 'active' : ''}`}
+            onClick={() => setImageScannerActiveTab('packages')}
+            style={{
+              padding: '10px 20px',
+              background: 'none',
+              border: 'none',
+              borderBottom: imageScannerActiveTab === 'packages' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+              color: imageScannerActiveTab === 'packages' ? 'var(--text-main)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.9rem'
+            }}
+          >
+            📦 Packages ({filteredPkgs.length})
+          </button>
+          <button 
+            className={`tab-btn ${imageScannerActiveTab === 'images' ? 'active' : ''}`}
+            onClick={() => setImageScannerActiveTab('images')}
+            style={{
+              padding: '10px 20px',
+              background: 'none',
+              border: 'none',
+              borderBottom: imageScannerActiveTab === 'images' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+              color: imageScannerActiveTab === 'images' ? 'var(--text-main)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.9rem'
+            }}
+          >
+            📷 Scanned Images ({totalCount})
+          </button>
+        </div>
+
+        {/* Filter and Control Actions Bar (for data tabs) */}
+        {imageScannerActiveTab !== 'images' && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.1)', borderRadius: 6, padding: 12, flexWrap: 'wrap', gap: 10 }}>
+            {/* Left filters */}
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div className="search-box" style={{ width: 220 }}>
+                <Search size={14} />
+                <input 
+                  type="text" 
+                  placeholder={imageScannerActiveTab === 'vulnerabilities' ? "Search CVEs/packages..." : "Search packages..."}
+                  value={imageScanSearchQuery}
+                  onChange={e => setImageScanSearchQuery(e.target.value)}
+                  style={{ padding: '6px 10px 6px 30px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                />
+              </div>
+
+              {/* Image Filter */}
+              <select
+                value={selectedScanFilterImage}
+                onChange={e => setSelectedScanFilterImage(e.target.value)}
+                style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem' }}
+              >
+                <option value="all">All Images ({totalCount})</option>
+                {runningImages.map(img => {
+                  const cleaned = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+                  return <option key={img} value={img}>{cleaned}</option>;
+                })}
+              </select>
+
+              {/* Severity Filter (only for vulnerabilities tab) */}
+              {imageScannerActiveTab === 'vulnerabilities' && (
+                <select
+                  value={imageScanSeverityFilter}
+                  onChange={e => setImageScanSeverityFilter(e.target.value)}
+                  style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem' }}
+                >
+                  <option value="all">All Severities</option>
+                  <option value="Critical">Critical</option>
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                  <option value="Negligible">Negligible</option>
+                </select>
+              )}
+            </div>
+
+            {/* Right exports */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button 
+                className="btn btn-primary" 
+                onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesCsv : exportImageScannerPackagesCsv}
+                style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Download size={14} /> Export CSV
+              </button>
+              <button 
+                className="btn" 
+                onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesJson : exportImageScannerPackagesJson}
+                style={{ fontSize: '0.8rem', padding: '6px 12px', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Download size={14} /> Export JSON
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tab Contents Rendering */}
+        {imageScannerActiveTab === 'vulnerabilities' && (
+          filteredVulns.length === 0 ? (
+            renderTablePlaceholder('vulnerabilities')
+          ) : (
+            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                    <th style={{ padding: '10px 14px' }}>Source Image</th>
+                    <th style={{ padding: '10px 14px' }}>Vulnerability</th>
+                    <th style={{ padding: '10px 14px' }}>Severity</th>
+                    <th style={{ padding: '10px 14px' }}>Package</th>
+                    <th style={{ padding: '10px 14px' }}>Installed Version</th>
+                    <th style={{ padding: '10px 14px' }}>Fixed In</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredVulns.map((m: any, idx: number) => {
+                    const vuln = m.vulnerability || {};
+                    const art = m.artifact || {};
+                    const severity = vuln.severity || 'Unknown';
+                    const badgeColor = 
+                      severity === 'Critical' ? '#ef4444' :
+                      severity === 'High' ? '#f59e0b' :
+                      severity === 'Medium' ? '#fbbf24' :
+                      severity === 'Low' ? '#60a5fa' : 'var(--text-muted)';
+                    
+                    const badgeBg = 
+                      severity === 'Critical' ? 'rgba(239, 68, 68, 0.08)' :
+                      severity === 'High' ? 'rgba(245, 158, 11, 0.08)' :
+                      severity === 'Medium' ? 'rgba(251, 191, 36, 0.08)' :
+                      severity === 'Low' ? 'rgba(96, 165, 250, 0.08)' : 'rgba(255, 255, 255, 0.03)';
+                    
+                    const fixedIn = vuln.fix?.versions?.join(', ') || 'Not Fixed';
+                    const cleanedImg = m.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', color: 'var(--accent-blue)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.imageRef}>
+                          {cleanedImg}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <a 
+                            href={`https://nvd.nist.gov/vuln/detail/${vuln.id}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}
+                          >
+                            {vuln.id}
+                          </a>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{ 
+                            fontSize: '0.7rem', 
+                            fontWeight: 700, 
+                            color: badgeColor, 
+                            background: badgeBg, 
+                            border: `1px solid ${badgeColor}22`,
+                            borderRadius: 4,
+                            padding: '2px 8px'
+                          }}>
+                            {severity}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{art.name}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>{art.version}</td>
+                        <td style={{ padding: '10px 14px', color: fixedIn === 'Not Fixed' ? 'var(--text-muted)' : '#10b981' }}>{fixedIn}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+
+        {imageScannerActiveTab === 'packages' && (
+          filteredPkgs.length === 0 ? (
+            renderTablePlaceholder('packages')
+          ) : (
+            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                    <th style={{ padding: '10px 14px' }}>Source Image</th>
+                    <th style={{ padding: '10px 14px' }}>Package Name</th>
+                    <th style={{ padding: '10px 14px' }}>Version</th>
+                    <th style={{ padding: '10px 14px' }}>Type</th>
+                    <th style={{ padding: '10px 14px' }}>Licenses</th>
+                    <th style={{ padding: '10px 14px' }}>Language</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPkgs.map((art: any, idx: number) => {
+                    const licenseStrs = Array.isArray(art.licenses)
+                      ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || ''))
+                      : [];
+                    const cleanedImg = art.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', color: 'var(--accent-blue)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={art.imageRef}>
+                          {cleanedImg}
+                        </td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-main)' }}>{art.name}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>{art.version}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span className="badge badge-running" style={{ textTransform: 'none', padding: '2px 6px', background: 'rgba(255,255,255,0.03)' }}>
+                            {art.type}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', color: '#ffd700' }}>
+                          {licenseStrs.length > 0 ? licenseStrs.join(', ') : <span style={{ color: 'var(--text-muted)' }}>None</span>}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-muted)' }}>{art.language || 'N/A'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+
+        {imageScannerActiveTab === 'images' && (
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                  <th style={{ padding: '12px 16px' }}>Container Image Reference</th>
+                  <th style={{ padding: '12px 16px' }}>Scan Status</th>
+                  <th style={{ padding: '12px 16px' }}>Vulnerability Counts (C/H/M/L)</th>
+                  <th style={{ padding: '12px 16px' }}>Packages</th>
+                  <th style={{ padding: '12px 16px' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runningImages.map((img: string, idx: number) => {
+                  const scan = runningImagesScanResults[img];
+                  const cleanedName = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+                  
+                  let cCount = 0, hCount = 0, mCount = 0, lCount = 0;
+                  if (scan && scan.status === 'success' && scan.vulnerabilities && scan.vulnerabilities.matches) {
+                    scan.vulnerabilities.matches.forEach((m: any) => {
+                      const sev = (m.vulnerability?.severity || '').toLowerCase();
+                      if (sev === 'critical') cCount++;
+                      else if (sev === 'high') hCount++;
+                      else if (sev === 'medium') mCount++;
+                      else if (sev === 'low') lCount++;
+                    });
+                  }
+
+                  return (
+                    <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                      <td style={{ padding: '12px 16px', fontFamily: 'var(--font-mono)', fontWeight: 600 }} title={img}>
+                        {cleanedName}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        {!scan ? (
+                          <span style={{ color: 'var(--text-muted)' }}>Not Scanned</span>
+                        ) : scan.status === 'scanning' ? (
+                          <span style={{ color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <RefreshCw size={12} className="spin" /> Scanning...
+                          </span>
+                        ) : scan.status === 'success' ? (
+                          <span style={{ color: '#10b981' }}>✓ Success</span>
+                        ) : (
+                          <span style={{ color: '#ef4444' }} title={scan.error || 'Unknown error'}>✗ Failed</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        {scan && scan.status === 'success' ? (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <span style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{cCount}</span>
+                            <span style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{hCount}</span>
+                            <span style={{ background: 'rgba(251,191,36,0.1)', color: '#fbbf24', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{mCount}</span>
+                            <span style={{ background: 'rgba(96,165,250,0.1)', color: '#60a5fa', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{lCount}</span>
+                          </div>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>-</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        {scan && scan.status === 'success' ? (
+                          <span>{scan.sbom?.artifacts?.length || 0} packages</span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>-</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <button
+                          className="btn"
+                          style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)' }}
+                          onClick={() => scanSingleImage(img)}
+                          disabled={scan?.status === 'scanning'}
+                        >
+                          {scan?.status === 'scanning' ? 'Scanning...' : scan ? 'Rescan' : 'Scan'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -3532,104 +4870,404 @@ function App() {
 
   const renderZarfRegistryView = () => {
     return (
-      <div className="zarf-registry-view animate-fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        {/* Repositories catalog list */}
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Repositories Catalog</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn" onClick={handlePruneRegistry}>
-                Prune Unused
+      <div className="zarf-registry-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Pull and Push Forms Panel */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          {/* Pull / Upstream Copy Form */}
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Download size={18} style={{ color: 'var(--accent-blue)' }} /> Pull / Copy Upstream Image
+            </h3>
+            <form onSubmit={handlePullRegistryImage} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Source Image (e.g. Docker Hub or Public Registry)</label>
+                <input 
+                  type="text"
+                  className="exec-input"
+                  style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                  placeholder="e.g. nginx:alpine"
+                  value={registryPullSource}
+                  onChange={e => setRegistryPullSource(e.target.value)}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Target Local Tag (stored in registry)</label>
+                <input 
+                  type="text"
+                  className="exec-input"
+                  style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                  placeholder="e.g. library/nginx:alpine"
+                  value={registryPullTarget}
+                  onChange={e => setRegistryPullTarget(e.target.value)}
+                  required
+                />
+              </div>
+              <button 
+                type="submit" 
+                className="btn btn-primary" 
+                style={{ alignSelf: 'flex-start', marginTop: 8 }}
+                disabled={isPullingRegistry}
+              >
+                {isPullingRegistry ? 'Pulling...' : 'Copy Image to Registry'}
               </button>
-              <button className="btn btn-icon" onClick={fetchZarfRegistryCatalog} disabled={isFetchingRegistry}>
-                <RefreshCw size={14} />
-              </button>
-            </div>
+            </form>
           </div>
 
-          {isFetchingRegistry ? (
-            <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
-              Querying repositories catalog...
+          {/* Push Tarball Form */}
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Upload size={18} style={{ color: 'var(--accent-blue)' }} /> Push Image Tarball
+            </h3>
+            <form onSubmit={handlePushRegistryImage} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Select Docker Image Tarball (.tar)</label>
+                <input 
+                  type="file"
+                  id="registry-image-file-input"
+                  accept=".tar"
+                  className="exec-input"
+                  style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Target Local Tag (e.g. repo:tag)</label>
+                <input 
+                  type="text"
+                  className="exec-input"
+                  style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
+                  placeholder="e.g. library/my-app:1.0.0"
+                  value={registryPushTarget}
+                  onChange={e => setRegistryPushTarget(e.target.value)}
+                  required
+                />
+              </div>
+              <button 
+                type="submit" 
+                className="btn btn-primary" 
+                style={{ alignSelf: 'flex-start', marginTop: 8 }}
+                disabled={isPushingRegistry}
+              >
+                {isPushingRegistry ? 'Pushing...' : 'Push Tarball to Registry'}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* Repositories & Tags Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          {/* Repositories catalog list */}
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Repositories Catalog</h3>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn" onClick={handlePruneRegistry}>
+                  Prune Unused
+                </button>
+                <button className="btn btn-icon" onClick={fetchZarfRegistryCatalog} disabled={isFetchingRegistry}>
+                  <RefreshCw size={14} />
+                </button>
+              </div>
             </div>
-          ) : zarfRegistryRepos.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
-              No repositories found in local registry.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {zarfRegistryRepos.map(repo => {
-                const isSelected = zarfSelectedRepo === repo;
-                return (
+
+            {isFetchingRegistry ? (
+              <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
+                Querying repositories catalog...
+              </div>
+            ) : zarfRegistryRepos.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
+                No repositories found in local registry.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {zarfRegistryRepos.map(repo => {
+                  const isSelected = zarfSelectedRepo === repo;
+                  return (
+                    <div 
+                      key={repo}
+                      className={`resource-row ${isSelected ? 'active' : ''}`}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '10px 14px',
+                        background: 'rgba(255,255,255,0.02)',
+                        border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border-color)'}`,
+                        borderRadius: 6,
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => fetchZarfRegistryTags(repo)}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{repo}</div>
+                      <Search size={14} style={{ color: 'var(--text-muted)' }} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Selected Repository Tags */}
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: 16 }}>
+              {zarfSelectedRepo ? `Tags for ${zarfSelectedRepo}` : 'Select a Repository'}
+            </h3>
+
+            {!zarfSelectedRepo ? (
+              <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
+                Select a repository from the left panel to list its tags.
+              </div>
+            ) : isFetchingTags ? (
+              <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
+                Fetching tags...
+              </div>
+            ) : zarfSelectedRepoTags.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
+                No tags found for this repository.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {zarfSelectedRepoTags.map(tag => (
                   <div 
-                    key={repo}
-                    className={`resource-row ${isSelected ? 'active' : ''}`}
+                    key={tag}
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       padding: '10px 14px',
                       background: 'rgba(255,255,255,0.02)',
-                      border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border-color)'}`,
-                      borderRadius: 6,
-                      cursor: 'pointer'
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 6
                     }}
-                    onClick={() => fetchZarfRegistryTags(repo)}
                   >
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{repo}</div>
-                    <Search size={14} style={{ color: 'var(--text-muted)' }} />
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>{zarfSelectedRepo}:</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{tag}</span>
+                    </div>
+                    <button 
+                      className="btn btn-danger" 
+                      style={{ padding: '4px 8px' }} 
+                      onClick={() => handleDeleteRegistryImage(zarfSelectedRepo, tag)}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderClusterAuditorView = () => {
+    const criticals = (clusterAuditResult?.issues || []).filter((i: any) => i.severity === 'Critical');
+    const errors = (clusterAuditResult?.issues || []).filter((i: any) => i.severity === 'Error');
+    const warnings = (clusterAuditResult?.issues || []).filter((i: any) => i.severity === 'Warning');
+    const infos = (clusterAuditResult?.issues || []).filter((i: any) => i.severity === 'Info');
+
+    const gradeColor = 
+      clusterAuditResult?.grade?.startsWith('A') ? '#10b981' :
+      clusterAuditResult?.grade?.startsWith('B') || clusterAuditResult?.grade?.startsWith('C') ? '#f59e0b' : '#ef4444';
+
+    return (
+      <div className="cluster-auditor-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Summary Card */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: '1fr 3fr', 
+          gap: 20, 
+          background: 'rgba(255,255,255,0.01)', 
+          border: '1px solid var(--border-color)', 
+          borderRadius: 8, 
+          padding: 24 
+        }}>
+          {/* Grade Display */}
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            borderRight: '1px solid var(--border-color)',
+            paddingRight: 20
+          }}>
+            <div style={{ 
+              width: 100, 
+              height: 100, 
+              borderRadius: '50%', 
+              border: `4px solid ${gradeColor}`, 
+              display: 'flex', 
+              flexDirection: 'column',
+              alignItems: 'center', 
+              justifyContent: 'center',
+              boxShadow: `0 0 15px ${gradeColor}22`,
+              background: `radial-gradient(circle, ${gradeColor}11 0%, transparent 70%)`
+            }}>
+              <span style={{ fontSize: '2.2rem', fontWeight: 800, color: gradeColor }}>
+                {clusterAuditResult ? clusterAuditResult.grade : '-'}
+              </span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: -2 }}>
+                Score: {clusterAuditResult ? clusterAuditResult.score : 'N/A'}/100
+              </span>
+            </div>
+            <button 
+              className="btn btn-primary" 
+              style={{ marginTop: 16, width: '100%' }}
+              onClick={runClusterAudit}
+              disabled={isAuditingCluster}
+            >
+              {isAuditingCluster ? 'Running Audit...' : 'Re-scan Cluster'}
+            </button>
+          </div>
+
+          {/* Finding Metrics */}
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 16 }}>
+            <div>
+              <h3 style={{ fontSize: '1.25rem', margin: '0 0 4px 0' }}>Kubernetes Configuration & Security Audit</h3>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Programmatic scans of pods, deployments, services, and nodes checking for misconfigurations, security vulnerabilities, and reliability concerns.
+              </p>
+            </div>
+            
+            {clusterAuditResult ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+                <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 6, padding: 12 }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ef4444' }}>{criticals.length}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Critical Violations</div>
+                </div>
+                <div style={{ background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.15)', borderRadius: 6, padding: 12 }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f59e0b' }}>{errors.length}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Config Errors</div>
+                </div>
+                <div style={{ background: 'rgba(252, 211, 77, 0.05)', border: '1px solid rgba(252, 211, 77, 0.15)', borderRadius: 6, padding: 12 }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fbbf24' }}>{warnings.length}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Config Warnings</div>
+                </div>
+                <div style={{ background: 'rgba(96, 165, 250, 0.05)', border: '1px solid rgba(96, 165, 250, 0.15)', borderRadius: 6, padding: 12 }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#60a5fa' }}>{infos.length}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Optimizations</div>
+                </div>
+              </div>
+            ) : (
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No audit report generated. Click "Re-scan Cluster" to run diagnostics.</div>
+            )}
+          </div>
+        </div>
+
+        {/* Detailed Findings */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Detailed Auditor Findings ({clusterAuditResult?.issues?.length || 0})</h3>
+            {clusterAuditResult && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn" onClick={exportAuditMarkdown} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+                  Export Report (Markdown)
+                </button>
+                <button className="btn" onClick={exportAuditJson} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+                  Export Report (JSON)
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {isAuditingCluster ? (
+            <div style={{ color: 'var(--text-muted)', padding: '40px 0', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
+              <div className="loader" style={{ margin: '0 auto 10px auto' }}></div>
+              Evaluating Kubernetes audit rules against cluster resources...
+            </div>
+          ) : !clusterAuditResult || clusterAuditResult.issues.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
+              No audit findings reported. Your cluster conforms to all audited rules!
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {clusterAuditResult.issues.map((issue: any, index: number) => {
+                const badgeColor = 
+                  issue.severity === 'Critical' ? '#ef4444' :
+                  issue.severity === 'Error' ? '#dc2626' :
+                  issue.severity === 'Warning' ? '#fbbf24' : '#60a5fa';
+
+                const badgeBg = 
+                  issue.severity === 'Critical' ? 'rgba(239, 68, 68, 0.05)' :
+                  issue.severity === 'Error' ? 'rgba(220, 38, 38, 0.05)' :
+                  issue.severity === 'Warning' ? 'rgba(251, 191, 36, 0.05)' : 'rgba(96, 165, 250, 0.05)';
+
+                return (
+                  <div 
+                    key={index} 
+                    style={{ 
+                      background: 'rgba(255,255,255,0.02)', 
+                      border: '1px solid var(--border-color)', 
+                      borderRadius: 6, 
+                      padding: 14,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ 
+                          fontSize: '0.7rem', 
+                          fontWeight: 700, 
+                          color: badgeColor, 
+                          background: badgeBg, 
+                          border: `1px solid ${badgeColor}22`,
+                          borderRadius: 4,
+                          padding: '2px 6px'
+                        }}>
+                          {issue.severity}
+                        </span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          [{issue.category}]
+                        </span>
+                        <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                          {issue.rule}
+                        </span>
+                      </div>
+                      
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        NS: <span style={{ color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>{issue.namespace}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      {issue.message}
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.02)', paddingTop: 6 }}>
+                      <div>
+                        Resource: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>{issue.resource}</span>
+                      </div>
+                      
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', maxWidth: '60%', textAlign: 'right' }}>
+                        💡 <strong>Recommendation:</strong> {
+                          issue.rule === 'No CPU/Memory Limit' ? 'Add resources.limits to the container spec' :
+                          issue.rule === 'No CPU/Memory Request' ? 'Add resources.requests to the container spec' :
+                          issue.rule === 'Privileged Container' ? 'Set securityContext.privileged to false' :
+                          issue.rule === 'Privilege Escalation Allowed' ? 'Set securityContext.allowPrivilegeEscalation to false' :
+                          issue.rule === 'Running as Root' ? 'Configure runAsNonRoot: true in securityContext' :
+                          issue.rule === 'Plaintext Secret in Env' ? 'Store secret values in Kubernetes Secrets and reference using valueFrom.secretKeyRef' :
+                          issue.rule === 'Host Network Shared' ? 'Remove hostNetwork: true from pod spec' :
+                          issue.rule === 'Host PID Shared' ? 'Remove hostPID: true from pod spec' :
+                          issue.rule === 'Host IPC Shared' ? 'Remove hostIPC: true from pod spec' :
+                          issue.rule === 'HostPath Volume Mounted' ? 'Use persistent volume claims (PVC) or local volumes instead of hostPath' :
+                          issue.rule === 'Single Replica Deployment' ? 'Set replicas to 2 or more' :
+                          issue.rule === 'Missing Probes' ? 'Add livenessProbe and readinessProbe to verify container health' :
+                          issue.rule === 'Service Lacks Matching Pods' ? 'Correct selector labels to match running pod labels' :
+                          issue.rule === 'Pod Missing NetworkPolicy' ? 'Create a NetworkPolicy targeting this pod to restrict ingress/egress traffic' :
+                          issue.rule === 'Overprivileged ServiceAccount' ? 'Follow principle of least privilege: restrict verbs and resources in bound Role/ClusterRole' :
+                          issue.rule === 'Namespace Missing ResourceQuota' ? 'Create a ResourceQuota in the namespace to prevent resource starvation' :
+                          issue.rule === 'Namespace Missing LimitRange' ? 'Create a LimitRange in the namespace to define default container requests/limits' :
+                          issue.rule === 'Deprecated API Version' ? 'Upgrade the apiVersion in resource manifest to the recommended alternative' : 'Verify spec settings'
+                        }
+                      </div>
+                    </div>
                   </div>
                 );
               })}
-            </div>
-          )}
-        </div>
-
-        {/* Selected Repository Tags */}
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <h3 style={{ fontSize: '1.1rem', marginBottom: 16 }}>
-            {zarfSelectedRepo ? `Tags for ${zarfSelectedRepo}` : 'Select a Repository'}
-          </h3>
-
-          {!zarfSelectedRepo ? (
-            <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
-              Select a repository from the left panel to list its tags.
-            </div>
-          ) : isFetchingTags ? (
-            <div style={{ color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>
-              Fetching tags...
-            </div>
-          ) : zarfSelectedRepoTags.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
-              No tags found for this repository.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {zarfSelectedRepoTags.map(tag => (
-                <div 
-                  key={tag}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '10px 14px',
-                    background: 'rgba(255,255,255,0.02)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 6
-                  }}
-                >
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>{zarfSelectedRepo}:</span>
-                    <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{tag}</span>
-                  </div>
-                  <button 
-                    className="btn btn-danger" 
-                    style={{ padding: '4px 8px' }} 
-                    onClick={() => handleDeleteRegistryImage(zarfSelectedRepo, tag)}
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
             </div>
           )}
         </div>
@@ -3841,12 +5479,19 @@ function App() {
                           {!file.isDir && (
                             <button 
                               className="btn" 
-                              style={{ padding: '2px 6px', fontSize: '0.7rem' }} 
-                              onClick={() => handleDownloadPodFile(file.name)}
+                              style={{ padding: '2px 6px', fontSize: '0.7rem', color: 'var(--accent-cyan)' }} 
+                              onClick={() => handleEditPodFile(file.name)}
                             >
-                              Get
+                              Edit
                             </button>
                           )}
+                          <button 
+                            className="btn" 
+                            style={{ padding: '2px 6px', fontSize: '0.7rem' }} 
+                            onClick={() => handleDownloadPodFile(file.name, file.isDir)}
+                          >
+                            Download
+                          </button>
                           <button 
                             className="btn btn-danger" 
                             style={{ padding: '2px 6px', fontSize: '0.7rem' }} 
@@ -3937,6 +5582,23 @@ function App() {
               <a className={`nav-item ${activeTab === 'topology' ? 'active' : ''}`} onClick={() => { setActiveTab('topology'); setSearch(''); }}><Activity size={16} /> Topology</a>
               <a className={`nav-item ${activeTab === 'nodes' ? 'active' : ''}`} onClick={() => { setActiveTab('nodes'); setSearch(''); }}><Server size={16} /> Nodes</a>
               <a className={`nav-item ${activeTab === 'events' ? 'active' : ''}`} onClick={() => { setActiveTab('events'); setSearch(''); }}><List size={16} /> Events</a>
+            </nav>
+          )}
+        </div>
+
+        <div className="nav-section">
+          <div 
+            className="nav-section-title" 
+            onClick={() => toggleSection('security')}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          >
+            <span>Security</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['security'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          </div>
+          {!collapsedSections['security'] && (
+            <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'cluster-auditor' ? 'active' : ''}`} onClick={() => { setActiveTab('cluster-auditor'); setSearch(''); }}><Shield size={16} /> Cluster Auditor</a>
+              <a className={`nav-item ${activeTab === 'image-scanner' ? 'active' : ''}`} onClick={() => { setActiveTab('image-scanner'); setSearch(''); }}><Shield size={16} style={{ color: '#60a5fa' }} /> Image Scanner</a>
             </nav>
           )}
         </div>
@@ -4045,6 +5707,7 @@ function App() {
               <a className={`nav-item ${activeTab === 'zarf-registry' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-registry'); setSearch(''); }}><Database size={16} /> Zarf Registry</a>
               <a className={`nav-item ${activeTab === 'zarf-creds' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-creds'); setSearch(''); }}><Key size={16} /> Zarf Credentials</a>
               <a className={`nav-item ${activeTab === 'zarf-sbom' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-sbom'); setSearch(''); }}><Shield size={16} /> Zarf SBOMs</a>
+              <a className={`nav-item ${activeTab === 'zarf-state' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-state'); setSearch(''); }}><Settings size={16} /> Zarf State & Config</a>
             </nav>
           )}
         </div>
@@ -4122,6 +5785,38 @@ function App() {
                 {namespaces.map(ns => <option key={ns} value={ns}>{ns === 'all' ? 'All Namespaces' : ns}</option>)}
               </select>
             )}
+            <button 
+              className={`btn btn-icon ${hasNewAlerts ? 'pulse-error' : ''}`}
+              style={{ position: 'relative' }}
+              onClick={() => {
+                setIsAlertsDrawerOpen(true);
+                setHasNewAlerts(false);
+              }}
+              title="Cluster Pulse Alerts"
+            >
+              <Bell size={16} />
+              {pulseAlerts.filter(a => a.type === 'Warning').length > 0 && (
+                <span 
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -4,
+                    background: 'var(--accent-red)',
+                    color: 'white',
+                    borderRadius: '50%',
+                    width: 14,
+                    height: 14,
+                    fontSize: '0.65rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {pulseAlerts.filter(a => a.type === 'Warning').length}
+                </span>
+              )}
+            </button>
             <button 
               className="btn btn-icon" 
               onClick={activeTab === 'topology' ? fetchTopologyData : fetchResources} 
@@ -4210,6 +5905,8 @@ function App() {
                   ? 'Repo Manager'
                   : activeTab === 'zarf' 
                   ? 'Deployed Packages'
+                  : activeTab === 'zarf-state'
+                  ? 'Zarf State & Config'
                   : activeTab === 'zarf-deploy'
                   ? 'Deploy Zarf Package'
                   : activeTab === 'zarf-registry'
@@ -4218,6 +5915,10 @@ function App() {
                   ? 'Zarf Credentials'
                   : activeTab === 'zarf-sbom'
                   ? 'Zarf SBOMs'
+                  : activeTab === 'image-scanner'
+                  ? 'Security Image Scanner'
+                  : activeTab === 'cluster-auditor'
+                  ? 'Cluster Auditor'
                   : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
               </h1>
               <div className="subtitle">
@@ -4225,6 +5926,8 @@ function App() {
                   ? `Visualizing cluster relationships in ${selectedNs}` 
                   : activeTab === 'zarf'
                   ? 'Manage in-cluster deployed Zarf packages'
+                  : activeTab === 'zarf-state'
+                  ? 'Inspect initialized Zarf cluster settings and configurations'
                   : activeTab === 'zarf-deploy'
                   ? 'Upload, compress/decompress, and deploy local package archives'
                   : activeTab === 'zarf-registry'
@@ -4232,7 +5935,11 @@ function App() {
                   : activeTab === 'zarf-creds'
                   ? 'Inspect and connect to Zarf cluster services'
                   : activeTab === 'zarf-sbom'
-                  ? 'Extract CycloneDX package reports or perform container image SBOM scans'
+                  ? 'Extract CycloneDX package reports from local Zarf packages'
+                  : activeTab === 'image-scanner'
+                  ? 'Real-time cluster container vulnerability & package registry scanning'
+                  : activeTab === 'cluster-auditor'
+                  ? 'Scan cluster resources for security vulnerabilities, configuration errors, and best practices'
                   : activeTab === 'helm-install'
                   ? 'Install Helm charts from configured repositories'
                   : activeTab === 'helm-repos'
@@ -4278,6 +5985,8 @@ function App() {
             renderTopologyView()
           ) : activeTab === 'zarf' ? (
             renderZarfPackagesView()
+          ) : activeTab === 'zarf-state' ? (
+            renderZarfStateView()
           ) : activeTab === 'zarf-deploy' ? (
             renderZarfDeployView()
           ) : activeTab === 'zarf-registry' ? (
@@ -4286,6 +5995,10 @@ function App() {
             renderZarfCredsView()
           ) : activeTab === 'zarf-sbom' ? (
             renderZarfSbomView()
+          ) : activeTab === 'image-scanner' ? (
+            renderImageScannerView()
+          ) : activeTab === 'cluster-auditor' ? (
+            renderClusterAuditorView()
           ) : activeTab === 'helm' ? (
             renderHelmReleasesView()
           ) : activeTab === 'helm-install' ? (
@@ -4313,7 +6026,27 @@ function App() {
                             </div>
                           </div>
                         ) : (
-                          <div>{res.metadata.name}</div>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <span>{res.metadata.name}</span>
+                            {activeTab === 'services' && (
+                              <span 
+                                className="badge" 
+                                style={{ 
+                                  background: 'rgba(16, 185, 129, 0.05)', 
+                                  color: '#10b981', 
+                                  border: '1px solid rgba(16, 185, 129, 0.15)',
+                                  fontSize: '0.7rem',
+                                  marginLeft: 8,
+                                  textTransform: 'none',
+                                  padding: '2px 6px',
+                                  fontWeight: 600,
+                                  letterSpacing: 'normal'
+                                }}
+                              >
+                                {res.spec?.type || 'ClusterIP'}
+                              </span>
+                            )}
+                          </div>
                         )}
                         {activeTab !== 'events' && res.metadata.labels && (
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
@@ -4391,7 +6124,7 @@ function App() {
                                     padding: '2px 6px'
                                   }}
                                 >
-                                  {p.name ? `${p.name}: ` : ''}{p.port}{p.nodePort ? `:${p.nodePort}` : ''} ➔ {p.targetPort} ({p.protocol})
+                                  {p.name ? `${p.name} - ` : ''}Port: {p.port} | TargetPort: {p.targetPort}{p.nodePort ? ` | NodePort: ${p.nodePort}` : ''} | Protocol: {p.protocol}
                                 </span>
                               ))}
                             </div>
@@ -4493,9 +6226,19 @@ function App() {
                             cpuUsage += parseCpu(c.usage?.cpu || '0');
                             memUsage += parseMem(c.usage?.memory || '0');
                           });
+                          const key = `${res.metadata.namespace}/${res.metadata.name}`;
+                          const history = podMetricsHistory[key];
                           return (
-                            <span style={{ color: 'var(--accent-cyan)' }}>
-                              CPU: {cpuUsage < 1 ? (cpuUsage * 1000).toFixed(0) + 'm' : cpuUsage.toFixed(1) + 'c'} | RAM: {(memUsage / (1024 * 1024)).toFixed(0)}MB
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{ color: 'var(--accent-cyan)' }}>
+                                CPU: {cpuUsage < 1 ? (cpuUsage * 1000).toFixed(0) + 'm' : cpuUsage.toFixed(1) + 'c'}
+                              </span>
+                              {history && renderSmallSparkline(history.cpu, '#38bdf8')}
+                              <span style={{ color: 'var(--text-muted)', marginLeft: 2, marginRight: 2 }}>|</span>
+                              <span style={{ color: 'var(--accent-purple)' }}>
+                                RAM: {(memUsage / (1024 * 1024)).toFixed(0)}MB
+                              </span>
+                              {history && renderSmallSparkline(history.mem, '#c084fc')}
                             </span>
                           );
                         })()}
@@ -4585,6 +6328,20 @@ function App() {
 
                       {activeTab === 'pods' && (
                         <>
+                          <button 
+                            className="btn btn-sm"
+                            style={{ 
+                              background: 'rgba(96, 165, 250, 0.08)',
+                              color: 'var(--accent-cyan)',
+                              borderColor: 'rgba(96, 165, 250, 0.25)' 
+                            }}
+                            onClick={(e) => { 
+                              e.stopPropagation();
+                              handleOpenDiagnostics(res.metadata.name, res.metadata.namespace);
+                            }}
+                          >
+                            🩺 Diagnose
+                          </button>
                           <button className="btn btn-sm" onClick={(e) => { 
                             e.stopPropagation();
                             setSelectedContainer(res.spec?.containers?.[0]?.name || '');
@@ -4692,6 +6449,479 @@ function App() {
       </main>
 
       {/* Modals */}
+      {/* Cluster Pulse Alerts Drawer */}
+      {isAlertsDrawerOpen && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            right: 0,
+            width: '400px',
+            height: '100%',
+            background: 'var(--bg-panel)',
+            borderLeft: '1px solid var(--border-color)',
+            boxShadow: '-4px 0 20px rgba(0,0,0,0.5)',
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            animation: 'slideInRight 0.3s ease-out'
+          }}
+        >
+          <div 
+            style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'rgba(255,255,255,0.01)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Activity size={18} style={{ color: 'var(--accent-cyan)' }} />
+              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Cluster Pulse</h3>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button 
+                className="btn btn-sm"
+                onClick={() => setPulseAlerts([])}
+                style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+              >
+                Clear All
+              </button>
+              <button 
+                className="btn btn-icon btn-sm" 
+                onClick={() => setIsAlertsDrawerOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          
+          <div style={{ padding: '12px 20px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Real-time Kubernetes Event Stream
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {pulseAlerts.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px 0', fontSize: '0.9rem' }}>
+                No events received yet. Listening for cluster activity...
+              </div>
+            ) : (
+              pulseAlerts.map(alert => (
+                <div 
+                  key={alert.id}
+                  style={{
+                    background: 'rgba(255,255,255,0.01)',
+                    border: `1px solid ${alert.type === 'Warning' ? 'rgba(239, 68, 68, 0.2)' : 'var(--border-color)'}`,
+                    borderRadius: 6,
+                    padding: 10,
+                    fontSize: '0.8rem',
+                    transition: 'background 0.2s'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span 
+                      style={{ 
+                        fontWeight: 600, 
+                        color: alert.type === 'Warning' ? 'var(--accent-red)' : 'var(--accent-success)' 
+                      }}
+                    >
+                      {alert.reason}
+                    </span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{alert.timestamp}</span>
+                  </div>
+                  <div style={{ color: 'var(--text-main)', marginBottom: 6, lineHeight: 1.3 }}>{alert.message}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <span>ns: {alert.namespace} | {alert.resourceKind}/{alert.resourceName}</span>
+                    {alert.resourceKind === 'Pod' && (
+                      <button 
+                        className="btn btn-sm"
+                        style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(255,255,255,0.05)' }}
+                        onClick={() => {
+                          setIsAlertsDrawerOpen(false);
+                          handleOpenDiagnostics(alert.resourceName, alert.namespace);
+                        }}
+                      >
+                        🩺 Diagnose
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notifications */}
+      <div 
+        style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          zIndex: 1100,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          pointerEvents: 'none'
+        }}
+      >
+        {toasts.map(toast => (
+          <div 
+            key={toast.toastId}
+            style={{
+              pointerEvents: 'auto',
+              background: '#180f10',
+              borderLeft: '4px solid var(--accent-error)',
+              borderTop: '1px solid rgba(239, 68, 68, 0.2)',
+              borderRight: '1px solid rgba(239, 68, 68, 0.2)',
+              borderBottom: '1px solid rgba(239, 68, 68, 0.2)',
+              borderRadius: '0 6px 6px 0',
+              padding: '12px 16px',
+              width: '320px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+              animation: 'slideInRight 0.2s ease-out'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontWeight: 600, color: 'var(--accent-error)', fontSize: '0.85rem' }}>
+                ⚠️ Warning Event
+              </span>
+              <button 
+                className="btn btn-icon btn-sm" 
+                style={{ minHeight: 'auto', padding: 0, height: 16, width: 16 }}
+                onClick={() => setToasts(prev => prev.filter(t => t.toastId !== toast.toastId))}
+              >
+                <X size={12} />
+              </button>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 500, marginBottom: 2 }}>
+              {toast.reason}: {toast.resourceKind}/{toast.resourceName}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineBreak: 'anywhere' }}>
+              {toast.message.length > 100 ? toast.message.substring(0, 100) + '...' : toast.message}
+            </div>
+            {toast.resourceKind === 'Pod' && (
+              <button 
+                className="btn btn-sm btn-primary"
+                style={{ fontSize: '0.7rem', padding: '2px 6px', marginTop: 8, width: '100%', display: 'block', textAlign: 'center' }}
+                onClick={() => {
+                  setToasts(prev => prev.filter(t => t.toastId !== toast.toastId));
+                  handleOpenDiagnostics(toast.resourceName, toast.namespace);
+                }}
+              >
+                🩺 Run Pod Diagnostics
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Smart Diagnostics Doctor Modal */}
+      {isDiagnosticsModalOpen && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }} onClick={() => setIsDiagnosticsModalOpen(false)}>
+          <div className="modal-content animate-fade-in" style={{ width: '85%', maxWidth: '850px', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>🩺 Smart Diagnostics Doctor</span>
+                {podDiagnostics && (
+                  <span className={`badge ${podDiagnostics.status === 'Healthy' ? 'ready' : podDiagnostics.status === 'Warning' ? 'pending' : 'failed'}`}>
+                    {podDiagnostics.status}
+                  </span>
+                )}
+              </div>
+              <button className="btn btn-icon" onClick={() => setIsDiagnosticsModalOpen(false)}><X size={16}/></button>
+            </div>
+            
+            <div className="modal-body" style={{ padding: 24, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {isFetchingDiagnostics ? (
+                <div className="loader-container" style={{ minHeight: '300px', flexDirection: 'column', gap: 12 }}>
+                  <div className="loader"></div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Analyzing pod metrics, events, states, and logs...</div>
+                </div>
+              ) : !podDiagnostics ? (
+                <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No diagnostics data found.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  
+                  {/* Summary Card */}
+                  <div 
+                    style={{ 
+                      padding: 16, 
+                      borderRadius: 8, 
+                      background: podDiagnostics.status === 'Healthy' ? 'rgba(16, 185, 129, 0.05)' : podDiagnostics.status === 'Warning' ? 'rgba(245, 166, 35, 0.05)' : 'rgba(239, 68, 68, 0.05)',
+                      border: `1px solid ${podDiagnostics.status === 'Healthy' ? 'rgba(16, 185, 129, 0.2)' : podDiagnostics.status === 'Warning' ? 'rgba(245, 166, 35, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`
+                    }}
+                  >
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: '#fff' }}>Diagnostics Summary</h4>
+                    <p style={{ fontSize: '0.9rem', lineHeight: 1.4, color: 'var(--text-main)' }}>{podDiagnostics.summary}</p>
+                  </div>
+
+                  {/* Details / Action Items */}
+                  {podDiagnostics.details && podDiagnostics.details.length > 0 && (
+                    <div>
+                      <h4 style={{ margin: '0 0 10px 0', fontSize: '0.95rem', color: '#fff' }}>Heuristic Findings & Root Cause Analysis</h4>
+                      <ul style={{ paddingLeft: 20, margin: 0, fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: 6, lineHeight: 1.4 }}>
+                        {podDiagnostics.details.map((detail: string, idx: number) => (
+                          <li key={idx} style={{ color: 'var(--text-main)' }}>{detail}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Recent Pod Events */}
+                  <div>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: '0.95rem', color: '#fff' }}>Related Kubernetes Events</h4>
+                    {podDiagnostics.events && podDiagnostics.events.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {podDiagnostics.events.map((e: any, idx: number) => (
+                          <div 
+                            key={idx} 
+                            style={{ 
+                              background: 'rgba(255,255,255,0.01)', 
+                              border: '1px solid var(--border-color)', 
+                              borderRadius: 4, 
+                              padding: '8px 12px', 
+                              fontSize: '0.75rem', 
+                              display: 'flex', 
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}
+                          >
+                            <div>
+                              <span style={{ fontWeight: 600, color: e.type === 'Warning' ? 'var(--accent-error)' : 'var(--accent-success)', marginRight: 8 }}>{e.reason}</span>
+                              <span style={{ color: 'var(--text-main)' }}>{e.message}</span>
+                            </div>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>x{e.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No relevant events found in the namespace for this pod.</div>
+                    )}
+                  </div>
+
+                  {/* Diagnostic Logs Tail */}
+                  {podDiagnostics.logTail && (
+                    <div>
+                      <h4 style={{ margin: '0 0 10px 0', fontSize: '0.95rem', color: '#fff' }}>Failing Container Logs (Tail)</h4>
+                      <div className="diagnostics-log-tail">
+                        {podDiagnostics.logTail}
+                      </div>
+                    </div>
+                  )}
+                  
+                </div>
+              )}
+            </div>
+            
+            <div className="modal-footer">
+              <button className="btn btn-primary" onClick={() => setIsDiagnosticsModalOpen(false)}>
+                Close Diagnostics
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-Container File Editor Modal */}
+      {isEditingFileModalOpen && editingFile && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }}>
+          <div className="modal-content animate-fade-in" style={{ width: '80%', maxWidth: '850px', height: '80vh' }}>
+            <div className="modal-header">
+              <div className="modal-title">
+                Edit File: {editingFile.path}
+              </div>
+              <button className="btn btn-icon" onClick={() => { setIsEditingFileModalOpen(false); setEditingFile(null); }}><X size={16}/></button>
+            </div>
+            <div className="modal-body" style={{ padding: 16, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <textarea
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  flex: 1,
+                  background: '#050505',
+                  color: '#e6edf3',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 6,
+                  padding: 12,
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.85rem',
+                  lineHeight: '1.4',
+                  outline: 'none',
+                  resize: 'none'
+                }}
+                value={editingFile.content}
+                onChange={e => setEditingFile({ ...editingFile, content: e.target.value })}
+                disabled={editingFile.isSaving}
+              />
+            </div>
+            <div className="modal-footer">
+              <button className="btn" onClick={() => { setIsEditingFileModalOpen(false); setEditingFile(null); }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleSavePodFile} disabled={editingFile.isSaving}>
+                {editingFile.isSaving ? 'Saving...' : <><Save size={14}/> Save Changes</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isPackageDetailModalOpen && selectedZarfPackageDetail && (
+        <div className="modal-overlay" onClick={() => setIsPackageDetailModalOpen(false)}>
+          <div className="modal-content animate-fade-in" style={{ width: '80%', maxWidth: '900px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">
+                Inspect Deployed Package: {selectedZarfPackageDetail.name}
+              </div>
+              <button className="btn btn-icon" onClick={() => setIsPackageDetailModalOpen(false)}><X size={16}/></button>
+            </div>
+            <div className="modal-tabs">
+              <div 
+                className={`modal-tab ${zarfDetailActiveTab === 'overview' ? 'active' : ''}`}
+                onClick={() => setZarfDetailActiveTab('overview')}
+              >
+                <Package size={14}/> Overview
+              </div>
+              <div 
+                className={`modal-tab ${zarfDetailActiveTab === 'config' ? 'active' : ''}`}
+                onClick={() => setZarfDetailActiveTab('config')}
+              >
+                <Code size={14}/> Config YAML
+              </div>
+              {selectedZarfPackageDetail.data?.variables && selectedZarfPackageDetail.data.variables.length > 0 && (
+                <div 
+                  className={`modal-tab ${zarfDetailActiveTab === 'variables' ? 'active' : ''}`}
+                  onClick={() => setZarfDetailActiveTab('variables')}
+                >
+                  <SlidersHorizontal size={14}/> Variables
+                </div>
+              )}
+            </div>
+            <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto', padding: 20 }}>
+              {zarfDetailActiveTab === 'overview' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Meta Details */}
+                  <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 16 }}>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: '1rem', color: 'var(--text-main)' }}>Package Information</h4>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      <strong>Description:</strong> {selectedZarfPackageDetail.data?.metadata?.description || 'No description provided.'}
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, fontSize: '0.85rem' }}>
+                      <div><strong>Version:</strong> <span style={{ color: 'var(--text-main)' }}>{selectedZarfPackageDetail.data?.metadata?.version || 'N/A'}</span></div>
+                      <div><strong>Architecture:</strong> <span style={{ color: 'var(--text-main)' }}>{selectedZarfPackageDetail.data?.metadata?.architecture || 'N/A'}</span></div>
+                      <div><strong>Zarf Version:</strong> <span style={{ color: 'var(--text-main)' }}>{selectedZarfPackageDetail.cliVersion || 'N/A'}</span></div>
+                    </div>
+                  </div>
+
+                  {/* Components */}
+                  <div>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: '1rem' }}>Components & Charts</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {(selectedZarfPackageDetail.data?.components || []).map((comp: any) => {
+                        const deployedStatus = (selectedZarfPackageDetail.deployedComponents || []).find((c: any) => c.name === comp.name);
+                        return (
+                          <div 
+                            key={comp.name} 
+                            style={{ 
+                              background: 'rgba(255,255,255,0.02)', 
+                              border: '1px solid var(--border-color)', 
+                              borderRadius: 6, 
+                              padding: 12 
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                                {comp.name} {comp.required && <span style={{ color: 'var(--accent-red)', fontSize: '0.75rem', fontWeight: 'normal' }}>(Required)</span>}
+                              </div>
+                              <span 
+                                className={`badge ${deployedStatus?.status?.toLowerCase() === 'succeeded' ? 'ready' : 'warning'}`}
+                                style={{ fontSize: '0.75rem', textTransform: 'none' }}
+                              >
+                                {deployedStatus?.status || 'Unknown'}
+                              </span>
+                            </div>
+                            {comp.description && (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                                {comp.description}
+                              </div>
+                            )}
+                            
+                            {/* Charts */}
+                            {comp.charts && comp.charts.length > 0 && (
+                              <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: '2px solid var(--accent-blue)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Helm Charts:</div>
+                                {comp.charts.map((chart: any) => (
+                                  <div key={chart.name} style={{ fontSize: '0.8rem', display: 'flex', gap: 8 }}>
+                                    <span style={{ color: 'var(--text-main)', fontWeight: 500 }}>{chart.name}</span>
+                                    <span style={{ color: 'var(--text-muted)' }}>({chart.version})</span>
+                                    <span style={{ color: 'var(--text-muted)' }}>in namespace {chart.namespace}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Images */}
+                            {comp.images && comp.images.length > 0 && (
+                              <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: '2px solid var(--accent-cyan)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Container Images:</div>
+                                {comp.images.map((img: string) => (
+                                  <div key={img} style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--text-main)', wordBreak: 'break-all' }}>
+                                    {img}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : zarfDetailActiveTab === 'config' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                    Raw Deployed zarf.yaml Package Configuration
+                  </div>
+                  <textarea 
+                    readOnly 
+                    style={{ width: '100%', height: '350px', background: '#050505', border: '1px solid var(--border-color)', borderRadius: 6, padding: 12, fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--accent-cyan)', outline: 'none' }}
+                    value={jsonToYaml(selectedZarfPackageDetail.data)}
+                  />
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <h4 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-main)' }}>Deployed Variables</h4>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <th style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>Name</th>
+                        <th style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>Description</th>
+                        <th style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>Default</th>
+                        <th style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>Prompt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedZarfPackageDetail.data?.variables || []).map((v: any) => (
+                        <tr key={v.name} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{v.name}</td>
+                          <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{v.description || 'N/A'}</td>
+                          <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>{String(v.default ?? 'N/A')}</td>
+                          <td style={{ padding: '8px 12px' }}>{v.prompt ? 'Yes' : 'No'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modals */}
       {modal && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
           <div className="modal-content animate-fade-in" onClick={e => e.stopPropagation()}>
@@ -4703,7 +6933,7 @@ function App() {
             </div>
             
             <div className="modal-tabs">
-              {((modal.kind === 'helm' ? ['yaml', 'events', 'history'] : ['yaml', 'events']) as ModalType[])
+              {((modal.kind === 'helm' ? ['yaml', 'events', 'history', 'values'] : ['yaml', 'events']) as ModalType[])
                 .concat(modal.kind === 'pods' ? ['logs', 'terminal', 'portforward', 'files'] : [])
                 .map(t => (
                   <div 
@@ -4723,7 +6953,8 @@ function App() {
                     {t === 'portforward' && <Radio size={14}/>}
                     {t === 'history' && <Activity size={14}/>}
                     {t === 'files' && <FileText size={14}/>}
-                    {t === 'terminal' ? 'Console' : t === 'portforward' ? 'Port Forward' : t === 'events' && modal.kind === 'helm' ? 'Status' : t.charAt(0).toUpperCase() + t.slice(1)}
+                    {t === 'values' && <SlidersHorizontal size={14}/>}
+                    {t === 'terminal' ? 'Console' : t === 'portforward' ? 'Port Forward' : t === 'events' && modal.kind === 'helm' ? 'Status' : t === 'values' ? 'Values' : t.charAt(0).toUpperCase() + t.slice(1)}
                   </div>
                 ))}
             </div>
@@ -4839,6 +7070,7 @@ function App() {
                   <form onSubmit={runCommand} className="exec-input-line">
                     <span className="exec-prompt">$</span>
                     <input 
+                      ref={cmdInputRef}
                       type="text" 
                       className="exec-input" 
                       placeholder="Type a command and press Enter..." 
@@ -4883,8 +7115,20 @@ function App() {
               ) : modal.type === 'history' ? (
                 !Array.isArray(modalData) ? (
                   <div className="loader-container"><div className="loader"></div></div>
+                ) : selectedRevisionValues ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, overflow: 'hidden', height: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <button className="btn btn-sm" onClick={() => setSelectedRevisionValues(null)}>
+                        ← Back to History
+                      </button>
+                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                        Comparing Revision #{selectedRevisionValues.revision} with Deployed Values
+                      </span>
+                    </div>
+                    {renderDiffView()}
+                  </div>
                 ) : (
-                  <div className="history-container" style={{ overflowY: 'auto', maxHeight: '400px' }}>
+                  <div className="history-container" style={{ overflowY: 'auto', maxHeight: '400px', padding: 16 }}>
                     {modalData.length === 0 ? (
                       <div style={{ color: 'var(--text-muted)' }}>No history found for this release.</div>
                     ) : (
@@ -4912,19 +7156,45 @@ function App() {
                               <td style={{ padding: '8px 12px', fontSize: '0.8rem' }}>{rev.chart}</td>
                               <td style={{ padding: '8px 12px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>{rev.description}</td>
                               <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                                <button 
-                                  className="btn btn-primary" 
-                                  style={{ padding: '2px 8px', fontSize: '0.75rem', display: 'inline-flex' }}
-                                  onClick={() => handleRollback(modal.namespace, modal.name, rev.revision)}
-                                >
-                                  Rollback
-                                </button>
+                                <div style={{ display: 'inline-flex', gap: 6, float: 'right' }}>
+                                  <button 
+                                    className="btn btn-sm" 
+                                    style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                                    onClick={() => handleInspectRevisionValues(modal.namespace, modal.name, rev.revision)}
+                                    disabled={isLoadingRevisionValues}
+                                  >
+                                    Compare
+                                  </button>
+                                  <button 
+                                    className="btn btn-primary btn-sm" 
+                                    style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                                    onClick={() => handleRollback(modal.namespace, modal.name, rev.revision)}
+                                  >
+                                    Rollback
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     )}
+                  </div>
+                )
+              ) : modal.type === 'values' ? (
+                modalData === null ? (
+                  <div className="loader-container"><div className="loader"></div></div>
+                ) : (
+                  <div className="editor-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 16 }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                      Deployed User-Defined Values Configuration (Editable - click Save & Upgrade below)
+                    </div>
+                    <textarea 
+                      className="editor-textarea" 
+                      value={helmValuesEdit}
+                      onChange={(e) => setHelmValuesEdit(e.target.value)}
+                      style={{ height: '350px', width: '100%', border: '1px solid var(--border-color)', borderRadius: 6, background: '#050505', color: '#60a5fa', padding: 16, fontFamily: 'var(--font-mono)', outline: 'none' }}
+                    />
                   </div>
                 )
               ) : modal.type === 'portforward' ? (
@@ -5063,6 +7333,38 @@ function App() {
                 <button className="btn btn-primary" onClick={saveYaml}><Save size={16}/> Save Changes</button>
               </div>
             )}
+            
+            {modal.type === 'values' && (
+              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={async () => {
+                    setIsSavingHelmValues(true);
+                    try {
+                      const res = await fetch(`/api/helm/${modal.namespace}/${modal.name}/upgrade`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ valuesYaml: helmValuesEdit })
+                      });
+                      const data = await res.json();
+                      if (res.ok) {
+                        alert('Helm release upgraded successfully!');
+                        fetchModalData('values');
+                      } else {
+                        alert('Upgrade failed: ' + (data.error || 'Unknown error'));
+                      }
+                    } catch (err: any) {
+                      alert('Error upgrading Helm release: ' + err.message);
+                    } finally {
+                      setIsSavingHelmValues(false);
+                    }
+                  }} 
+                  disabled={isSavingHelmValues}
+                >
+                  <Save size={16}/> {isSavingHelmValues ? 'Upgrading...' : 'Save & Upgrade'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -5089,152 +7391,197 @@ function App() {
               boxShadow: '0 20px 40px rgba(0,0,0,0.8), 0 0 20px rgba(57, 255, 20, 0.1)'
             }}
           >
-            <div 
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                borderBottom: '1px solid rgba(255,255,255,0.08)',
-                padding: '12px 16px'
-              }}
-            >
-              <Search size={18} style={{ color: 'var(--accent-green)' }} />
-              <input
-                type="text"
-                placeholder="Search views, namespaces, custom resources..."
-                value={cmdPaletteSearch}
-                onChange={e => setCmdPaletteSearch(e.target.value)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  outline: 'none',
-                  color: 'var(--text-main)',
-                  width: '100%',
-                  fontSize: '1rem',
-                  fontFamily: 'var(--font-sans)'
-                }}
-                autoFocus
-              />
-              <button 
-                className="btn btn-icon" 
-                style={{ padding: 4 }}
-                onClick={() => setIsCmdPaletteOpen(false)}
-              >
-                <X size={16} />
-              </button>
-            </div>
+            {(() => {
+              const items = [
+                // Views
+                { name: 'Topology Map', category: 'Views', action: () => { setActiveTab('topology'); setIsCmdPaletteOpen(false); } },
+                { name: 'Node Status', category: 'Views', action: () => { setActiveTab('nodes'); setIsCmdPaletteOpen(false); } },
+                { name: 'Cluster Events Feed', category: 'Views', action: () => { setActiveTab('events'); setIsCmdPaletteOpen(false); } },
+                { name: 'Pods List', category: 'Views', action: () => { setActiveTab('pods'); setIsCmdPaletteOpen(false); } },
+                { name: 'Deployments Scale & Restart', category: 'Views', action: () => { setActiveTab('deployments'); setIsCmdPaletteOpen(false); } },
+                { name: 'Services Network', category: 'Views', action: () => { setActiveTab('services'); setIsCmdPaletteOpen(false); } },
+                { name: 'Ingresses SSL Routing', category: 'Views', action: () => { setActiveTab('ingresses'); setIsCmdPaletteOpen(false); } },
+                { name: 'Jobs Batch run', category: 'Views', action: () => { setActiveTab('jobs'); setIsCmdPaletteOpen(false); } },
+                { name: 'CronJobs Schedule list', category: 'Views', action: () => { setActiveTab('cronjobs'); setIsCmdPaletteOpen(false); } },
+                { name: 'ConfigMaps key-values', category: 'Views', action: () => { setActiveTab('configmaps'); setIsCmdPaletteOpen(false); } },
+                { name: 'Secrets encrypted items', category: 'Views', action: () => { setActiveTab('secrets'); setIsCmdPaletteOpen(false); } },
+                { name: 'Persistent Volumes (PVs)', category: 'Views', action: () => { setActiveTab('persistentvolumes'); setIsCmdPaletteOpen(false); } },
+                { name: 'Persistent Volume Claims (PVCs)', category: 'Views', action: () => { setActiveTab('persistentvolumeclaims'); setIsCmdPaletteOpen(false); } },
+                { name: 'Helm Chart Releases', category: 'Views', action: () => { setActiveTab('helm'); setIsCmdPaletteOpen(false); } },
+                { name: 'CRD Explorer (Custom Objects)', category: 'Views', action: () => { setActiveTab('crds'); setIsCmdPaletteOpen(false); } },
+                { name: 'K3s HelmCharts addon', category: 'Views', action: () => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmcharts', name: 'helmcharts.helm.cattle.io' }); setActiveTab('custom'); setIsCmdPaletteOpen(false); } },
+                { name: 'K3s HelmChartConfigs spec overrides', category: 'Views', action: () => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmchartconfigs', name: 'helmchartconfigs.helm.cattle.io' }); setActiveTab('custom'); setIsCmdPaletteOpen(false); } },
+                
+                // Namespaces
+                ...namespaces.map(ns => ({
+                  name: `Switch Namespace: ${ns === 'all' ? 'All Namespaces' : ns}`,
+                  category: 'Namespaces',
+                  action: () => { setSelectedNs(ns); setIsCmdPaletteOpen(false); }
+                })),
 
-            <div 
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                padding: 12,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16
-              }}
-            >
-              {(() => {
-                const items = [
-                  // Views
-                  { name: 'Topology Map', category: 'Views', action: () => { setActiveTab('topology'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Node Status', category: 'Views', action: () => { setActiveTab('nodes'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Cluster Events Feed', category: 'Views', action: () => { setActiveTab('events'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Pods List', category: 'Views', action: () => { setActiveTab('pods'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Deployments Scale & Restart', category: 'Views', action: () => { setActiveTab('deployments'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Services Network', category: 'Views', action: () => { setActiveTab('services'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Ingresses SSL Routing', category: 'Views', action: () => { setActiveTab('ingresses'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Jobs Batch run', category: 'Views', action: () => { setActiveTab('jobs'); setIsCmdPaletteOpen(false); } },
-                  { name: 'CronJobs Schedule list', category: 'Views', action: () => { setActiveTab('cronjobs'); setIsCmdPaletteOpen(false); } },
-                  { name: 'ConfigMaps key-values', category: 'Views', action: () => { setActiveTab('configmaps'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Secrets encrypted items', category: 'Views', action: () => { setActiveTab('secrets'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Persistent Volumes (PVs)', category: 'Views', action: () => { setActiveTab('persistentvolumes'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Persistent Volume Claims (PVCs)', category: 'Views', action: () => { setActiveTab('persistentvolumeclaims'); setIsCmdPaletteOpen(false); } },
-                  { name: 'Helm Chart Releases', category: 'Views', action: () => { setActiveTab('helm'); setIsCmdPaletteOpen(false); } },
-                  { name: 'CRD Explorer (Custom Objects)', category: 'Views', action: () => { setActiveTab('crds'); setIsCmdPaletteOpen(false); } },
-                  { name: 'K3s HelmCharts addon', category: 'Views', action: () => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmcharts', name: 'helmcharts.helm.cattle.io' }); setActiveTab('custom'); setIsCmdPaletteOpen(false); } },
-                  { name: 'K3s HelmChartConfigs spec overrides', category: 'Views', action: () => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmchartconfigs', name: 'helmchartconfigs.helm.cattle.io' }); setActiveTab('custom'); setIsCmdPaletteOpen(false); } },
-                  
-                  // Namespaces
-                  ...namespaces.map(ns => ({
-                    name: `Switch Namespace: ${ns === 'all' ? 'All Namespaces' : ns}`,
-                    category: 'Namespaces',
-                    action: () => { setSelectedNs(ns); setIsCmdPaletteOpen(false); }
-                  })),
+                // Contexts
+                ...contexts.map(c => ({
+                  name: `Switch Context: ${c.name}`,
+                  category: 'Contexts',
+                  action: () => { handleContextChange(c.name); setIsCmdPaletteOpen(false); }
+                })),
 
-                  // Actions
-                  { name: 'Refresh Active Tab View', category: 'Commands', action: () => { fetchResources(); setIsCmdPaletteOpen(false); } },
-                  { name: 'Clear Active Search Filter', category: 'Commands', action: () => { setSearch(''); setIsCmdPaletteOpen(false); } }
-                ];
+                // Security & Scans
+                { name: 'Open Cluster Auditor', category: 'Security & Scans', action: () => { setActiveTab('cluster-auditor'); setIsCmdPaletteOpen(false); } },
+                { name: 'Open Image Scanner', category: 'Security & Scans', action: () => { setActiveTab('image-scanner'); setIsCmdPaletteOpen(false); } },
+                { name: 'Scan All Running Images', category: 'Security & Scans', action: () => { fetchRunningImagesAndScan(); setIsCmdPaletteOpen(false); } },
 
-                const filtered = items.filter(item => 
-                  item.name.toLowerCase().includes(cmdPaletteSearch.toLowerCase()) ||
-                  item.category.toLowerCase().includes(cmdPaletteSearch.toLowerCase())
-                );
+                // Actions
+                { name: 'Refresh Active Tab View', category: 'Commands', action: () => { fetchResources(); setIsCmdPaletteOpen(false); } },
+                { name: 'Clear Active Search Filter', category: 'Commands', action: () => { setSearch(''); setIsCmdPaletteOpen(false); } }
+              ];
 
-                if (filtered.length === 0) {
-                  return <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>No matches found.</div>;
-                }
+              const filtered = items.filter(item => 
+                item.name.toLowerCase().includes(cmdPaletteSearch.toLowerCase()) ||
+                item.category.toLowerCase().includes(cmdPaletteSearch.toLowerCase())
+              );
 
-                // Group by category
-                const groups: { [key: string]: typeof items } = {};
-                filtered.forEach(item => {
-                  if (!groups[item.category]) groups[item.category] = [];
-                  groups[item.category].push(item);
-                });
+              // Group by category
+              const groups: { [key: string]: typeof items } = {};
+              filtered.forEach(item => {
+                if (!groups[item.category]) groups[item.category] = [];
+                groups[item.category].push(item);
+              });
 
-                return Object.entries(groups).map(([cat, catItems]) => (
-                  <div key={cat} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--accent-green)', fontWeight: 600, letterSpacing: '0.5px' }}>{cat}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {catItems.map((item, idx) => (
-                        <div
-                          key={idx}
-                          onClick={item.action}
-                          style={{
-                            padding: '8px 12px',
-                            background: 'rgba(255,255,255,0.02)',
-                            border: '1px solid rgba(255,255,255,0.04)',
-                            borderRadius: '4px',
-                            fontSize: '0.85rem',
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'rgba(57, 255, 20, 0.05)';
-                            e.currentTarget.style.borderColor = 'rgba(57, 255, 20, 0.2)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
-                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.04)';
-                          }}
-                        >
-                          <span>{item.name}</span>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>Select</span>
-                        </div>
-                      ))}
-                    </div>
+              return (
+                <>
+                  <div 
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      borderBottom: '1px solid rgba(255,255,255,0.08)',
+                      padding: '12px 16px'
+                    }}
+                  >
+                    <Search size={18} style={{ color: 'var(--accent-green)' }} />
+                    <input
+                      type="text"
+                      placeholder="Search views, namespaces, custom resources..."
+                      value={cmdPaletteSearch}
+                      onChange={e => { setCmdPaletteSearch(e.target.value); setActivePaletteIndex(0); }}
+                      onKeyDown={e => {
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          setActivePaletteIndex(prev => Math.min(prev + 1, filtered.length - 1));
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setActivePaletteIndex(prev => Math.max(prev - 1, 0));
+                        } else if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (filtered[activePaletteIndex]) {
+                            filtered[activePaletteIndex].action();
+                          }
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setIsCmdPaletteOpen(false);
+                        }
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        outline: 'none',
+                        color: 'var(--text-main)',
+                        width: '100%',
+                        fontSize: '1rem',
+                        fontFamily: 'var(--font-sans)'
+                      }}
+                      autoFocus
+                    />
+                    <button 
+                      className="btn btn-icon" 
+                      style={{ padding: 4 }}
+                      onClick={() => setIsCmdPaletteOpen(false)}
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
-                ));
-              })()}
-            </div>
-            
-            <div 
-              style={{
-                borderTop: '1px solid rgba(255,255,255,0.08)',
-                padding: '10px 16px',
-                fontSize: '0.7rem',
-                color: 'var(--text-muted)',
-                display: 'flex',
-                justifyContent: 'space-between'
-              }}
-            >
-              <span>Use typing to filter results</span>
-              <span>ESC to close</span>
-            </div>
+
+                  <div 
+                    style={{
+                      flex: 1,
+                      overflowY: 'auto',
+                      padding: 12,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 16
+                    }}
+                  >
+                    {filtered.length === 0 ? (
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>No matches found.</div>
+                    ) : (
+                      Object.entries(groups).map(([cat, catItems]) => (
+                        <div key={cat} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--accent-green)', fontWeight: 600, letterSpacing: '0.5px' }}>{cat}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {catItems.map((item, idx) => {
+                              const isSelected = filtered[activePaletteIndex] && item.name === filtered[activePaletteIndex].name && item.category === filtered[activePaletteIndex].category;
+                              return (
+                                <div
+                                  key={idx}
+                                  onClick={item.action}
+                                  style={{
+                                    padding: '8px 12px',
+                                    background: isSelected ? 'rgba(57, 255, 20, 0.08)' : 'rgba(255,255,255,0.02)',
+                                    border: '1px solid',
+                                    borderColor: isSelected ? 'rgba(57, 255, 20, 0.3)' : 'rgba(255,255,255,0.04)',
+                                    borderRadius: '4px',
+                                    fontSize: '0.85rem',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(57, 255, 20, 0.05)';
+                                    e.currentTarget.style.borderColor = 'rgba(57, 255, 20, 0.2)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (!isSelected) {
+                                      e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
+                                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.04)';
+                                    }
+                                  }}
+                                >
+                                  <span>{item.name}</span>
+                                  <span style={{ fontSize: '0.7rem', color: isSelected ? 'var(--accent-green)' : 'var(--text-muted)', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>
+                                    {isSelected ? 'Enter' : 'Select'}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+          
+          <div 
+            style={{
+              borderTop: '1px solid rgba(255,255,255,0.08)',
+              padding: '10px 16px',
+              fontSize: '0.7rem',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              background: 'rgba(10, 10, 10, 0.95)',
+              borderBottomLeftRadius: 6,
+              borderBottomRightRadius: 6,
+              zIndex: 10
+            }}
+          >
+            <span>Use ↑↓ arrows to navigate, Enter to select</span>
+            <span>ESC to close</span>
           </div>
         </div>
       )}
