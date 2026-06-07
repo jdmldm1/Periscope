@@ -137,7 +137,7 @@ jobs:
 
       - name: Log in to GHCR for Zarf OCI
         run: |
-          zarf registry login ${{ env.REGISTRY }} -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+          zarf tools registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create Zarf Package
         run: |
