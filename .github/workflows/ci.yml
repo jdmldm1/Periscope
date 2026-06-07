@@ -55,6 +55,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Lowercase Repository and Owner Names
+        run: |
+          echo "REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         
@@ -74,8 +79,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}
 
   helm-package-oci:
     needs: build-and-push-oci
@@ -86,6 +91,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Lowercase Repository and Owner Names
+        run: |
+          echo "REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Set up Helm CLI
         uses: azure/setup-helm@v4
@@ -102,7 +112,7 @@ jobs:
 
       - name: Push Helm Chart to OCI Registry
         run: |
-          helm push dist/periscope-*.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+          helm push dist/periscope-*.tgz oci://${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/charts
 
   zarf-package-oci:
     needs: build-and-push-oci
@@ -113,6 +123,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Lowercase Repository and Owner Names
+        run: |
+          echo "REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Set up Zarf CLI
         run: |
@@ -131,4 +146,4 @@ jobs:
 
       - name: Publish Zarf Package to OCI Registry
         run: |
-          zarf package publish zarf-package-periscope-*.tar.zst oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/packages
+          zarf package publish zarf-package-periscope-*.tar.zst oci://${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages
