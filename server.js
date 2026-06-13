@@ -41,6 +41,8 @@ const fs = require('fs');
 })();
 
 const app = express();
+const compression = require('compression');
+app.use(compression());
 app.use(cors());
 app.use(express.json());
 
@@ -138,6 +140,7 @@ const fetchers = {
     'configmaps': (ns) => k8sCoreApi.listNamespacedConfigMap({ namespace: ns }),
     'secrets': (ns) => k8sCoreApi.listNamespacedSecret({ namespace: ns }),
     'ingresses': (ns) => k8sNetApi.listNamespacedIngress({ namespace: ns }),
+    'networkpolicies': (ns) => k8sNetApi.listNamespacedNetworkPolicy({ namespace: ns }),
     'jobs': (ns) => k8sBatchApi.listNamespacedJob({ namespace: ns }),
     'cronjobs': (ns) => k8sBatchApi.listNamespacedCronJob({ namespace: ns }),
     'events': (ns) => k8sCoreApi.listNamespacedEvent({ namespace: ns }),
@@ -154,6 +157,7 @@ const allNamespacesFetchers = {
     'configmaps': () => k8sCoreApi.listConfigMapForAllNamespaces(),
     'secrets': () => k8sCoreApi.listSecretForAllNamespaces(),
     'ingresses': () => k8sNetApi.listIngressForAllNamespaces(),
+    'networkpolicies': () => k8sNetApi.listNetworkPolicyForAllNamespaces(),
     'jobs': () => k8sBatchApi.listJobForAllNamespaces(),
     'cronjobs': () => k8sBatchApi.listCronJobForAllNamespaces(),
     'events': () => k8sCoreApi.listEventForAllNamespaces(),
@@ -3351,14 +3355,400 @@ app.post('/api/gitea/exec', async (req, res) => {
     }
 });
 
+app.get('/api/helm/schema', (req, res) => {
+    const { chartName, version } = req.query;
+    if (!chartName) return res.status(400).json({ error: 'chartName is required' });
+    
+    let cmd = `helm show schema "${chartName}"`;
+    if (version) {
+        cmd += ` --version "${version}"`;
+    }
+    
+    exec(cmd, (error, stdout, stderr) => {
+        if (error) {
+            return res.status(404).json({ error: stderr || error.message || 'No schema found' });
+        }
+        try {
+            const parsed = JSON.parse(stdout);
+            res.json(parsed);
+        } catch (e) {
+            res.status(500).json({ error: 'Failed to parse chart schema JSON' });
+        }
+    });
+});
+
 // Serve frontend in production
 const frontendBuildPath = path.join(__dirname, 'frontend', 'dist');
-app.use(express.static(frontendBuildPath));
+app.use(express.static(frontendBuildPath, {
+    maxAge: '1y',
+    setHeaders: (res, path) => {
+        if (path.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        } else {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+    }
+}));
 app.use((req, res) => {
     res.sendFile(path.join(frontendBuildPath, 'index.html'));
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+});
+
+// Setup WebSocket server for real-time terminal exec and logs streaming
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ noServer: true });
+
+function safeClose(ws, code, reason) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    try {
+        let safeReason = reason || '';
+        if (Buffer.byteLength(safeReason, 'utf8') > 123) {
+            const buf = Buffer.from(safeReason, 'utf8');
+            safeReason = buf.subarray(0, 120).toString('utf8');
+            safeReason = safeReason.replace(/[\uFFFD]/g, '') + '...';
+        }
+        ws.close(code, safeReason);
+    } catch (e) {
+        console.error('Error in safeClose:', e);
+        try {
+            ws.close(code);
+        } catch (_) {}
+    }
+}
+
+server.on('upgrade', (request, socket, head) => {
+    const urlObj = new URL(request.url, `http://${request.headers.host}`);
+    const pathname = urlObj.pathname;
+    
+    if (pathname === '/api/terminal/ws' || pathname === '/api/logs/ws' || pathname === '/api/cluster-terminal/ws' || pathname === '/api/network/sniff/ws') {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+            wss.emit('connection', ws, request);
+        });
+    } else {
+        socket.destroy();
+    }
+});
+
+wss.on('connection', (ws, request) => {
+    const urlObj = new URL(request.url, `http://${request.headers.host}`);
+    const pathname = urlObj.pathname;
+    const params = urlObj.searchParams;
+    
+    const namespace = params.get('namespace') || 'default';
+    const pod = params.get('pod');
+    const container = params.get('container');
+    
+    if (pathname === '/api/cluster-terminal/ws') {
+        console.log('Establishing cluster-level terminal session');
+        const { spawn } = require('child_process');
+        
+        // Spawn shell process using script utility to allocate a PTY in alpine
+        const shell = spawn('script', ['-q', '-c', '/bin/sh', '/dev/null'], {
+            env: { ...process.env, TERM: 'xterm-256color' }
+        });
+        
+        shell.stdout.on('data', (data) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(data);
+            }
+        });
+        
+        shell.stderr.on('data', (data) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(data);
+            }
+        });
+        
+        ws.on('message', (message) => {
+            if (shell.stdin.writable) {
+                shell.stdin.write(message);
+            }
+        });
+        
+        shell.on('exit', (code, signal) => {
+            console.log(`Cluster terminal process exited with code ${code} and signal ${signal}`);
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+        });
+        
+        ws.on('close', () => {
+            console.log('Cluster terminal WebSocket closed, killing shell process');
+            try {
+                shell.kill('SIGKILL');
+            } catch (err) {
+                console.error('Error killing shell process:', err);
+            }
+        });
+        
+        ws.on('error', (err) => {
+            console.error('Cluster terminal WebSocket error:', err);
+            try {
+                shell.kill('SIGKILL');
+            } catch (killErr) {}
+        });
+        
+        return;
+    }
+
+    if (pathname === '/api/network/sniff/ws') {
+        console.log('Establishing live network packet capture session');
+        const { spawn } = require('child_process');
+
+        // Resolve Pod and Service IPs
+        let ipMap = {};
+
+        const refreshIpMap = async () => {
+            try {
+                const [pods, svcs] = await Promise.all([
+                    k8sCoreApi.listPodForAllNamespaces().catch(() => ({ items: [] })),
+                    k8sCoreApi.listServiceForAllNamespaces().catch(() => ({ items: [] }))
+                ]);
+                
+                const newIpMap = {};
+                if (pods && pods.items) {
+                    pods.items.forEach(p => {
+                        if (p.status && p.status.podIP) {
+                            newIpMap[p.status.podIP] = {
+                                type: 'pod',
+                                name: p.metadata.name,
+                                namespace: p.metadata.namespace
+                            };
+                        }
+                    });
+                }
+                if (svcs && svcs.items) {
+                    svcs.items.forEach(s => {
+                        if (s.spec && s.spec.clusterIP && s.spec.clusterIP !== 'None') {
+                            newIpMap[s.spec.clusterIP] = {
+                                type: 'service',
+                                name: s.metadata.name,
+                                namespace: s.metadata.namespace
+                            };
+                        }
+                    });
+                }
+                ipMap = newIpMap;
+            } catch (err) {
+                console.error('Error refreshing IP lookup map:', err);
+            }
+        };
+
+        // Initialize and refresh periodically
+        refreshIpMap();
+        const refreshInterval = setInterval(refreshIpMap, 15000);
+
+        // Spawn tcpdump in line-buffered mode
+        const tcpdump = spawn('tcpdump', ['-l', '-nn', '-i', 'any'], {
+            env: { ...process.env }
+        });
+
+        let lineBuffer = '';
+        let packetCountThisSecond = 0;
+        let lastSecond = Math.floor(Date.now() / 1000);
+
+        tcpdump.stdout.on('data', (data) => {
+            lineBuffer += data.toString('utf8');
+            const lines = lineBuffer.split('\n');
+            lineBuffer = lines.pop() || '';
+
+            const snifferPort = request.socket.remotePort;
+            lines.forEach(line => {
+                // Allow directional prefix (e.g. In/Out/interface name) between timestamp and IP for "any" interface capturing
+                const match = line.match(/^(\d{2}:\d{2}:\d{2}\.\d+)\s+(?:.*\s+)?IP\s+([\d.]+)\.(\d+)\s+>\s+([\d.]+)\.(\d+):\s+(.*)/);
+                if (match) {
+                    const [_, timestamp, srcIp, srcPort, destIp, destPort, info] = match;
+                    
+                    const sPort = parseInt(srcPort);
+                    const dPort = parseInt(destPort);
+
+                    // Skip the packets of our own active sniffer connection to avoid infinite feedback loops
+                    if (sPort === snifferPort || dPort === snifferPort) {
+                        return;
+                    }
+
+                    // Rate limit: Max 60 packets per second to protect browser UI performance
+                    const currentSecond = Math.floor(Date.now() / 1000);
+                    if (currentSecond !== lastSecond) {
+                        lastSecond = currentSecond;
+                        packetCountThisSecond = 0;
+                    }
+                    if (packetCountThisSecond > 60) {
+                        return;
+                    }
+                    packetCountThisSecond++;
+
+                    const srcInfo = ipMap[srcIp] || { type: 'external', name: srcIp };
+                    const destInfo = ipMap[destIp] || { type: 'external', name: destIp };
+
+                    let protocol = 'TCP';
+                    if (info.includes('UDP')) protocol = 'UDP';
+                    else if (srcPort === '53' || destPort === '53') protocol = 'DNS';
+                    else if (srcPort === '80' || destPort === '80') protocol = 'HTTP';
+                    else if (srcPort === '443' || destPort === '443') protocol = 'HTTPS';
+
+                    let length = 0;
+                    const lenMatch = info.match(/length\s+(\d+)/);
+                    if (lenMatch) {
+                        length = parseInt(lenMatch[1]);
+                    }
+
+                    const packet = {
+                        timestamp,
+                        srcIp,
+                        srcPort: sPort,
+                        srcRes: srcInfo,
+                        destIp,
+                        destPort: dPort,
+                        destRes: destInfo,
+                        protocol,
+                        length,
+                        info: info.trim()
+                    };
+
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify(packet));
+                    }
+                }
+            });
+        });
+
+        tcpdump.stderr.on('data', (data) => {
+            // Log to console if needed, tcpdump prints capture status to stderr on start
+        });
+
+        tcpdump.on('exit', (code, signal) => {
+            console.log(`tcpdump exited with code ${code} and signal ${signal}`);
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+        });
+
+        ws.on('close', () => {
+            console.log('Sniffer WebSocket closed, stopping tcpdump');
+            clearInterval(refreshInterval);
+            try {
+                tcpdump.kill('SIGKILL');
+            } catch (err) {
+                console.error('Error killing tcpdump:', err);
+            }
+        });
+
+        ws.on('error', (err) => {
+            console.error('Sniffer WebSocket error:', err);
+            clearInterval(refreshInterval);
+            try {
+                tcpdump.kill('SIGKILL');
+            } catch (_) {}
+        });
+
+        return;
+    }
+    
+    if (!pod) {
+        safeClose(ws, 4000, 'Pod parameter is required');
+        return;
+    }
+    
+    if (pathname === '/api/terminal/ws') {
+        console.log(`Establishing terminal exec for pod ${pod} (container: ${container}) in ns ${namespace}`);
+        
+        const stdinStream = new stream.PassThrough();
+        const stdoutStream = new stream.Writable({
+            write(chunk, encoding, callback) {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(chunk);
+                }
+                callback();
+            }
+        });
+        const stderrStream = new stream.Writable({
+            write(chunk, encoding, callback) {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(chunk);
+                }
+                callback();
+            }
+        });
+        
+        const execInstance = new k8s.Exec(kc);
+        execInstance.exec(
+            namespace,
+            pod,
+            container || undefined,
+            ['/bin/sh'],
+            stdoutStream,
+            stderrStream,
+            stdinStream,
+            true, // tty
+            (status) => {
+                console.log(`Exec for pod ${pod} exited with status:`, status);
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+            }
+        ).then((conn) => {
+            ws.on('message', (message) => {
+                try {
+                    const parsed = JSON.parse(message.toString());
+                    if (parsed.type === 'resize' && typeof parsed.cols === 'number' && typeof parsed.rows === 'number') {
+                        if (conn && typeof conn.resize === 'function') {
+                            conn.resize(parsed.cols, parsed.rows);
+                        }
+                        return;
+                    }
+                } catch (e) {
+                    // Normal terminal stdin input
+                }
+                stdinStream.write(message);
+            });
+            
+            ws.on('close', () => {
+                stdinStream.end();
+            });
+        }).catch((err) => {
+            console.error(`Exec connection failed for pod ${pod}:`, err);
+            safeClose(ws, 4001, err.message || 'Exec failed');
+        });
+        
+    } else if (pathname === '/api/logs/ws') {
+        console.log(`Establishing log stream for pod ${pod} (container: ${container}) in ns ${namespace}`);
+        
+        const logStream = new stream.PassThrough();
+        logStream.on('data', (chunk) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(chunk.toString('utf8'));
+            }
+        });
+        
+        const k8sLog = new k8s.Log(kc);
+        k8sLog.log(
+            namespace,
+            pod,
+            container || undefined,
+            logStream,
+            { follow: true, tailLines: 500 },
+            (err) => {
+                if (err) {
+                    console.error(`Log streaming error for pod ${pod}:`, err);
+                }
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+            }
+        ).then((req) => {
+            ws.on('close', () => {
+                if (req && typeof req.abort === 'function') {
+                    req.abort();
+                }
+            });
+        }).catch((err) => {
+            console.error(`Log streaming connection failed for pod ${pod}:`, err);
+            safeClose(ws, 4002, err.message || 'Log streaming failed');
+        });
+    }
 });

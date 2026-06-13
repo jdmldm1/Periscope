@@ -5,7 +5,7 @@
 [![React](https://img.shields.io/badge/react-%2320232a.svg?style=flat&logo=react&logoColor=%2361dafb)](https://reactjs.org/)
 [![Node.js](https://img.shields.io/badge/node.js-6DA55F?style=flat&logo=node.js&logoColor=white)](https://nodejs.org/)
 
-**Periscope** is a Kubernetes cluster explorer and visualization dashboard which allows you to view and manage your cluster state, helm releases, and zarf packages.
+**Periscope** is an advanced control plane for kubernetes which allows you to view and manage your cluster state, helm releases, and zarf packages.
 
 <p align="center">
   <img src="frontend/public/logo.png" alt="Periscope Logo" width="220" />

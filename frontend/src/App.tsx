@@ -16,12 +16,16 @@ import { HelmManagerView } from './components/HelmManagerView';
 import { ZarfManagerView } from './components/ZarfManagerView';
 import { PodFilesExplorer } from './components/PodFilesExplorer';
 import { LogsView } from './components/LogsView';
+import { InteractiveTerminal } from './components/InteractiveTerminal';
+import { SecretDecoderPanel } from './components/SecretDecoderPanel';
+import { ClusterTerminalView } from './components/ClusterTerminalView';
+import { TrafficInspectorView } from './components/TrafficInspectorView';
 
 // Import helpers
 import { parseCpu, parseMem, highlightYaml, colorizeLogs, pluralizeKind, matchesSelector } from './utils/helpers';
 
-type ResourceKind = 'pods' | 'deployments' | 'daemonsets' | 'statefulsets' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state' | 'kubescape' | 'gitea' | 'logs';
-type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history' | 'files' | 'values';
+type ResourceKind = 'pods' | 'deployments' | 'daemonsets' | 'statefulsets' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state' | 'kubescape' | 'gitea' | 'logs' | 'traffic' | 'cluster-terminal';
+type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history' | 'files' | 'values' | 'decoded';
 
 
 function App() {
@@ -82,11 +86,6 @@ function App() {
   // Container Selection
   const [selectedContainer, setSelectedContainer] = useState('');
   
-  // Terminal execution states
-  const [cmdInput, setCmdInput] = useState('');
-  const [cmdHistory, setCmdHistory] = useState<{cmd: string, output: string, error?: boolean}[]>([]);
-  const [cmdLoading, setCmdLoading] = useState(false);
-  
   // Log search state
   const [logSearch, setLogSearch] = useState('');
   const [isStreamingLogs, setIsStreamingLogs] = useState(false);
@@ -101,8 +100,7 @@ function App() {
   const [hoveredTopologyItem, setHoveredTopologyItem] = useState<{type: 'node' | 'service' | 'deployment' | 'pod', name: string, item: any} | null>(null);
   const [topologyMode, setTopologyMode] = useState<'columns' | 'graph'>('columns');
 
-  // Command Executor Ref & Zarf Registry States
-  const cmdInputRef = useRef<HTMLInputElement>(null);
+  // Zarf Registry States
   const cmdPaletteInputRef = useRef<HTMLInputElement>(null);
   const [registryPullSource, setRegistryPullSource] = useState('');
   const [registryPullTarget, setRegistryPullTarget] = useState('');
@@ -126,6 +124,7 @@ function App() {
   // Zarf & Helm Management States
   const [zarfStatus, setZarfStatus] = useState<{installed: boolean, version?: string}>({ installed: false });
   const [isDeployHelmModalOpen, setIsDeployHelmModalOpen] = useState(false);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [isDeployZarfModalOpen, setIsDeployZarfModalOpen] = useState(false);
   const [helmDeployForm, setHelmDeployForm] = useState({ releaseName: '', namespace: 'default', chartName: '', valuesYaml: '' });
   const [zarfDeployForm, setZarfDeployForm] = useState({ packagePath: '' });
@@ -403,6 +402,7 @@ function App() {
       const data = await res.json();
       if (res.ok) {
         alert('Chart installed successfully: ' + data.output);
+        setIsInstallModalOpen(false);
         setActiveTab('helm');
         fetchResources();
       } else {
@@ -1308,14 +1308,7 @@ function App() {
     return () => clearInterval(interval);
   }, [activeTaskId, activeTab]);
 
-  useEffect(() => {
-    if (modal?.type === 'terminal' && !cmdLoading) {
-      const timer = setTimeout(() => {
-        cmdInputRef.current?.focus();
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [cmdLoading, modal?.type]);
+
 
   useEffect(() => {
     if (activeTab === 'helm-repos' || activeTab === 'helm-install') {
@@ -1728,7 +1721,9 @@ function App() {
       activeTab === 'zarf-registry' || 
       activeTab === 'zarf-creds' || 
       activeTab === 'helm-install' || 
-      activeTab === 'helm-repos'
+      activeTab === 'helm-repos' ||
+      activeTab === 'cluster-terminal' ||
+      activeTab === 'traffic'
     ) {
       setLoading(false);
       return;
@@ -1890,46 +1885,7 @@ function App() {
     }).catch(console.error);
   };
 
-  const runCommand = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cmdInput.trim() || !modal) return;
-    const currentCmd = cmdInput;
-    setCmdInput('');
-    setCmdLoading(true);
-    
-    setCmdHistory(prev => [...prev, { cmd: currentCmd, output: 'Running...' }]);
-    
-    try {
-      const res = await fetch(`/api/resource/pods/${modal.namespace}/${modal.name}/exec`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: currentCmd, container: selectedContainer })
-      });
-      const data = await res.json();
-      
-      setCmdHistory(prev => {
-        const next = [...prev];
-        next[next.length - 1] = {
-          cmd: currentCmd,
-          output: data.stdout || data.stderr || 'Command executed with no output.',
-          error: !!data.stderr || !!data.error
-        };
-        return next;
-      });
-    } catch (err: any) {
-      setCmdHistory(prev => {
-        const next = [...prev];
-        next[next.length - 1] = {
-          cmd: currentCmd,
-          output: err.message || 'Failed to connect to container.',
-          error: true
-        };
-        return next;
-      });
-    } finally {
-      setCmdLoading(false);
-    }
-  };
+
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(yamlEdit);
@@ -2152,8 +2108,6 @@ function App() {
 
   useEffect(() => {
     if (modal) {
-      setCmdHistory([]);
-      setCmdInput('');
       setLogSearch('');
       setIsEditingYaml(false);
       setIsStreamingLogs(false);
@@ -2197,6 +2151,11 @@ function App() {
         const yamlStr = JSON.stringify(data, null, 2);
         setYamlEdit(yamlStr);
         setModalData(yamlStr);
+      } else if (type === 'decoded') {
+        const url = `/api/yaml/${modal.kind}/${modal.namespace}/${modal.name}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        setModalData(data);
       } else if (type === 'logs') {
         const res = await fetch(`/api/logs/${modal.namespace}/${modal.name}?container=${selectedContainer}`);
         const text = await res.text();
@@ -2509,6 +2468,7 @@ function App() {
               <a className={`nav-item ${activeTab === 'nodes' ? 'active' : ''}`} onClick={() => { setActiveTab('nodes'); setSearch(''); }}><Server size={16} /> Nodes</a>
               <a className={`nav-item ${activeTab === 'events' ? 'active' : ''}`} onClick={() => { setActiveTab('events'); setSearch(''); }}><List size={16} /> Events</a>
               <a className={`nav-item ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => { setActiveTab('logs'); setSearch(''); }}><Terminal size={16} /> Logs</a>
+              <a className={`nav-item ${activeTab === 'cluster-terminal' ? 'active' : ''}`} onClick={() => { setActiveTab('cluster-terminal'); setSearch(''); }}><Code size={16} style={{ color: 'var(--accent-cyan)' }} /> Cluster Terminal</a>
             </nav>
           )}
         </div>
@@ -2564,6 +2524,7 @@ function App() {
             <nav className="nav-menu">
               <a className={`nav-item ${activeTab === 'services' ? 'active' : ''}`} onClick={() => { setActiveTab('services'); setSearch(''); }}><GitCommit size={16} /> Services</a>
               <a className={`nav-item ${activeTab === 'ingresses' ? 'active' : ''}`} onClick={() => { setActiveTab('ingresses'); setSearch(''); }}><Shield size={16} /> Ingresses</a>
+              <a className={`nav-item ${activeTab === 'traffic' ? 'active' : ''}`} onClick={() => { setActiveTab('traffic'); setSearch(''); }}><Radio size={16} style={{ color: 'var(--accent-cyan)' }} /> Traffic Inspector</a>
             </nav>
           )}
         </div>
@@ -2614,7 +2575,6 @@ function App() {
           {!collapsedSections['helm'] && (
             <nav className="nav-menu">
               <a className={`nav-item ${activeTab === 'helm' ? 'active' : ''}`} onClick={() => { setActiveTab('helm'); setSearch(''); }}><Package size={16} /> Helm Releases</a>
-              <a className={`nav-item ${activeTab === 'helm-install' ? 'active' : ''}`} onClick={() => { setActiveTab('helm-install'); setSearch(''); }}><ArrowDown size={16} /> Install Chart</a>
               <a className={`nav-item ${activeTab === 'helm-repos' ? 'active' : ''}`} onClick={() => { setActiveTab('helm-repos'); setSearch(''); }}><Database size={16} /> Repo Manager</a>
             </nav>
           )}
@@ -2884,11 +2844,7 @@ function App() {
                 </button>
               </div>
             )}
-            {activeTab === 'helm' && (
-              <button className="btn btn-primary" onClick={() => setActiveTab('helm-install')}>
-                <Package size={16} /> Install Chart
-              </button>
-            )}
+
             {activeTab === 'zarf' && zarfStatus.installed && (
               <button className="btn btn-primary" onClick={() => setIsZarfUploadModalOpen(true)}>
                 <Package size={16} /> Deploy New Package
@@ -3023,7 +2979,7 @@ function App() {
               expandedControlId={expandedControlId}
               setExpandedControlId={setExpandedControlId}
             />
-          ) : activeTab === 'helm' || activeTab === 'helm-install' || activeTab === 'helm-repos' ? (
+          ) : activeTab === 'helm' || activeTab === 'helm-repos' ? (
             <HelmManagerView
               resources={resources}
               selectedNs={selectedNs}
@@ -3032,6 +2988,8 @@ function App() {
               setActiveTab={setActiveTab}
               setModal={setModal}
               handleDelete={handleDelete}
+              isInstallModalOpen={isInstallModalOpen}
+              setIsInstallModalOpen={setIsInstallModalOpen}
               selectedHelmRelease={selectedHelmRelease}
               setSelectedHelmRelease={setSelectedHelmRelease}
               fetchHelmInspect={fetchHelmInspect}
@@ -3062,6 +3020,10 @@ function App() {
               isSearchingHelm={isSearchingHelm}
               handleSearchHelmRepo={handleSearchHelmRepo}
             />
+          ) : activeTab === 'cluster-terminal' ? (
+            <ClusterTerminalView />
+          ) : activeTab === 'traffic' ? (
+            <TrafficInspectorView selectedNs={selectedNs} />
           ) : activeTab === 'dashboard' ? (
             <DashboardView
               dashboardData={dashboardData}
@@ -4010,6 +3972,7 @@ function App() {
             <div className="modal-tabs">
               {((modal.kind === 'helm' ? ['yaml', 'events', 'history', 'values'] : ['yaml', 'events']) as ModalType[])
                 .concat(modal.kind === 'pods' ? ['logs', 'terminal', 'portforward', 'files'] : [])
+                .concat(modal.kind === 'secrets' ? ['decoded'] : [])
                 .map(t => (
                   <div 
                     key={t}
@@ -4029,13 +3992,20 @@ function App() {
                     {t === 'history' && <Activity size={14}/>}
                     {t === 'files' && <FileText size={14}/>}
                     {t === 'values' && <SlidersHorizontal size={14}/>}
-                    {t === 'terminal' ? 'Console' : t === 'portforward' ? 'Port Forward' : t === 'events' && modal.kind === 'helm' ? 'Status' : t === 'values' ? 'Values' : t.charAt(0).toUpperCase() + t.slice(1)}
+                    {t === 'decoded' && <Key size={14}/>}
+                    {t === 'terminal' ? 'Console' : t === 'portforward' ? 'Port Forward' : t === 'events' && modal.kind === 'helm' ? 'Status' : t === 'values' ? 'Values' : t === 'decoded' ? 'Decoded Data' : t.charAt(0).toUpperCase() + t.slice(1)}
                   </div>
                 ))}
             </div>
  
             <div className="modal-body">
-              {modal.type === 'files' ? (
+              {modal.type === 'decoded' ? (
+                modalData === null ? (
+                  <div className="loader-container"><div className="loader"></div></div>
+                ) : (
+                  <SecretDecoderPanel secretJson={modalData} />
+                )
+              ) : modal.type === 'files' ? (
                 <PodFilesExplorer
                   modal={modal}
                   currentDirPath={currentDirPath}
@@ -4128,47 +4098,28 @@ function App() {
                   </div>
                 )
               ) : modal.type === 'terminal' ? (
-                <div className="exec-terminal">
-                  <div className="exec-output">
-                    <div style={{ color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #222', paddingBottom: 10, marginBottom: 10 }}>
-                      <div>
-                        # Inline Command Executor inside container '{selectedContainer || modal.name}'
-                      </div>
-                      {getPodContainers().length > 1 && (
-                        <select 
-                          className="select-ns" 
-                          style={{ fontSize: '0.8rem', padding: '4px 8px', height: 'auto', background: 'var(--bg-main)' }}
-                          value={selectedContainer} 
-                          onChange={e => setSelectedContainer(e.target.value)}
-                        >
-                          {getPodContainers().map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      )}
+                <div className="exec-terminal" style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+                  <div style={{ color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 10 }}>
+                    <div>
+                      # Live Interactive Shell inside container '{selectedContainer || getPodContainers()[0] || ''}'
                     </div>
-                    <div style={{ color: 'var(--text-muted)', marginBottom: 10 }}>
-                      # Type commands below (e.g. ls, env, df -h, uname -a)
-                    </div>
-                    {cmdHistory.map((h, idx) => (
-                      <div key={idx}>
-                        <div><span className="exec-prompt">$</span> {h.cmd}</div>
-                        <div style={{ color: h.error ? '#f85149' : '#ededed', paddingLeft: 12, marginTop: 4, marginBottom: 12 }}>{h.output}</div>
-                      </div>
-                    ))}
-                    {cmdLoading && <div className="loader" style={{ width: 12, height: 12 }}></div>}
+                    {getPodContainers().length > 1 && (
+                      <select 
+                        className="select-ns" 
+                        style={{ fontSize: '0.8rem', padding: '4px 8px', height: 'auto', background: 'var(--bg-main)' }}
+                        value={selectedContainer} 
+                        onChange={e => setSelectedContainer(e.target.value)}
+                      >
+                        {getPodContainers().map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    )}
                   </div>
-                  <form onSubmit={runCommand} className="exec-input-line">
-                    <span className="exec-prompt">$</span>
-                    <input 
-                      ref={cmdInputRef}
-                      type="text" 
-                      className="exec-input" 
-                      placeholder="Type a command and press Enter..." 
-                      value={cmdInput} 
-                      onChange={e => setCmdInput(e.target.value)}
-                      disabled={cmdLoading}
-                      autoFocus
-                    />
-                  </form>
+                  <InteractiveTerminal 
+                    key={`${modal.namespace}-${modal.name}-${selectedContainer || getPodContainers()[0] || ''}`}
+                    namespace={modal.namespace}
+                    podName={modal.name}
+                    containerName={selectedContainer || getPodContainers()[0] || ''}
+                  />
                 </div>
               ) : modal.type === 'events' ? (
                 modal.kind === 'helm' ? (

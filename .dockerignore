@@ -3,3 +3,7 @@ frontend/node_modules
 .git
 .gitignore
 charts
+zarf-package-*.tar.zst
+bin/kubescape.exe
+.gemini
+.github

@@ -46,6 +46,8 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
   // Refs
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<any | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const [reconnectCount, setReconnectCount] = useState<number>(0);
 
   // Fetch pods when namespace changes
   useEffect(() => {
@@ -231,19 +233,159 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
     }
   };
 
-  // Trigger fetch logs when pod, container, or logSource changes
+  // WebSockets for Pod logs, HTTP polling for events
   useEffect(() => {
-    fetchLogs();
-  }, [selectedNs, selectedPod, selectedContainer, logSource]);
+    // Clean up any existing WebSocket connection
+    if (socketRef.current) {
+      try {
+        socketRef.current.close();
+      } catch (e) {
+        console.warn('Error closing websocket:', e);
+      }
+      socketRef.current = null;
+    }
 
-  // Set up auto-refresh timer
+    if (logSource !== 'pods') {
+      // If we are in 'events' mode, fetch events using the existing function
+      fetchLogs();
+      return;
+    }
+
+    if (!selectedNs || !selectedPod) {
+      setLogLines([]);
+      return;
+    }
+
+    // Prevent race conditions: wait until selectedContainer aligns with the chosen pod
+    const podObj = pods.find(p => p.metadata?.name === selectedPod);
+    const podContainers: string[] = [];
+    if (podObj) {
+      if (podObj.spec?.initContainers) podObj.spec.initContainers.forEach((c: any) => podContainers.push(c.name));
+      if (podObj.spec?.containers) podObj.spec.containers.forEach((c: any) => podContainers.push(c.name));
+      if (podObj.spec?.ephemeralContainers) podObj.spec.ephemeralContainers.forEach((c: any) => podContainers.push(c.name));
+    }
+    if (podContainers.length > 0 && !podContainers.includes(selectedContainer)) {
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg(null);
+    setLogLines([]);
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = `${protocol}//${host}/api/logs/ws?namespace=${encodeURIComponent(selectedNs)}&pod=${encodeURIComponent(selectedPod)}&container=${encodeURIComponent(selectedContainer)}`;
+
+    const socket = new WebSocket(wsUrl);
+    socketRef.current = socket;
+
+    let buffer = '';
+    socket.onopen = () => {
+      // socket connected successfully
+    };
+
+    socket.onmessage = async (event) => {
+      setLoading(false);
+      try {
+        let text = '';
+        if (typeof event.data === 'string') {
+          text = event.data;
+        } else if (event.data instanceof Blob) {
+          text = await event.data.text();
+        } else if (event.data instanceof ArrayBuffer) {
+          text = new TextDecoder().decode(event.data);
+        } else {
+          return;
+        }
+
+        buffer += text;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // keep the last partial line in buffer
+
+        if (lines.length > 0) {
+        setLogLines(prev => {
+          const nextLines = [...prev];
+          lines.forEach(lineText => {
+            let level: LogLine['level'] = 'info';
+            const lower = lineText.toLowerCase();
+            if (
+              lower.includes('err') || 
+              lower.includes('fail') || 
+              lower.includes('exception') || 
+              lower.includes('emerg') || 
+              lower.includes('alert') || 
+              lower.includes('fatal') || 
+              lower.includes('critical') ||
+              lower.includes('stderr')
+            ) {
+              level = 'error';
+            } else if (
+              lower.includes('warn') || 
+              lower.includes('wrn') || 
+              lower.includes('warning')
+            ) {
+              level = 'warning';
+            } else if (
+              lower.includes('success') || 
+              lower.includes('succeeded') || 
+              lower.includes(' ok ') || 
+              lower.includes('"ok"')
+            ) {
+              level = 'success';
+            }
+
+            nextLines.push({
+              id: nextLines.length,
+              text: lineText,
+              level
+            });
+          });
+
+          // Limit lines to 2000 to prevent performance degradation
+          if (nextLines.length > 2000) {
+            return nextLines.slice(nextLines.length - 2000);
+          }
+          return nextLines;
+        });
+      }
+      } catch (err) {
+        console.error('Error handling socket message:', err);
+      }
+    };
+
+    socket.onerror = (err) => {
+      console.error('Logs WebSockets error:', err);
+      setErrorMsg('Log streaming connection error');
+      setLoading(false);
+    };
+
+    socket.onclose = (e) => {
+      setLoading(false);
+      if (e.code !== 1000 && e.code !== 1005) {
+        setErrorMsg(`Log stream closed: ${e.reason || 'code ' + e.code}`);
+      }
+    };
+
+    return () => {
+      if (socketRef.current) {
+        try {
+          socketRef.current.close();
+        } catch (e) {
+          // ignore
+        }
+        socketRef.current = null;
+      }
+    };
+  }, [selectedNs, selectedPod, selectedContainer, logSource, reconnectCount]);
+
+  // Set up auto-refresh timer for cluster events (only)
   useEffect(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
 
-    if (refreshInterval > 0) {
+    if (refreshInterval > 0 && logSource === 'events') {
       timerRef.current = setInterval(() => {
         fetchLogs();
       }, refreshInterval * 1000);
@@ -254,7 +396,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
         clearInterval(timerRef.current);
       }
     };
-  }, [refreshInterval, selectedNs, selectedPod, selectedContainer, logSource]);
+  }, [refreshInterval, selectedNs, logSource]);
 
   // Scroll to bottom on updates
   useEffect(() => {
@@ -412,21 +554,38 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
 
           {/* Right Side: Refresh / Download Controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Auto refresh dropdown */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Auto-Refresh</span>
-              <select
-                value={refreshInterval}
-                onChange={e => setRefreshInterval(Number(e.target.value))}
-                className="select-ns"
-                style={{ padding: '5px 10px', fontSize: '0.8rem' }}
-              >
-                <option value={0}>Disabled</option>
-                <option value={5}>Every 5s</option>
-                <option value={10}>Every 10s</option>
-                <option value={30}>Every 30s</option>
-              </select>
-            </div>
+            {/* Auto refresh dropdown or Live indicator */}
+            {logSource === 'events' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Auto-Refresh</span>
+                <select
+                  value={refreshInterval}
+                  onChange={e => setRefreshInterval(Number(e.target.value))}
+                  className="select-ns"
+                  style={{ padding: '5px 10px', fontSize: '0.8rem' }}
+                >
+                  <option value={0}>Disabled</option>
+                  <option value={5}>Every 5s</option>
+                  <option value={10}>Every 10s</option>
+                  <option value={30}>Every 30s</option>
+                </select>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', color: 'var(--accent-success)', fontWeight: 600 }}>
+                <span 
+                  style={{ 
+                    display: 'inline-block',
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: 'var(--accent-success)',
+                    boxShadow: '0 0 8px var(--accent-success)',
+                    animation: 'pulse 1.5s infinite'
+                  }} 
+                />
+                Live
+              </div>
+            )}
 
             {/* Auto scroll checkbox */}
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
@@ -442,8 +601,14 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
             {/* Refresh button */}
             <button
               className="btn btn-icon"
-              onClick={fetchLogs}
-              title="Manual Reload"
+              onClick={() => {
+                if (logSource === 'pods') {
+                  setReconnectCount(c => c + 1);
+                } else {
+                  fetchLogs();
+                }
+              }}
+              title={logSource === 'pods' ? "Reconnect Stream" : "Manual Reload"}
               disabled={loading}
               style={{ padding: '6px 10px' }}
             >

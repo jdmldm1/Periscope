@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Shield, RefreshCw, Search, Download } from 'lucide-react';
+import { SbomDiffView } from './SbomDiffView';
 
 interface ImageScannerViewProps {
   runningImages: string[];
@@ -22,9 +23,96 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
 }) => {
   // Localized Filters
   const [selectedScanFilterImage, setSelectedScanFilterImage] = useState<string>('all');
-  const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'images'>('vulnerabilities');
+  const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'remediation' | 'drift' | 'images'>('vulnerabilities');
   const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
   const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
+
+  interface RemediationItem {
+    packageName: string;
+    currentVersion: string;
+    fixedVersions: string[];
+    vulnerabilities: {
+      id: string;
+      severity: string;
+    }[];
+    imageRef: string;
+  }
+
+  const getHighestSeverity = (vulns: { id: string; severity: string }[]): number => {
+    let maxVal = 0;
+    vulns.forEach(v => {
+      const s = v.severity.toLowerCase();
+      let val = 1;
+      if (s === 'critical') val = 5;
+      else if (s === 'high') val = 4;
+      else if (s === 'medium') val = 3;
+      else if (s === 'low') val = 2;
+      if (val > maxVal) maxVal = val;
+    });
+    return maxVal;
+  };
+
+  const getRemediationList = (): RemediationItem[] => {
+    const map = new Map<string, RemediationItem>();
+
+    Object.keys(runningImagesScanResults).forEach(imgRef => {
+      if (selectedScanFilterImage !== 'all' && selectedScanFilterImage !== imgRef) return;
+      const res = runningImagesScanResults[imgRef];
+      if (res && res.status === 'success' && res.vulnerabilities && res.vulnerabilities.matches) {
+        res.vulnerabilities.matches.forEach((m: any) => {
+          const vuln = m.vulnerability || {};
+          const art = m.artifact || {};
+          const fixVersions = vuln.fix?.versions || [];
+
+          if (fixVersions.length > 0) {
+            const key = `${imgRef}::${art.name}::${art.version}`;
+            if (!map.has(key)) {
+              map.set(key, {
+                packageName: art.name,
+                currentVersion: art.version,
+                fixedVersions: [...fixVersions],
+                vulnerabilities: [],
+                imageRef: imgRef
+              });
+            }
+            const item = map.get(key)!;
+            if (!item.vulnerabilities.some(v => v.id === vuln.id)) {
+              item.vulnerabilities.push({
+                id: vuln.id,
+                severity: vuln.severity || 'Unknown'
+              });
+            }
+            fixVersions.forEach((fv: string) => {
+              if (!item.fixedVersions.includes(fv)) {
+                item.fixedVersions.push(fv);
+              }
+            });
+          }
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const aMax = getHighestSeverity(a.vulnerabilities);
+      const bMax = getHighestSeverity(b.vulnerabilities);
+      return bMax - aMax;
+    });
+  };
+
+  const getFilteredRemediations = () => {
+    const list = getRemediationList();
+    return list.filter(item => {
+      if (imageScanSearchQuery.trim()) {
+        const q = imageScanSearchQuery.toLowerCase();
+        return (
+          item.packageName.toLowerCase().includes(q) ||
+          item.currentVersion.toLowerCase().includes(q) ||
+          item.vulnerabilities.some(v => v.id.toLowerCase().includes(q))
+        );
+      }
+      return true;
+    });
+  };
 
   const getFilteredVulnerabilities = () => {
     const list: any[] = [];
@@ -358,6 +446,38 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
           📦 Packages ({filteredPkgs.length})
         </button>
         <button 
+          className={`tab-btn ${imageScannerActiveTab === 'remediation' ? 'active' : ''}`}
+          onClick={() => setImageScannerActiveTab('remediation')}
+          style={{
+            padding: '10px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: imageScannerActiveTab === 'remediation' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+            color: imageScannerActiveTab === 'remediation' ? 'var(--text-main)' : 'var(--text-muted)',
+            cursor: 'pointer',
+            fontWeight: 600,
+            fontSize: '0.9rem'
+          }}
+        >
+          💡 Remediation Advisor ({getRemediationList().length})
+        </button>
+        <button 
+          className={`tab-btn ${imageScannerActiveTab === 'drift' ? 'active' : ''}`}
+          onClick={() => setImageScannerActiveTab('drift')}
+          style={{
+            padding: '10px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: imageScannerActiveTab === 'drift' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+            color: imageScannerActiveTab === 'drift' ? 'var(--text-main)' : 'var(--text-muted)',
+            cursor: 'pointer',
+            fontWeight: 600,
+            fontSize: '0.9rem'
+          }}
+        >
+          🔄 SBOM Drift & Diff
+        </button>
+        <button 
           className={`tab-btn ${imageScannerActiveTab === 'images' ? 'active' : ''}`}
           onClick={() => setImageScannerActiveTab('images')}
           style={{
@@ -376,7 +496,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
       </div>
 
       {/* Filter and Control Actions Bar (for data tabs) */}
-      {imageScannerActiveTab !== 'images' && (
+      {imageScannerActiveTab !== 'images' && imageScannerActiveTab !== 'drift' && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.1)', borderRadius: 6, padding: 12, flexWrap: 'wrap', gap: 10 }}>
           {/* Left filters */}
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -384,7 +504,13 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
               <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
               <input 
                 type="text" 
-                placeholder={imageScannerActiveTab === 'vulnerabilities' ? "Search CVEs/packages..." : "Search packages..."}
+                placeholder={
+                  imageScannerActiveTab === 'vulnerabilities' 
+                    ? "Search CVEs/packages..." 
+                    : imageScannerActiveTab === 'remediation' 
+                      ? "Search suggestions..." 
+                      : "Search packages..."
+                }
                 value={imageScanSearchQuery}
                 onChange={e => setImageScanSearchQuery(e.target.value)}
                 style={{ padding: '6px 10px 6px 30px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, width: '100%', outline: 'none', color: 'var(--text-main)' }}
@@ -421,23 +547,25 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             )}
           </div>
 
-          {/* Right exports */}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button 
-              className="btn btn-primary" 
-              onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesCsv : exportImageScannerPackagesCsv}
-              style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <Download size={14} /> Export CSV
-            </button>
-            <button 
-              className="btn" 
-              onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesJson : exportImageScannerPackagesJson}
-              style={{ fontSize: '0.8rem', padding: '6px 12px', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <Download size={14} /> Export JSON
-            </button>
-          </div>
+          {/* Right exports (only for vulnerabilities or packages) */}
+          {(imageScannerActiveTab === 'vulnerabilities' || imageScannerActiveTab === 'packages') && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button 
+                className="btn btn-primary" 
+                onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesCsv : exportImageScannerPackagesCsv}
+                style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Download size={14} /> Export CSV
+              </button>
+              <button 
+                className="btn" 
+                onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesJson : exportImageScannerPackagesJson}
+                style={{ fontSize: '0.8rem', padding: '6px 12px', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Download size={14} /> Export JSON
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -564,6 +692,136 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             </table>
           </div>
         )
+      )}
+
+      {imageScannerActiveTab === 'remediation' && (
+        getFilteredRemediations().length === 0 ? (
+          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+            No remediation suggestions found matching current filters.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', background: 'rgba(57,255,20,0.03)', border: '1px solid rgba(57,255,20,0.15)', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: '1.2rem' }}>💡</span>
+              <div>
+                <strong>Offline CVE Remediation Advisor:</strong> Below are package upgrade recommendations extracted from the vulnerability database that will resolve detected CVEs.
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+              {getFilteredRemediations().map((item, idx) => {
+                const maxSeverity = item.vulnerabilities.reduce((acc, v) => {
+                  const s = v.severity.toLowerCase();
+                  if (s === 'critical') return 'Critical';
+                  if (s === 'high' && acc !== 'Critical') return 'High';
+                  if (acc !== 'Critical' && acc !== 'High' && s === 'medium') return 'Medium';
+                  return acc;
+                }, 'Low');
+
+                const severityColor = 
+                  maxSeverity === 'Critical' ? '#ef4444' :
+                  maxSeverity === 'High' ? '#f59e0b' :
+                  maxSeverity === 'Medium' ? '#fbbf24' : '#60a5fa';
+
+                const cleanedImg = item.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+
+                return (
+                  <div 
+                    key={idx} 
+                    style={{ 
+                      background: 'var(--bg-card)', 
+                      border: '1px solid var(--border-color)', 
+                      borderRadius: 8, 
+                      padding: 16, 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: 12,
+                      boxShadow: 'var(--shadow-card)',
+                      transition: 'transform 0.2s, border-color 0.2s',
+                      cursor: 'default'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = severityColor;
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--border-color)';
+                      e.currentTarget.style.transform = 'none';
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ maxWidth: '75%' }}>
+                        <h4 style={{ margin: '0 0 4px 0', fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.packageName}
+                        </h4>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.imageRef}>
+                          in {cleanedImg}
+                        </div>
+                      </div>
+                      <span style={{ 
+                        fontSize: '0.65rem', 
+                        fontWeight: 700, 
+                        color: severityColor, 
+                        background: `${severityColor}15`, 
+                        border: `1px solid ${severityColor}33`,
+                        borderRadius: 4,
+                        padding: '2px 6px'
+                      }}>
+                        {maxSeverity} Max
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.15)', borderRadius: 6, padding: '8px 12px', fontSize: '0.8rem' }}>
+                      <div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>CURRENT VERSION</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{item.currentVersion}</div>
+                      </div>
+                      <span style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>→</span>
+                      <div>
+                        <div style={{ color: '#10b981', fontSize: '0.7rem', fontWeight: 600 }}>UPGRADE TO</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#10b981' }}>{item.fixedVersions.join(', ')}</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>
+                        Resolves {item.vulnerabilities.length} Vulnerabilit{item.vulnerabilities.length === 1 ? 'y' : 'ies'}:
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: '80px', overflowY: 'auto' }}>
+                        {item.vulnerabilities.map(v => (
+                          <a 
+                            key={v.id}
+                            href={`https://nvd.nist.gov/vuln/detail/${v.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ 
+                              fontSize: '0.7rem', 
+                              color: 'var(--accent-cyan)', 
+                              background: 'rgba(0,188,212,0.08)', 
+                              border: '1px solid rgba(0,188,212,0.2)',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              textDecoration: 'none',
+                              fontWeight: 500
+                            }}
+                          >
+                            {v.id} ({v.severity[0]})
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )
+      )}
+
+      {imageScannerActiveTab === 'drift' && (
+        <SbomDiffView 
+          runningImages={runningImages}
+          runningImagesScanResults={runningImagesScanResults}
+        />
       )}
 
       {imageScannerActiveTab === 'images' && (
