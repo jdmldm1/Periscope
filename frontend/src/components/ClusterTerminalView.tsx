@@ -64,10 +64,8 @@ export const ClusterTerminalView: React.FC = () => {
 
     socket.onopen = () => {
       setStatus('connected');
-      term.write('\r\n\x1b[1;36m=== Periscope Advanced Control Plane Terminal ===\x1b[0m\r\n');
-      term.write('\x1b[1;32mConnected successfully to server container. Ready for commands.\x1b[0m\r\n');
-      term.write('\x1b[38;5;244mAvailable CLIs: kubectl, helm, zarf, grype\x1b[0m\r\n\r\n');
-    };
+      term.write('\r\n\x1b[1;36m=== Terminal ===\x1b[0m\r\n');
+     };
 
     socket.onmessage = (event) => {
       if (typeof event.data === 'string') {
