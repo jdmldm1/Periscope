@@ -27,8 +27,8 @@ RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump && \
     chmod +x /usr/local/bin/helm && \
     curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin && \
     if [ "$CACHE_GRYPE_DB" = "true" ]; then \
-        grype db update && \
-        zstd -T0 -q --rm /root/.cache/grype/db/*/vulnerability.db; \
+        GRYPE_DB_CACHE_DIR=/app/.cache/grype grype db update && \
+        zstd -T0 -q --rm /app/.cache/grype/*/vulnerability.db; \
     fi
 
 COPY server.js ./

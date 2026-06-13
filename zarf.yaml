@@ -3,14 +3,14 @@ kind: ZarfPackageConfig
 metadata:
   name: periscope
   description: A Periscope web console for exploring and managing Kubernetes resources
-  version: 1.0.2
+  version: 1.0.3
 
 components:
   - name: periscope
     required: true
 
     images:
-      - ghcr.io/jdmldm1/periscope-kubernetes:1.0.2-connected
+      - ghcr.io/jdmldm1/periscope-kubernetes:1.0.3-connected
 
     charts:
       - name: periscope
@@ -19,3 +19,4 @@ components:
         localPath: ./charts/periscope
         valuesFiles:
           - ./charts/periscope/values.yaml
+          - ./charts/periscope/values-connected.yaml

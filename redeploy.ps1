@@ -14,11 +14,11 @@ Pop-Location
 
 function Build-Connected {
     Write-Host "Building Connected docker image..."
-    docker build --build-arg CACHE_GRYPE_DB=false -t ghcr.io/jdmldm1/periscope-kubernetes:1.0.2-connected .
+    docker build --build-arg CACHE_GRYPE_DB=false -t ghcr.io/jdmldm1/periscope-kubernetes:1.0.3-connected .
 
     Write-Host "Creating Connected Zarf package..."
-    if (Test-Path .\zarf-package-periscope-amd64-1.0.2.tar.zst) {
-        Remove-Item .\zarf-package-periscope-amd64-1.0.2.tar.zst -Force
+    if (Test-Path .\zarf-package-periscope-amd64-1.0.3.tar.zst) {
+        Remove-Item .\zarf-package-periscope-amd64-1.0.3.tar.zst -Force
     }
     # zarf.yaml is now Connected by default
     zarf package create --confirm
@@ -26,11 +26,11 @@ function Build-Connected {
 
 function Build-Airgap {
     Write-Host "Building Airgap docker image..."
-    docker build --build-arg CACHE_GRYPE_DB=true -t ghcr.io/jdmldm1/periscope-kubernetes:1.0.2 .
+    docker build --build-arg CACHE_GRYPE_DB=true -t ghcr.io/jdmldm1/periscope-kubernetes:1.0.3 .
 
     Write-Host "Creating Airgap Zarf package..."
-    if (Test-Path .\zarf-package-periscope-airgap-amd64-1.0.2.tar.zst) {
-        Remove-Item .\zarf-package-periscope-airgap-amd64-1.0.2.tar.zst -Force
+    if (Test-Path .\zarf-package-periscope-airgap-amd64-1.0.3.tar.zst) {
+        Remove-Item .\zarf-package-periscope-airgap-amd64-1.0.3.tar.zst -Force
     }
     
     # Temporarily swap manifests for Airgap
@@ -50,7 +50,7 @@ function Build-Airgap {
 if ($Mode -eq "Connected") {
     Build-Connected
     Write-Host "Deploying Connected Zarf package..."
-    zarf package deploy .\zarf-package-periscope-amd64-1.0.2.tar.zst --confirm
+    zarf package deploy .\zarf-package-periscope-amd64-1.0.3.tar.zst --confirm
     
     Write-Host "Restarting deployment..."
     kubectl rollout restart deployment periscope -n periscope
