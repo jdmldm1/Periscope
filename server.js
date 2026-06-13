@@ -1729,6 +1729,117 @@ function saveScannerConfig() {
     }
 }
 
+// Helper to extract SHA256 hash from image ID or reference
+function extractImageHash(imageID) {
+    if (!imageID) return null;
+    const match = imageID.match(/sha256:([a-fA-F0-9]{64})/);
+    return match ? match[1] : null;
+}
+
+// Helper to check if two image references are equivalent normalized
+function isImageMatch(ref1, ref2) {
+    if (!ref1 || !ref2) return false;
+    if (ref1 === ref2) return true;
+    
+    const clean = (r) => r.replace(/^docker-pullable:\/\//, '').split('@')[0];
+    const c1 = clean(ref1);
+    const c2 = clean(ref2);
+    
+    if (c1 === c2) return true;
+    if (c1.endsWith('/' + c2) || c2.endsWith('/' + c1)) return true;
+    return false;
+}
+
+// Helper to find image hash for a running imageRef
+async function getImageHashForRef(imageRef) {
+    try {
+        const pods = await k8sCoreApi.listPodForAllNamespaces();
+        for (const pod of pods.items) {
+            const statuses = [...(pod.status?.containerStatuses || []), ...(pod.status?.initContainerStatuses || [])];
+            for (const s of statuses) {
+                if (isImageMatch(s.image, imageRef) || isImageMatch(s.imageID, imageRef)) {
+                    const hash = extractImageHash(s.imageID);
+                    if (hash) return hash;
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('Failed to resolve image hash for ref:', imageRef, err.message);
+    }
+    return extractImageHash(imageRef);
+}
+
+// Helper to check if an SBOM is cached (by ref or hash)
+async function getCachedSbom(imageRef) {
+    if (sbomScanCache.has(imageRef)) {
+        return sbomScanCache.get(imageRef);
+    }
+    const hash = await getImageHashForRef(imageRef);
+    if (hash && sbomScanCache.has(`hash:${hash}`)) {
+        const cached = sbomScanCache.get(`hash:${hash}`);
+        sbomScanCache.set(imageRef, cached);
+        saveSbomCache();
+        return cached;
+    }
+    return null;
+}
+
+// Helper to check if vulnerabilities scan is cached (by ref or hash)
+async function getCachedVulns(imageRef) {
+    if (vulnsScanCache.has(imageRef)) {
+        return vulnsScanCache.get(imageRef);
+    }
+    const hash = await getImageHashForRef(imageRef);
+    if (hash && vulnsScanCache.has(`hash:${hash}`)) {
+        const cached = vulnsScanCache.get(`hash:${hash}`);
+        vulnsScanCache.set(imageRef, cached);
+        saveVulnsCache();
+        return cached;
+    }
+    return null;
+}
+
+async function getRunningImagesWithHashes() {
+    try {
+        const pods = await k8sCoreApi.listPodForAllNamespaces();
+        const refToHash = new Map();
+        const images = new Set();
+        pods.items.forEach(pod => {
+            const containers = [...(pod.spec?.containers || []), ...(pod.spec?.initContainers || [])];
+            containers.forEach(c => { 
+                if (c.image) images.add(c.image); 
+            });
+            const statuses = [...(pod.status?.containerStatuses || []), ...(pod.status?.initContainerStatuses || [])];
+            statuses.forEach(s => { 
+                if (s.image) {
+                    images.add(s.image);
+                    const hash = extractImageHash(s.imageID);
+                    if (hash) {
+                        refToHash.set(s.image, hash);
+                    }
+                }
+            });
+        });
+        
+        const imagesArray = Array.from(images);
+        imagesArray.forEach(img => {
+            if (!refToHash.has(img)) {
+                for (const [sImage, hash] of refToHash.entries()) {
+                    if (isImageMatch(sImage, img)) {
+                        refToHash.set(img, hash);
+                        break;
+                    }
+                }
+            }
+        });
+        
+        return { images: imagesArray, refToHash };
+    } catch (err) {
+        console.error('Error fetching running images with hashes:', err.message);
+        return { images: [], refToHash: new Map() };
+    }
+}
+
 // In-memory caches for scans
 const sbomScanCache = new Map();
 const vulnsScanCache = new Map();
@@ -1793,7 +1904,7 @@ function performSbomScan(imageRef) {
             .replace('localhost:31999', 'zarf-docker-registry.zarf.svc.cluster.local:5000');
 
         const runScan = () => {
-            exec(`zarf tools sbom scan "${targetRef}" -o json`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+            exec(`zarf tools sbom scan "${targetRef}" -o json`, { maxBuffer: 10 * 1024 * 1024 }, async (error, stdout, stderr) => {
                 if (error) {
                     const failRes = { error: error.message || stderr, failed: true };
                     sbomScanCache.set(imageRef, failRes);
@@ -1802,6 +1913,10 @@ function performSbomScan(imageRef) {
                 }
                 try {
                     const parsed = JSON.parse(stdout);
+                    const hash = await getImageHashForRef(imageRef);
+                    if (hash) {
+                        sbomScanCache.set(`hash:${hash}`, parsed);
+                    }
                     sbomScanCache.set(imageRef, parsed);
                     saveSbomCache();
                     resolve(parsed);
@@ -1857,7 +1972,7 @@ function performVulnsScan(imageRef) {
             if (!scanRef.startsWith('registry:')) {
                 scanRef = `registry:${scanRef}`;
             }
-            exec(`grype "${scanRef}" -o json`, execOptions, (error, stdout, stderr) => {
+            exec(`grype "${scanRef}" -o json`, execOptions, async (error, stdout, stderr) => {
                 if (error) {
                     const failRes = { error: error.message || stderr, failed: true };
                     vulnsScanCache.set(imageRef, failRes);
@@ -1866,6 +1981,10 @@ function performVulnsScan(imageRef) {
                 }
                 try {
                     const parsed = JSON.parse(stdout);
+                    const hash = await getImageHashForRef(imageRef);
+                    if (hash) {
+                        vulnsScanCache.set(`hash:${hash}`, parsed);
+                    }
                     vulnsScanCache.set(imageRef, parsed);
                     saveVulnsCache();
                     resolve(parsed);
@@ -1899,15 +2018,15 @@ app.post('/api/zarf/sbom/scan', async (req, res) => {
     const { imageRef } = req.body;
     if (!imageRef) return res.status(400).json({ error: 'imageRef is required' });
     
-    if (sbomScanCache.has(imageRef)) {
-        const cached = sbomScanCache.get(imageRef);
-        if (cached && (cached.failed || cached.error)) {
-            return res.status(500).json(cached);
-        }
-        return res.json(cached);
-    }
-    
     try {
+        const cached = await getCachedSbom(imageRef);
+        if (cached) {
+            if (cached.failed || cached.error) {
+                return res.status(500).json(cached);
+            }
+            return res.json(cached);
+        }
+        
         const result = await performSbomScan(imageRef);
         res.json(result);
     } catch (err) {
@@ -1920,15 +2039,15 @@ app.post('/api/zarf/sbom/vulnerabilities', async (req, res) => {
     const { imageRef } = req.body;
     if (!imageRef) return res.status(400).json({ error: 'imageRef is required' });
     
-    if (vulnsScanCache.has(imageRef)) {
-        const cached = vulnsScanCache.get(imageRef);
-        if (cached && (cached.failed || cached.error)) {
-            return res.status(500).json(cached);
-        }
-        return res.json(cached);
-    }
-    
     try {
+        const cached = await getCachedVulns(imageRef);
+        if (cached) {
+            if (cached.failed || cached.error) {
+                return res.status(500).json(cached);
+            }
+            return res.json(cached);
+        }
+        
         const result = await performVulnsScan(imageRef);
         res.json(result);
     } catch (err) {
@@ -1937,29 +2056,43 @@ app.post('/api/zarf/sbom/vulnerabilities', async (req, res) => {
 });
 
 // Get cache/scan results for all images
-app.get('/api/zarf/sbom/scans', (req, res) => {
+app.get('/api/zarf/sbom/scans', async (req, res) => {
     const results = {};
     const allImages = new Set([
         ...sbomScanCache.keys(),
         ...vulnsScanCache.keys()
     ]);
     
-    allImages.forEach(img => {
-        const sbom = sbomScanCache.get(img);
-        const vulns = vulnsScanCache.get(img);
+    try {
+        const { images, refToHash } = await getRunningImagesWithHashes();
+        images.forEach(img => allImages.add(img));
         
-        const sbomFailed = sbom && (sbom.failed || sbom.error);
-        const vulnsFailed = vulns && (vulns.failed || vulns.error);
-        
-        results[img] = {
-            sbom: sbomFailed ? null : sbom,
-            vulnerabilities: vulnsFailed ? null : vulns,
-            status: (sbom && vulns && !sbomFailed && !vulnsFailed) ? 'success' : 
-                    (sbomFailed || vulnsFailed) ? 'failed' : 'scanning',
-            error: (sbomFailed ? (sbom.error || 'SBOM scan failed. ') : '') + 
-                   (vulnsFailed ? (vulns.error || 'Vulnerabilities scan failed.') : '')
-        };
-    });
+        allImages.forEach(img => {
+            if (img.startsWith('hash:')) return;
+            
+            const hash = refToHash.get(img);
+            
+            let sbom = sbomScanCache.get(img);
+            if (!sbom && hash) sbom = sbomScanCache.get(`hash:${hash}`);
+            
+            let vulns = vulnsScanCache.get(img);
+            if (!vulns && hash) vulns = vulnsScanCache.get(`hash:${hash}`);
+            
+            const sbomFailed = sbom && (sbom.failed || sbom.error);
+            const vulnsFailed = vulns && (vulns.failed || vulns.error);
+            
+            results[img] = {
+                sbom: sbomFailed ? null : sbom,
+                vulnerabilities: vulnsFailed ? null : vulns,
+                status: (sbom && vulns && !sbomFailed && !vulnsFailed) ? 'success' : 
+                        (sbomFailed || vulnsFailed) ? 'failed' : 'scanning',
+                error: (sbomFailed ? (sbom.error || 'SBOM scan failed. ') : '') + 
+                       (vulnsFailed ? (vulns.error || 'Vulnerabilities scan failed.') : '')
+            };
+        });
+    } catch (err) {
+        console.error('Error fetching scans list:', err.message);
+    }
     
     // Explicitly add currently scanning image
     if (currentlyScanningImage) {
@@ -1998,23 +2131,6 @@ app.post('/api/security/scanner/config', (req, res) => {
 let currentlyScanningImage = null;
 let isBackgroundScanning = false;
 
-async function getUniqueRunningImages() {
-    try {
-        const pods = await k8sCoreApi.listPodForAllNamespaces();
-        const images = new Set();
-        pods.items.forEach(pod => {
-            const containers = [...(pod.spec?.containers || []), ...(pod.spec?.initContainers || [])];
-            containers.forEach(c => { if (c.image) images.add(c.image); });
-            const statuses = [...(pod.status?.containerStatuses || []), ...(pod.status?.initContainerStatuses || [])];
-            statuses.forEach(s => { if (s.image) images.add(s.image); });
-        });
-        return Array.from(images);
-    } catch (err) {
-        console.error('Error fetching running images for background scanning:', err.message);
-        return [];
-    }
-}
-
 async function backgroundScanLoop() {
     if (!enableAutoScan) {
         setTimeout(backgroundScanLoop, 15000);
@@ -2023,27 +2139,45 @@ async function backgroundScanLoop() {
     if (isBackgroundScanning) return;
     isBackgroundScanning = true;
     try {
-        const images = await getUniqueRunningImages();
+        const { images, refToHash } = await getRunningImagesWithHashes();
         // Find the first image that is not in either cache
-        const nextImage = images.find(img => !sbomScanCache.has(img) || !vulnsScanCache.has(img));
+        const nextImage = images.find(img => {
+            const hash = refToHash.get(img);
+            const hasSbom = sbomScanCache.has(img) || (hash && sbomScanCache.has(`hash:${hash}`));
+            const hasVulns = vulnsScanCache.has(img) || (hash && vulnsScanCache.has(`hash:${hash}`));
+            return !hasSbom || !hasVulns;
+        });
+        
         if (nextImage) {
             currentlyScanningImage = nextImage;
             console.log(`[Background Scanner] Starting background scans for: ${nextImage}`);
             
-            if (!sbomScanCache.has(nextImage)) {
+            const hash = refToHash.get(nextImage);
+            const hasSbom = sbomScanCache.has(nextImage) || (hash && sbomScanCache.has(`hash:${hash}`));
+            const hasVulns = vulnsScanCache.has(nextImage) || (hash && vulnsScanCache.has(`hash:${hash}`));
+            
+            if (!hasSbom) {
                 try {
                     await performSbomScan(nextImage);
                 } catch (e) {
                     console.error(`[Background Scanner] SBOM scan failed for ${nextImage}:`, e.message);
                 }
+            } else if (hash && sbomScanCache.has(`hash:${hash}`) && !sbomScanCache.has(nextImage)) {
+                // If it exists under hash but not under nextImage tag name, link them
+                sbomScanCache.set(nextImage, sbomScanCache.get(`hash:${hash}`));
+                saveSbomCache();
             }
             
-            if (!vulnsScanCache.has(nextImage)) {
+            if (!hasVulns) {
                 try {
                     await performVulnsScan(nextImage);
                 } catch (e) {
                     console.error(`[Background Scanner] Vulnerabilities scan failed for ${nextImage}:`, e.message);
                 }
+            } else if (hash && vulnsScanCache.has(`hash:${hash}`) && !vulnsScanCache.has(nextImage)) {
+                // If it exists under hash but not under nextImage tag name, link them
+                vulnsScanCache.set(nextImage, vulnsScanCache.get(`hash:${hash}`));
+                saveVulnsCache();
             }
             
             console.log(`[Background Scanner] Finished background scans for: ${nextImage}`);
@@ -2948,7 +3082,7 @@ function parseKubescapeReport(data) {
                 name: control.name || id,
                 severity,
                 description: control.description || `Security compliance check for control ${id}.`,
-                remediation: control.remediation || `Follow Kubernetes security best practices to remediate control ${id}.`,
+                remediation: control.remediation || `Follow Kubernetes security best practices to remediate control ${id} found at the link below`,
                 resources: violatingResources
             });
         }

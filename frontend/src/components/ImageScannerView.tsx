@@ -620,7 +620,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                       </td>
                       <td style={{ padding: '10px 14px' }}>
                         <a 
-                          href={`https://nvd.nist.gov/vuln/detail/${vuln.id}`} 
+                          href={`https://osv.dev/vulnerability/${vuln.id}`} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}
@@ -797,7 +797,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                         {item.vulnerabilities.map(v => (
                           <a 
                             key={v.id}
-                            href={`https://nvd.nist.gov/vuln/detail/${v.id}`}
+                            href={`https://osv.dev/vulnerability/${v.id}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{ 

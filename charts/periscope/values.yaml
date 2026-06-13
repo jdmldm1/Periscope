@@ -29,3 +29,10 @@ resources: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 5Gi
+

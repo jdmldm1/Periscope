@@ -229,6 +229,24 @@ export const KubescapeView: React.FC<KubescapeViewProps> = ({
                         <div style={{ background: 'rgba(16, 185, 129, 0.03)', border: '1px solid rgba(16, 185, 129, 0.15)', borderRadius: 6, padding: '12px 16px' }}>
                           <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#10b981', fontWeight: 600, letterSpacing: '0.5px', marginBottom: 4 }}>Remediation Recommendation</div>
                           <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.5, fontFamily: 'var(--font-sans)' }}>{c.remediation}</div>
+                          {c.id && (
+                            <div style={{ marginTop: 8 }}>
+                              <a 
+                                href={`https://kubescape.io/docs/controls/${c.id.toLowerCase()}/#severity`}
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                style={{ 
+                                  color: '#10b981', 
+                                  textDecoration: 'underline', 
+                                  fontSize: '0.85rem',
+                                  display: 'inline-block',
+                                  wordBreak: 'break-all'
+                                }}
+                              >
+                                https://kubescape.io/docs/controls/{c.id.toLowerCase()}/#severity
+                              </a>
+                            </div>
+                          )}
                         </div>
 
                         <div>
