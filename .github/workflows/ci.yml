@@ -73,15 +73,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image to OCI
+      - name: Build and push Airgap Docker image to OCI
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
+          build-args: CACHE_GRYPE_DB=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest
-            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.0
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.1
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}
+
+      - name: Build and push Connected Docker image to OCI
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          build-args: CACHE_GRYPE_DB=false
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest-connected
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.1-connected
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}-connected
 
   helm-package-oci:
     needs: build-and-push-oci
@@ -152,13 +164,26 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
           grype version
 
-      - name: Create Zarf Package and Export SBOMs
+      - name: Create Zarf Packages and Export SBOMs
         run: |
           mkdir -p sbom-output
           # Use sed to replace the default repository with the lowercase repo name
           # Zarf's image parser is strict and doesn't like template syntax in the images list
           sed -i "s|jdmldm1/periscope-kubernetes|${{ env.REPO_LOWER }}|g" zarf.yaml
+          sed -i "s|jdmldm1/periscope-kubernetes|${{ env.REPO_LOWER }}|g" zarf-connected.yaml
+          
+          # 1. Build Airgap Zarf Package
           zarf package create --confirm --sbom-out ./sbom-output
+          
+          # 2. Build Connected Zarf Package
+          mv zarf.yaml zarf-airgap.tmp
+          mv zarf-connected.yaml zarf.yaml
+          zarf package create --confirm --sbom-out ./sbom-output
+          
+          # Restore files
+          mv zarf.yaml zarf-connected.yaml
+          mv zarf-airgap.tmp zarf.yaml
+          
           echo "Contents of sbom-output:"
           ls -R sbom-output
 
@@ -194,6 +219,9 @@ jobs:
             $SBOM_FILE:application/vnd.syft+json \
             vulnerability-report.json:application/json
 
-      - name: Publish Zarf Package to OCI Registry
+      - name: Publish Zarf Packages to OCI Registry
         run: |
-          zarf package publish zarf-package-periscope-*.tar.zst oci://${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages
+          for pkg in zarf-package-periscope-*.tar.zst; do
+            echo "Publishing package: $pkg"
+            zarf package publish "$pkg" oci://${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages
+          done
