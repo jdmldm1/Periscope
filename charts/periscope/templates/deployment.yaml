@@ -32,3 +32,15 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: cache-volume
+              mountPath: /app/.cache
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: cache-volume
+          persistentVolumeClaim:
+            claimName: {{ include "periscope.fullname" . }}-cache
+      {{- end }}
+

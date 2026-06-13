@@ -370,7 +370,7 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
                       <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                         <td style={{ padding: '10px 14px' }}>
                           <a 
-                            href={`https://nvd.nist.gov/vuln/detail/${v.id}`} 
+                            href={`https://osv.dev/vulnerability/${v.id}`} 
                             target="_blank" 
                             rel="noopener noreferrer" 
                             style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}
