@@ -3447,8 +3447,8 @@ function App() {
                       )}
 
                       {activeTab !== 'nodes' && activeTab !== 'crds' && activeTab !== 'events' && (
-                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setModal({ type: 'events', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid }); }}>
-                          <Info size={12} /> Describe
+                        <button className="btn btn-sm" title="View Events" onClick={(e) => { e.stopPropagation(); setModal({ type: 'events', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid }); }}>
+                          <Info size={12} /> Events
                         </button>
                       )}
                       

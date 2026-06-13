@@ -9,6 +9,8 @@ RUN cd frontend && npm run build
 
 FROM node:22-alpine
 
+ARG CACHE_GRYPE_DB=true
+
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --production && npm cache clean --force
@@ -24,8 +26,10 @@ RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump && \
     printf '#!/bin/sh\nexec zarf tools helm "$@"\n' > /usr/local/bin/helm && \
     chmod +x /usr/local/bin/helm && \
     curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin && \
-    grype db update && \
-    zstd -T0 -q --rm /root/.cache/grype/db/*/vulnerability.db
+    if [ "$CACHE_GRYPE_DB" = "true" ]; then \
+        grype db update && \
+        zstd -T0 -q --rm /root/.cache/grype/db/*/vulnerability.db; \
+    fi
 
 COPY server.js ./
 COPY --from=builder /app/frontend/dist ./frontend/dist
