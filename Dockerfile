@@ -13,8 +13,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production && npm cache clean --force
 
-# Install curl/ca-certificates, Zarf v0.75.1, kubectl, and zstd
-RUN apk add --no-cache curl ca-certificates zstd && \
+# Install curl/ca-certificates, Zarf v0.75.1, kubectl, zstd, util-linux (for PTY script tool), and tcpdump (for network sniffer)
+RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then ZARF_ARCH="amd64"; else ZARF_ARCH="arm64"; fi && \
     curl -sL "https://github.com/zarf-dev/zarf/releases/download/v0.75.1/zarf_v0.75.1_Linux_${ZARF_ARCH}" -o /usr/local/bin/zarf && \

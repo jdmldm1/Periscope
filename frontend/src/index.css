@@ -478,9 +478,10 @@ body {
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  width: 100%;
-  max-width: 900px;
-  max-height: 90vh;
+  width: 92%;
+  max-width: 1350px;
+  height: 86vh;
+  max-height: 88vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.8), 0 0 10px rgba(59, 130, 246, 0.1);

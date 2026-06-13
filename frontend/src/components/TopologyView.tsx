@@ -584,7 +584,7 @@ export const TopologyView: React.FC<TopologyViewProps> = ({
                 className={`topology-card ${isActive ? 'active' : ''}`}
                 onMouseEnter={() => setHoveredTopologyItem({ type: 'service', name: svc.metadata.name, item: svc })}
                 onMouseLeave={() => setHoveredTopologyItem(null)}
-                onClick={() => setModal({ type: 'yaml', name: svc.metadata.name, namespace: selectedNs, kind: 'services', uid: svc.metadata.uid })}
+                onClick={() => setModal({ type: 'yaml', name: svc.metadata.name, namespace: svc.metadata.namespace || 'default', kind: 'services', uid: svc.metadata.uid })}
               >
                 <div className="topology-card-title">{svc.metadata.name}</div>
                 <div className="topology-card-subtitle">
@@ -609,7 +609,7 @@ export const TopologyView: React.FC<TopologyViewProps> = ({
                 className={`topology-card ${isActive ? 'active' : ''}`}
                 onMouseEnter={() => setHoveredTopologyItem({ type: 'deployment', name: dep.metadata.name, item: dep })}
                 onMouseLeave={() => setHoveredTopologyItem(null)}
-                onClick={() => setModal({ type: 'yaml', name: dep.metadata.name, namespace: selectedNs, kind: 'deployments', uid: dep.metadata.uid })}
+                onClick={() => setModal({ type: 'yaml', name: dep.metadata.name, namespace: dep.metadata.namespace || 'default', kind: 'deployments', uid: dep.metadata.uid })}
               >
                 <div className="topology-card-title">{dep.metadata.name}</div>
                 <div className="topology-card-subtitle">
@@ -640,7 +640,7 @@ export const TopologyView: React.FC<TopologyViewProps> = ({
                 className={`topology-card ${isActive ? 'active' : ''}`}
                 onMouseEnter={() => setHoveredTopologyItem({ type: 'pod', name: pod.metadata.name, item: pod })}
                 onMouseLeave={() => setHoveredTopologyItem(null)}
-                onClick={() => setModal({ type: 'yaml', name: pod.metadata.name, namespace: selectedNs, kind: 'pods', uid: pod.metadata.uid })}
+                onClick={() => setModal({ type: 'yaml', name: pod.metadata.name, namespace: pod.metadata.namespace || 'default', kind: 'pods', uid: pod.metadata.uid })}
               >
                 <div className="topology-card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pod.metadata.name}</span>

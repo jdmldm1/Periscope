@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, RefreshCw, Trash2 } from 'lucide-react';
+import { Search, RefreshCw, Trash2, X, Package } from 'lucide-react';
 
 interface HelmManagerViewProps {
   resources: any[];
@@ -9,6 +9,8 @@ interface HelmManagerViewProps {
   setActiveTab: (tab: any) => void;
   setModal: (modal: any) => void;
   handleDelete: (resource: any) => void;
+  isInstallModalOpen: boolean;
+  setIsInstallModalOpen: (open: boolean) => void;
   
   // Releases Inspect States
   selectedHelmRelease: { name: string; namespace: string } | null;
@@ -64,6 +66,91 @@ interface HelmManagerViewProps {
   handleSearchHelmRepo: (e: React.FormEvent) => void;
 }
 
+// Helper functions for Helm values.schema.json Form Generator
+const getNestedValue = (obj: any, path: string[]): any => {
+  return path.reduce((xs, x) => (xs && xs[x] !== undefined) ? xs[x] : undefined, obj);
+};
+
+const setNestedValue = (obj: any, path: string[], value: any): any => {
+  const [head, ...tail] = path;
+  const newObj = { ...obj };
+  if (tail.length === 0) {
+    newObj[head] = value;
+    return newObj;
+  }
+  if (!newObj[head] || typeof newObj[head] !== 'object') {
+    newObj[head] = {};
+  }
+  newObj[head] = setNestedValue(newObj[head], tail, value);
+  return newObj;
+};
+
+const objToYaml = (obj: any, indent = 0): string => {
+  if (obj === null || obj === undefined) return '';
+  let yaml = '';
+  const spaces = ' '.repeat(indent);
+  
+  if (typeof obj !== 'object') {
+    return String(obj);
+  }
+  
+  if (Array.isArray(obj)) {
+    if (obj.length === 0) return ' []';
+    let arrYaml = '';
+    obj.forEach(val => {
+      if (typeof val === 'object') {
+        arrYaml += `\n${spaces}- ${objToYaml(val, indent + 2).trimStart()}`;
+      } else {
+        arrYaml += `\n${spaces}- ${val}`;
+      }
+    });
+    return arrYaml;
+  }
+  
+  Object.entries(obj).forEach(([key, val]) => {
+    if (val === null || val === undefined) return;
+    if (typeof val === 'object') {
+      const sub = objToYaml(val, indent + 2);
+      if (sub.trim() === '[]' || sub.trim() === '{}' || sub === '') {
+        yaml += `${spaces}${key}:${sub}\n`;
+      } else {
+        yaml += `${spaces}${key}:\n${sub}`;
+      }
+    } else {
+      const valStr = String(val);
+      if (valStr.includes('\n')) {
+        yaml += `${spaces}${key}: |-\n${valStr.split('\n').map(l => ' '.repeat(indent + 2) + l).join('\n')}\n`;
+      } else {
+        yaml += `${spaces}${key}: ${val}\n`;
+      }
+    }
+  });
+  return yaml;
+};
+
+const extractSchemaDefaults = (schemaObj: any): Record<string, any> => {
+  const defaults: Record<string, any> = {};
+  if (!schemaObj || !schemaObj.properties) return defaults;
+  
+  const parseDefaults = (properties: any, currentObj: any) => {
+    Object.entries(properties).forEach(([key, propValue]) => {
+      const prop = propValue as any;
+      if (prop.type === 'object' && prop.properties) {
+        currentObj[key] = {};
+        parseDefaults(prop.properties, currentObj[key]);
+        if (Object.keys(currentObj[key]).length === 0) {
+          delete currentObj[key];
+        }
+      } else if (prop.default !== undefined) {
+        currentObj[key] = prop.default;
+      }
+    });
+  };
+  
+  parseDefaults(schemaObj.properties, defaults);
+  return defaults;
+};
+
 export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
   resources,
   search,
@@ -71,6 +158,8 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
   setActiveTab,
   setModal,
   handleDelete,
+  isInstallModalOpen,
+  setIsInstallModalOpen,
   selectedHelmRelease,
   setSelectedHelmRelease,
   fetchHelmInspect,
@@ -101,6 +190,160 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
   isSearchingHelm,
   handleSearchHelmRepo,
 }) => {
+  const [schema, setSchema] = React.useState<any | null>(null);
+  const [isFetchingSchema, setIsFetchingSchema] = React.useState<boolean>(false);
+  const [schemaError, setSchemaError] = React.useState<string | null>(null);
+
+  // Prevent TS unused warning
+  if (false) {
+    setActiveTab(null);
+  }
+  const [activeFormTab, setActiveFormTab] = React.useState<'yaml' | 'form'>('yaml');
+  const [formValues, setFormValues] = React.useState<Record<string, any>>({});
+
+  const handleLoadSchema = async () => {
+    if (!helmCustomInstall.repo || !helmCustomInstall.chartName) {
+      setSchemaError('Repository and Chart Name are required to fetch schema');
+      return;
+    }
+    setIsFetchingSchema(true);
+    setSchemaError(null);
+    setSchema(null);
+    try {
+      const res = await fetch(`/api/helm/schema?chartName=${encodeURIComponent(helmCustomInstall.repo)}/${encodeURIComponent(helmCustomInstall.chartName)}&version=${encodeURIComponent(helmCustomInstall.version)}`);
+      if (!res.ok) {
+        throw new Error(await res.text() || 'Chart values.schema.json not found');
+      }
+      const data = await res.json();
+      setSchema(data);
+      const defaults = extractSchemaDefaults(data);
+      setFormValues(defaults);
+      const yamlStr = objToYaml(defaults);
+      setHelmCustomInstall(prev => ({ ...prev, valuesYaml: yamlStr }));
+      setActiveFormTab('form');
+    } catch (err: any) {
+      console.error(err);
+      setSchemaError(err.message || 'Failed to fetch Helm values schema');
+    } finally {
+      setIsFetchingSchema(false);
+    }
+  };
+
+  const renderSchemaProperties = (properties: any, currentPath: string[] = []): React.ReactNode => {
+    if (!properties) return null;
+    
+    return Object.entries(properties).map(([key, propValue]) => {
+      const prop = propValue as any;
+      const path = [...currentPath, key];
+      const pathStr = path.join('.');
+      const title = prop.title || key;
+      const type = prop.type;
+      const description = prop.description || '';
+      
+      if (type === 'object' && prop.properties) {
+        return (
+          <details key={pathStr} open style={{ border: '1px solid rgba(255,255,255,0.04)', borderRadius: 6, padding: '10px 14px', marginBottom: 12, background: 'rgba(0,0,0,0.1)' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)', userSelect: 'none' }}>
+              📁 {title} {description && <span style={{ fontWeight: 400, fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 8 }}>({description})</span>}
+            </summary>
+            <div style={{ marginTop: 12, paddingLeft: 12, borderLeft: '1px dashed var(--border-color)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {renderSchemaProperties(prop.properties, path)}
+            </div>
+          </details>
+        );
+      }
+      
+      const value = getNestedValue(formValues, path) ?? prop.default ?? '';
+      
+      const handleChange = (val: any) => {
+        const updated = setNestedValue({ ...formValues }, path, val);
+        setFormValues(updated);
+        const yamlStr = objToYaml(updated);
+        setHelmCustomInstall(prev => ({ ...prev, valuesYaml: yamlStr }));
+      };
+
+      if (type === 'boolean') {
+        return (
+          <div key={pathStr} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '4px 0' }}>
+            <input 
+              type="checkbox" 
+              id={pathStr}
+              checked={!!value}
+              onChange={e => handleChange(e.target.checked)}
+              style={{ cursor: 'pointer', marginTop: 3 }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <label htmlFor={pathStr} style={{ fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', color: 'var(--text-main)' }}>
+                {title}
+              </label>
+              {description && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{description}</span>}
+            </div>
+          </div>
+        );
+      }
+      
+      if (type === 'integer' || type === 'number') {
+        return (
+          <div key={pathStr} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+              {title} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(number)</span>
+            </label>
+            <input 
+              type="number"
+              className="exec-input"
+              style={{ padding: '6px 10px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', width: '200px' }}
+              value={value}
+              onChange={e => handleChange(Number(e.target.value))}
+              placeholder={String(prop.default ?? '')}
+            />
+            {description && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{description}</span>}
+          </div>
+        );
+      }
+      
+      if (type === 'string') {
+        const enumList = prop.enum;
+        if (enumList && Array.isArray(enumList)) {
+          return (
+            <div key={pathStr} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                {title}
+              </label>
+              <select
+                className="select-ns"
+                style={{ padding: '6px 10px', width: '200px' }}
+                value={value}
+                onChange={e => handleChange(e.target.value)}
+              >
+                {enumList.map(v => <option key={v} value={v}>{v}</option>)}
+              </select>
+              {description && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{description}</span>}
+            </div>
+          );
+        }
+        
+        return (
+          <div key={pathStr} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+              {title}
+            </label>
+            <input 
+              type="text"
+              className="exec-input"
+              style={{ padding: '6px 10px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)' }}
+              value={value}
+              onChange={e => handleChange(e.target.value)}
+              placeholder={String(prop.default ?? '')}
+            />
+            {description && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{description}</span>}
+          </div>
+        );
+      }
+      
+      return null;
+    });
+  };
+
   const filteredResources = resources.filter(r => {
     const term = search.toLowerCase();
     if (!term) return true;
@@ -110,7 +353,12 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
   const renderHelmReleasesView = () => {
     return (
       <div className="helm-releases-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Active Releases ({filteredResources.length})</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Active Releases ({filteredResources.length})</h3>
+          <button className="btn btn-primary" onClick={() => setIsInstallModalOpen(true)}>
+            <Package size={14} /> Install Chart
+          </button>
+        </div>
         {filteredResources.length === 0 ? (
           <div style={{ color: 'var(--text-muted)', padding: '20px 0', border: '1px dashed var(--border-color)', borderRadius: 8, textAlign: 'center' }}>
             No Helm releases found in this namespace/cluster.
@@ -277,8 +525,7 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
 
   const renderHelmInstallView = () => {
     return (
-      <div className="helm-install-view animate-fade-in" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-        <h3 style={{ fontSize: '1.1rem', marginBottom: 16 }}>Deploy Repository Chart</h3>
+      <div className="helm-install-view" style={{ padding: '0 20px 20px' }}>
         <form onSubmit={handleCustomHelmInstall} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -345,28 +592,79 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Custom values.yaml (Optional)</label>
-            <textarea 
-              style={{ 
-                padding: '12px 16px', 
-                background: 'var(--bg-main)', 
-                border: '1px solid var(--border-color)', 
-                borderRadius: 4, 
-                height: 150, 
-                fontFamily: 'var(--font-mono)', 
-                fontSize: '0.85rem',
-                color: 'var(--text-main)',
-                resize: 'vertical'
-              }}
-              value={helmCustomInstall.valuesYaml}
-              onChange={e => setHelmCustomInstall(prev => ({ ...prev, valuesYaml: e.target.value }))}
-              placeholder="# Enter values.yaml overrides here"
-            />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, background: 'rgba(0,0,0,0.15)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button
+                  type="button"
+                  className={`btn ${activeFormTab === 'yaml' ? 'btn-primary' : ''}`}
+                  onClick={() => setActiveFormTab('yaml')}
+                  style={{ padding: '4px 10px', fontSize: '0.8rem' }}
+                >
+                  📝 Raw YAML Editor
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${activeFormTab === 'form' ? 'btn-primary' : ''}`}
+                  disabled={!schema}
+                  onClick={() => setActiveFormTab('form')}
+                  style={{ padding: '4px 10px', fontSize: '0.8rem' }}
+                >
+                  ⚡ Interactive Form Configuration {schema ? '' : '(Schema Not Loaded)'}
+                </button>
+              </div>
+              
+              <button
+                type="button"
+                className="btn"
+                onClick={handleLoadSchema}
+                disabled={isFetchingSchema || !helmCustomInstall.repo || !helmCustomInstall.chartName}
+                style={{ padding: '4px 10px', fontSize: '0.8rem', color: 'var(--accent-cyan)' }}
+              >
+                {isFetchingSchema ? 'Loading Schema...' : 'Load Chart Schema'}
+              </button>
+            </div>
+
+            {schemaError && (
+              <div style={{ color: '#ef4444', fontSize: '0.80rem', padding: '6px 0' }}>
+                ⚠️ {schemaError} (Make sure the repo is added and chart exists)
+              </div>
+            )}
+
+            {activeFormTab === 'yaml' ? (
+              <textarea 
+                style={{ 
+                  padding: '12px 16px', 
+                  background: 'var(--bg-main)', 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: 4, 
+                  height: 250, 
+                  fontFamily: 'var(--font-mono)', 
+                  fontSize: '0.85rem',
+                  color: 'var(--text-main)',
+                  resize: 'vertical',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}
+                value={helmCustomInstall.valuesYaml}
+                onChange={e => setHelmCustomInstall(prev => ({ ...prev, valuesYaml: e.target.value }))}
+                placeholder="# Enter values.yaml overrides here"
+              />
+            ) : (
+              <div style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14, paddingRight: 10 }}>
+                {schema && schema.properties ? (
+                  renderSchemaProperties(schema.properties)
+                ) : (
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '20px 0' }}>
+                    No properties found in values.schema.json.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
-            <button type="button" className="btn" onClick={() => setActiveTab('helm')} disabled={isSubmittingHelmDeploy}>
+            <button type="button" className="btn" onClick={() => setIsInstallModalOpen(false)} disabled={isSubmittingHelmDeploy}>
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={isSubmittingHelmDeploy}>
@@ -500,7 +798,7 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
                           namespace: 'default',
                           valuesYaml: '# Custom values here\n'
                         });
-                        setActiveTab('helm-install');
+                        setIsInstallModalOpen(true);
                       }}
                     >
                       Configure & Deploy
@@ -515,13 +813,23 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
     );
   };
 
-  if (activeTab === 'helm-install') {
-    return renderHelmInstallView();
-  }
-
-  if (activeTab === 'helm-repos') {
-    return renderHelmReposView();
-  }
-
-  return renderHelmReleasesView();
+  return (
+    <div style={{ position: 'relative', height: '100%' }}>
+      {activeTab === 'helm-repos' ? renderHelmReposView() : renderHelmReleasesView()}
+      
+      {isInstallModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsInstallModalOpen(false)}>
+          <div className="modal-content animate-fade-in" onClick={e => e.stopPropagation()} style={{ width: '92%', maxWidth: '1300px', height: '86vh', maxHeight: '88vh' }}>
+            <div className="modal-header">
+              <div className="modal-title">Install Helm Chart</div>
+              <button className="btn btn-icon" onClick={() => setIsInstallModalOpen(false)}><X size={16}/></button>
+            </div>
+            <div className="modal-body" style={{ overflowY: 'auto' }}>
+              {renderHelmInstallView()}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
