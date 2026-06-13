@@ -99,6 +99,15 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
       }
     });
 
+    // Handle standard browser paste (Ctrl+V)
+    const handlePaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text');
+      if (text && socket.readyState === WebSocket.OPEN) {
+        socket.send(text);
+      }
+    };
+    terminalRef.current?.addEventListener('paste', handlePaste);
+
     // Resize listener
     const handleResize = () => {
       try {
@@ -121,6 +130,7 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
     // Cleanup on unmount
     return () => {
       window.removeEventListener('resize', handleResize);
+      terminalRef.current?.removeEventListener('paste', handlePaste);
       dataDisposable.dispose();
       term.dispose();
       if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {

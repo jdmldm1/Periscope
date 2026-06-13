@@ -81,7 +81,7 @@ jobs:
           build-args: CACHE_GRYPE_DB=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest
-            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.1
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.2
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}
 
       - name: Build and push Connected Docker image to OCI
@@ -92,7 +92,7 @@ jobs:
           build-args: CACHE_GRYPE_DB=false
           tags: |
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest-connected
-            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.1-connected
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.2-connected
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}-connected
 
   helm-package-oci:
@@ -170,19 +170,19 @@ jobs:
           # Use sed to replace the default repository with the lowercase repo name
           # Zarf's image parser is strict and doesn't like template syntax in the images list
           sed -i "s|jdmldm1/periscope-kubernetes|${{ env.REPO_LOWER }}|g" zarf.yaml
-          sed -i "s|jdmldm1/periscope-kubernetes|${{ env.REPO_LOWER }}|g" zarf-connected.yaml
+          sed -i "s|jdmldm1/periscope-kubernetes|${{ env.REPO_LOWER }}|g" zarf-airgap.yaml
           
-          # 1. Build Airgap Zarf Package
+          # 1. Build Connected Zarf Package (Default)
           zarf package create --confirm --sbom-out ./sbom-output
           
-          # 2. Build Connected Zarf Package
-          mv zarf.yaml zarf-airgap.tmp
-          mv zarf-connected.yaml zarf.yaml
+          # 2. Build Airgap Zarf Package
+          mv zarf.yaml zarf-connected.tmp
+          mv zarf-airgap.yaml zarf.yaml
           zarf package create --confirm --sbom-out ./sbom-output
           
           # Restore files
-          mv zarf.yaml zarf-connected.yaml
-          mv zarf-airgap.tmp zarf.yaml
+          mv zarf.yaml zarf-airgap.yaml
+          mv zarf-connected.tmp zarf.yaml
           
           echo "Contents of sbom-output:"
           ls -R sbom-output
@@ -215,7 +215,7 @@ jobs:
             echo "Error: No SBOM file to push!"
             exit 1
           fi
-          oras push ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages/periscope-sbom:1.0.0 \
+          oras push ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages/periscope-sbom:1.0.2 \
             $SBOM_FILE:application/vnd.syft+json \
             vulnerability-report.json:application/json
 

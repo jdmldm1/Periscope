@@ -3,4 +3,4 @@ name: periscope
 description: A badass web-based tool for exploring and managing Kubernetes resources.
 type: application
 version: 0.1.0
-appVersion: "1.0.0"
+appVersion: "1.0.2"

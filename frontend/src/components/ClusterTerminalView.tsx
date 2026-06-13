@@ -101,6 +101,16 @@ export const ClusterTerminalView: React.FC = () => {
       }
     });
 
+    // Handle standard browser paste (Ctrl+V)
+    const handlePaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text');
+      if (text && socket.readyState === WebSocket.OPEN) {
+        // Send the pasted text to the shell
+        socket.send(text);
+      }
+    };
+    terminalRef.current?.addEventListener('paste', handlePaste);
+
     // Handle resize
     const handleResize = () => {
       try {
@@ -113,6 +123,7 @@ export const ClusterTerminalView: React.FC = () => {
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      terminalRef.current?.removeEventListener('paste', handlePaste);
       dataDisposable.dispose();
       term.dispose();
       socket.close();

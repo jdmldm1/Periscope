@@ -139,7 +139,6 @@ function App() {
   const [isSubmittingHelmDeploy, setIsSubmittingHelmDeploy] = useState(false);
   const [isSubmittingZarfDeploy, setIsSubmittingZarfDeploy] = useState(false);
 
-  // Sidebar collapsed sections state
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('sidebar_collapsed');
@@ -149,14 +148,11 @@ function App() {
         workloads: true,
         network: true,
         config: true,
-        storage: true,
-        helm: true,
-        zarf: true,
-        custom: true
+        helm: true
       };
       return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
     } catch (e) {
-      return { cluster: false, security: false, workloads: true, network: true, config: true, storage: true, helm: true, zarf: true, custom: true };
+      return { cluster: false, security: false, workloads: true, network: true, config: true, helm: true };
     }
   });
 
@@ -2464,6 +2460,13 @@ function App() {
           </div>
         </div>
         
+        {/* Dashboard at root level */}
+        <div style={{ padding: '0 12px', marginBottom: 20 }}>
+          <a className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => { setActiveTab('dashboard'); setSearch(''); }}>
+            <SlidersHorizontal size={16} /> Dashboard
+          </a>
+        </div>
+        
         <div className="nav-section">
           <div 
             className="nav-section-title" 
@@ -2475,12 +2478,12 @@ function App() {
           </div>
           {!collapsedSections['cluster'] && (
             <nav className="nav-menu">
-              <a className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => { setActiveTab('dashboard'); setSearch(''); }}><SlidersHorizontal size={16} /> Dashboard</a>
               <a className={`nav-item ${activeTab === 'topology' ? 'active' : ''}`} onClick={() => { setActiveTab('topology'); setSearch(''); }}><Activity size={16} /> Topology</a>
               <a className={`nav-item ${activeTab === 'nodes' ? 'active' : ''}`} onClick={() => { setActiveTab('nodes'); setSearch(''); }}><Server size={16} /> Nodes</a>
               <a className={`nav-item ${activeTab === 'events' ? 'active' : ''}`} onClick={() => { setActiveTab('events'); setSearch(''); }}><List size={16} /> Events</a>
               <a className={`nav-item ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => { setActiveTab('logs'); setSearch(''); }}><Terminal size={16} /> Logs</a>
               <a className={`nav-item ${activeTab === 'cluster-terminal' ? 'active' : ''}`} onClick={() => { setActiveTab('cluster-terminal'); setSearch(''); }}><Code size={16} style={{ color: 'var(--accent-cyan)' }} /> Cluster Terminal</a>
+              <a className={`nav-item ${activeTab === 'crds' ? 'active' : ''}`} onClick={() => { setActiveTab('crds'); setSearch(''); }}><Code size={16} /> CRD Explorer</a>
             </nav>
           )}
         </div>
@@ -2548,28 +2551,13 @@ function App() {
             onClick={() => toggleSection('config')}
             style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
           >
-            <span>Config</span>
+            <span>Config & Storage</span>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['config'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
           </div>
           {!collapsedSections['config'] && (
             <nav className="nav-menu">
               <a className={`nav-item ${activeTab === 'configmaps' ? 'active' : ''}`} onClick={() => { setActiveTab('configmaps'); setSearch(''); }}><FileText size={16} /> ConfigMaps</a>
               <a className={`nav-item ${activeTab === 'secrets' ? 'active' : ''}`} onClick={() => { setActiveTab('secrets'); setSearch(''); }}><Key size={16} /> Secrets</a>
-            </nav>
-          )}
-        </div>
-
-        <div className="nav-section">
-          <div 
-            className="nav-section-title" 
-            onClick={() => toggleSection('storage')}
-            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
-          >
-            <span>Storage</span>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['storage'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
-          </div>
-          {!collapsedSections['storage'] && (
-            <nav className="nav-menu">
               <a className={`nav-item ${activeTab === 'persistentvolumes' ? 'active' : ''}`} onClick={() => { setActiveTab('persistentvolumes'); setSearch(''); }}><Database size={16} /> PVs</a>
               <a className={`nav-item ${activeTab === 'persistentvolumeclaims' ? 'active' : ''}`} onClick={() => { setActiveTab('persistentvolumeclaims'); setSearch(''); }}><Database size={16} /> PVCs</a>
             </nav>
@@ -2582,46 +2570,15 @@ function App() {
             onClick={() => toggleSection('helm')}
             style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
           >
-            <span>Helm</span>
+            <span>Helm & Zarf</span>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['helm'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
           </div>
           {!collapsedSections['helm'] && (
             <nav className="nav-menu">
               <a className={`nav-item ${activeTab === 'helm' ? 'active' : ''}`} onClick={() => { setActiveTab('helm'); setSearch(''); }}><Package size={16} /> Helm Releases</a>
               <a className={`nav-item ${activeTab === 'helm-repos' ? 'active' : ''}`} onClick={() => { setActiveTab('helm-repos'); setSearch(''); }}><Database size={16} /> Repo Manager</a>
-            </nav>
-          )}
-        </div>
-
-        <div className="nav-section">
-          <div 
-            className="nav-section-title" 
-            onClick={() => toggleSection('zarf')}
-            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
-          >
-            <span>Zarf</span>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['zarf'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
-          </div>
-          {!collapsedSections['zarf'] && (
-            <nav className="nav-menu">
-              <a className={`nav-item ${activeTab === 'zarf' ? 'active' : ''}`} onClick={() => { setZarfViewMode('packages'); setActiveTab('zarf'); setSearch(''); }}><Package size={16} /> Packages</a>
+              <a className={`nav-item ${activeTab === 'zarf' ? 'active' : ''}`} onClick={() => { setZarfViewMode('packages'); setActiveTab('zarf'); setSearch(''); }}><Package size={16} /> Zarf Packages</a>
               <a className={`nav-item ${activeTab === 'zarf-registry' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-registry'); setSearch(''); }}><Database size={16} /> Zarf Registry</a>
-            </nav>
-          )}
-        </div>
-
-        <div className="nav-section">
-          <div 
-            className="nav-section-title" 
-            onClick={() => toggleSection('custom')}
-            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
-          >
-            <span>Custom Resources</span>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['custom'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
-          </div>
-          {!collapsedSections['custom'] && (
-            <nav className="nav-menu">
-              <a className={`nav-item ${activeTab === 'crds' ? 'active' : ''}`} onClick={() => { setActiveTab('crds'); setSearch(''); }}><Code size={16} /> CRD Explorer</a>
               <a className={`nav-item ${activeTab === 'custom' && customCrd?.name === 'helmcharts.helm.cattle.io' ? 'active' : ''}`} onClick={() => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmcharts', name: 'helmcharts.helm.cattle.io' }); setActiveTab('custom'); setSearch(''); }}><Code size={16} /> K3s HelmCharts</a>
               <a className={`nav-item ${activeTab === 'custom' && customCrd?.name === 'helmchartconfigs.helm.cattle.io' ? 'active' : ''}`} onClick={() => { setCustomCrd({ group: 'helm.cattle.io', version: 'v1', plural: 'helmchartconfigs', name: 'helmchartconfigs.helm.cattle.io' }); setActiveTab('custom'); setSearch(''); }}><Code size={16} /> K3s ChartConfigs</a>
             </nav>
@@ -3046,6 +3003,8 @@ function App() {
               setSearch={setSearch}
               setIsCmdPaletteOpen={setIsCmdPaletteOpen}
               zarfStatus={zarfStatus}
+              runningImagesScanResults={runningImagesScanResults}
+              kubescapeReport={kubescapeReport}
             />
           ) : (
             <div className="resource-list">
@@ -4459,6 +4418,7 @@ function App() {
                 { name: 'Ingresses SSL Routing', category: 'Views', action: () => { setActiveTab('ingresses'); setIsCmdPaletteOpen(false); } },
                 { name: 'Jobs Batch run', category: 'Views', action: () => { setActiveTab('jobs'); setIsCmdPaletteOpen(false); } },
                 { name: 'CronJobs Schedule list', category: 'Views', action: () => { setActiveTab('cronjobs'); setIsCmdPaletteOpen(false); } },
+                { name: 'Namespaces List', category: 'Views', action: () => { setActiveTab('namespaces'); setIsCmdPaletteOpen(false); } },
                 { name: 'ConfigMaps key-values', category: 'Views', action: () => { setActiveTab('configmaps'); setIsCmdPaletteOpen(false); } },
                 { name: 'Secrets encrypted items', category: 'Views', action: () => { setActiveTab('secrets'); setIsCmdPaletteOpen(false); } },
                 { name: 'Persistent Volumes (PVs)', category: 'Views', action: () => { setActiveTab('persistentvolumes'); setIsCmdPaletteOpen(false); } },

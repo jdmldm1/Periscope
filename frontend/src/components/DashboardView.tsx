@@ -9,6 +9,8 @@ interface DashboardViewProps {
   setSearch: (search: string) => void;
   setIsCmdPaletteOpen: (open: boolean) => void;
   zarfStatus: { installed: boolean; version?: string };
+  runningImagesScanResults: Record<string, { sbom: any; vulnerabilities: any; status: 'pending' | 'scanning' | 'success' | 'failed'; error?: string }>;
+  kubescapeReport: any;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -19,7 +21,102 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   setSearch,
   setIsCmdPaletteOpen,
   zarfStatus,
+  runningImagesScanResults,
+  kubescapeReport,
 }) => {
+  const renderSecuritySection = () => {
+    let criticalVulns = 0;
+    let highVulns = 0;
+    let mediumVulns = 0;
+    let lowVulns = 0;
+
+    Object.values(runningImagesScanResults).forEach(res => {
+      if (res.status === 'success' && res.vulnerabilities && res.vulnerabilities.matches) {
+        res.vulnerabilities.matches.forEach((m: any) => {
+          const sev = (m.vulnerability?.severity || '').toLowerCase();
+          if (sev === 'critical') criticalVulns++;
+          else if (sev === 'high') highVulns++;
+          else if (sev === 'medium') mediumVulns++;
+          else if (sev === 'low') lowVulns++;
+        });
+      }
+    });
+
+    const complianceScore = kubescapeReport?.frameworks?.[0]?.complianceScore ?? null;
+    const failedControls = kubescapeReport?.summary?.critical + kubescapeReport?.summary?.high + kubescapeReport?.summary?.medium + kubescapeReport?.summary?.low || 0;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <h2 style={{ fontSize: '1.1rem', margin: 0, letterSpacing: 0.5 }}>SECURITY COMPLIANCE & SCANS</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+          {/* Vulnerability Summary Card */}
+          <div 
+            className="dashboard-chart-card" 
+            style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
+            onClick={() => setActiveTab('image-scanner')}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'none'}
+          >
+            <div className="dashboard-chart-title" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              IMAGE VULNERABILITIES
+              <span style={{ fontSize: '0.7rem', color: 'var(--accent-blue)' }}>VIEW SCANNER →</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 10 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ef4444' }}>{criticalVulns}</div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Critical</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f59e0b' }}>{highVulns}</div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>High</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#fbbf24' }}>{mediumVulns}</div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Medium</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#60a5fa' }}>{lowVulns}</div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Low</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Compliance Summary Card */}
+          <div 
+            className="dashboard-chart-card" 
+            style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
+            onClick={() => setActiveTab('kubescape')}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'none'}
+          >
+            <div className="dashboard-chart-title" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              CLUSTER COMPLIANCE
+              <span style={{ fontSize: '0.7rem', color: 'var(--accent-success)' }}>VIEW REPORT →</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+              <div>
+                {complianceScore !== null ? (
+                  <>
+                    <div style={{ fontSize: '1.8rem', fontWeight: 800, color: complianceScore > 80 ? 'var(--accent-green)' : complianceScore > 50 ? 'var(--accent-warning)' : 'var(--accent-error)' }}>
+                      {complianceScore}%
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>NSA-CISA SCORE</div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No Scan Data</div>
+                )}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: failedControls > 0 ? '#ef4444' : 'var(--text-muted)' }}>{failedControls}</div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Failed Controls</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderPodStatusDoughnut = (phases: { running: number, pending: number, succeeded: number, failed: number }) => {
     const total = phases.running + phases.pending + phases.succeeded + phases.failed;
     if (total === 0) {
@@ -413,6 +510,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {renderResourceBarChart(counts)}
         </div>
       </div>
+
+      {renderSecuritySection()}
 
       <div>
         <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>QUICK ACTION CONSOLE</h2>
