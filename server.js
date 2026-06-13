@@ -9,8 +9,6 @@ const http = require('http');
 const fs = require('fs');
 
 
-// Decompress Grype vulnerability database on startup if it was compressed using zstd to save image space.
-// Run this check asynchronously in the background.
 (function decompressGrypeDb() {
     const dbBaseDir = '/root/.cache/grype/db';
     if (!fs.existsSync(dbBaseDir)) {
