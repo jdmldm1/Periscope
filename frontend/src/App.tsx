@@ -1944,19 +1944,27 @@ function App() {
 
 
   useEffect(() => {
-    setResources([]);
-    setTopologyData({ nodes: [], services: [], deployments: [], pods: [] });
-    setDashboardData(null);
-    setLoading(true);
-    if (activeTab === 'topology') {
-      fetchTopologyData();
-      const interval = setInterval(fetchTopologyData, 10000);
-      return () => clearInterval(interval);
-    } else {
-      fetchResources();
-      const interval = setInterval(fetchResources, 10000);
-      return () => clearInterval(interval);
-    }
+    fetchResources();
+    fetchMetrics();
+    fetchTopologyData();
+    
+    // Background fetch security data to hydrate dashboard
+    fetchKubescapeStatus();
+    fetchCachedScans();
+
+    // Auto-refresh cluster data every 10s
+    const resourceInterval = setInterval(fetchResources, 10000);
+    const metricsInterval = setInterval(fetchMetrics, 5000);
+    const securityInterval = setInterval(() => {
+      fetchKubescapeStatus();
+      fetchCachedScans();
+    }, 30000);
+
+    return () => {
+      clearInterval(resourceInterval);
+      clearInterval(metricsInterval);
+      clearInterval(securityInterval);
+    };
   }, [activeTab, selectedNs, customCrd]);
 
   useEffect(() => {
@@ -3020,11 +3028,15 @@ function App() {
                     style={{ 
                       animationDelay: `${i * 0.02}s`,
                       border: focusedRowIndex === i ? '1px solid var(--accent-green)' : '1px solid var(--border-color)',
-                      boxShadow: focusedRowIndex === i ? '0 0 10px rgba(59, 130, 246, 0.2)' : 'none'
+                      boxShadow: focusedRowIndex === i ? '0 0 10px rgba(59, 130, 246, 0.2)' : 'none',
+                      minHeight: '80px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '20px'
                     }}
                   >
-                    <div className="row-main">
-                      <div className="row-title">
+                    <div className="row-main" style={{ flex: '1 1 400px', minWidth: 0 }}>
+                      <div className="row-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {activeTab === 'events' ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                             <div style={{ fontWeight: 600, color: res.type === 'Warning' ? 'var(--accent-warning)' : 'var(--text-main)' }}>

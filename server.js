@@ -10,7 +10,7 @@ const fs = require('fs');
 
 
 (function decompressGrypeDb() {
-    const dbBaseDir = '/root/.cache/grype/db';
+    const dbBaseDir = '/app/.cache/grype';
     if (!fs.existsSync(dbBaseDir)) {
         return;
     }
@@ -1889,6 +1889,57 @@ function saveVulnsCache() {
 // Initial cache load
 loadCache();
 
+let isGrypeDbUpdating = false;
+let grypeDbUpdateError = null;
+let lastGrypeDbCheck = null;
+
+async function ensureGrypeDb() {
+    if (isGrypeDbUpdating) return;
+    
+    isGrypeDbUpdating = true;
+    grypeDbUpdateError = null;
+    
+    console.log('Checking/Updating Grype Vulnerability Database...');
+    return new Promise((resolve) => {
+        const execOptions = {
+            timeout: 300000,
+            env: {
+                ...process.env,
+                GRYPE_DB_CACHE_DIR: '/app/.cache/grype'
+            }
+        };
+        exec('grype db update', execOptions, (error, stdout, stderr) => {
+            isGrypeDbUpdating = false;
+            lastGrypeDbCheck = new Date();
+            
+            if (error) {
+                console.error('Failed to update Grype DB:', stderr || error.message);
+                grypeDbUpdateError = stderr || error.message;
+                resolve(false);
+            } else {
+                console.log('Grype Vulnerability Database is up to date.');
+                resolve(true);
+            }
+        });
+    });
+}
+
+// Initial check
+ensureGrypeDb();
+
+app.get('/api/zarf/grype/db-status', async (req, res) => {
+    res.json({
+        isUpdating: isGrypeDbUpdating,
+        error: grypeDbUpdateError,
+        lastCheck: lastGrypeDbCheck,
+    });
+});
+
+app.post('/api/zarf/grype/db-update', async (req, res) => {
+    ensureGrypeDb();
+    res.json({ message: 'Update triggered' });
+});
+
 // Helper for sequential scanning child execution
 function performSbomScan(imageRef) {
     return new Promise((resolve, reject) => {
@@ -1902,8 +1953,15 @@ function performSbomScan(imageRef) {
             .replace('localhost:31999', 'zarf-docker-registry.zarf.svc.cluster.local:5000');
 
         const runScan = () => {
-            exec(`zarf tools sbom scan "${targetRef}" -o json`, { maxBuffer: 10 * 1024 * 1024 }, async (error, stdout, stderr) => {
+            const child = exec(`zarf tools sbom scan "${targetRef}" -o json`, { maxBuffer: 10 * 1024 * 1024 }, async (error, stdout, stderr) => {
+                clearTimeout(timeoutId);
                 if (error) {
+                    if (error.signal === 'SIGTERM') {
+                        const failRes = { error: 'SBOM scan timed out after 120s', failed: true };
+                        sbomScanCache.set(imageRef, failRes);
+                        saveSbomCache();
+                        return reject(new Error('SBOM scan timed out after 120s'));
+                    }
                     const failRes = { error: error.message || stderr, failed: true };
                     sbomScanCache.set(imageRef, failRes);
                     saveSbomCache();
@@ -1925,6 +1983,10 @@ function performSbomScan(imageRef) {
                     reject(new Error('Failed to parse SBOM JSON: ' + parseErr.message));
                 }
             });
+
+            const timeoutId = setTimeout(() => {
+                child.kill('SIGTERM');
+            }, 120000); // 2 minute timeout
         };
 
         if (isLocalRegistry) {
@@ -1943,7 +2005,11 @@ function performSbomScan(imageRef) {
     });
 }
 
-function performVulnsScan(imageRef) {
+async function performVulnsScan(imageRef) {
+    if (isGrypeDbUpdating) {
+        throw new Error('Vulnerability database is currently updating. Please try again in a moment.');
+    }
+
     return new Promise((resolve, reject) => {
         let targetRef = imageRef;
         const isLocalRegistry = targetRef.includes('127.0.0.1:31999') || 
@@ -1958,7 +2024,8 @@ function performVulnsScan(imageRef) {
             maxBuffer: 25 * 1024 * 1024,
             env: {
                 ...process.env,
-                GRYPE_DB_AUTO_UPDATE: 'false',
+                GRYPE_DB_AUTO_UPDATE: 'true',
+                GRYPE_DB_CACHE_DIR: '/app/.cache/grype',
                 GRYPE_CHECK_FOR_APP_UPDATE: 'false',
                 GRYPE_REGISTRY_INSECURE_USE_HTTP: 'true',
                 GRYPE_REGISTRY_INSECURE_SKIP_TLS_VERIFY: 'true'
@@ -1970,8 +2037,15 @@ function performVulnsScan(imageRef) {
             if (!scanRef.startsWith('registry:')) {
                 scanRef = `registry:${scanRef}`;
             }
-            exec(`grype "${scanRef}" -o json`, execOptions, async (error, stdout, stderr) => {
+            const child = exec(`grype "${scanRef}" -o json`, execOptions, async (error, stdout, stderr) => {
+                clearTimeout(timeoutId);
                 if (error) {
+                    if (error.signal === 'SIGTERM') {
+                        const failRes = { error: 'Vulnerability scan timed out after 300s', failed: true };
+                        vulnsScanCache.set(imageRef, failRes);
+                        saveVulnsCache();
+                        return reject(new Error('Vulnerability scan timed out after 300s'));
+                    }
                     const failRes = { error: error.message || stderr, failed: true };
                     vulnsScanCache.set(imageRef, failRes);
                     saveVulnsCache();
@@ -1993,6 +2067,10 @@ function performVulnsScan(imageRef) {
                     reject(new Error('Failed to parse Vulnerability JSON: ' + parseErr.message));
                 }
             });
+
+            const timeoutId = setTimeout(() => {
+                child.kill('SIGTERM');
+            }, 300000); // 5 minute timeout for grype
         };
 
         if (isLocalRegistry) {

@@ -10,7 +10,7 @@ components:
     required: true
 
     images:
-      - ghcr.io/jdmldm1/periscope-kubernetes:1.0.2
+      - ghcr.io/jdmldm1/periscope-kubernetes:1.0.3
 
     charts:
       - name: periscope
@@ -19,3 +19,4 @@ components:
         localPath: ./charts/periscope
         valuesFiles:
           - ./charts/periscope/values.yaml
+          - ./charts/periscope/values-airgap.yaml

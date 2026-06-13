@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, RefreshCw, Search, Download } from 'lucide-react';
+import { Shield, RefreshCw, Search, Download, AlertTriangle } from 'lucide-react';
 import { SbomDiffView } from './SbomDiffView';
 
 interface ImageScannerViewProps {
@@ -21,12 +21,74 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
   enableAutoScan,
   handleToggleAutoScan,
 }) => {
+  const [dbStatus, setDbStatus] = useState<{ isUpdating: boolean; error: string | null; lastCheck: string | null }>({
+    isUpdating: false,
+    error: null,
+    lastCheck: null
+  });
+
+  const fetchDbStatus = async () => {
+    try {
+      const res = await fetch('/api/zarf/grype/db-status');
+      const data = await res.json();
+      setDbStatus(data);
+    } catch (err) {
+      console.error('Failed to fetch Grype DB status:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchDbStatus();
+    const interval = setInterval(fetchDbStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Localized Filters
   const [selectedScanFilterImage, setSelectedScanFilterImage] = useState<string>('all');
   const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'remediation' | 'drift' | 'images'>(() => {
     const saved = localStorage.getItem('imageScannerActiveTab');
     return (saved as any) || 'vulnerabilities';
   });
+
+  const triggerDbUpdate = async () => {
+    try {
+      await fetch('/api/zarf/grype/db-update', { method: 'POST' });
+      fetchDbStatus();
+    } catch (err) {
+      console.error('Failed to trigger Grype DB update:', err);
+    }
+  };
+
+  if (dbStatus.isUpdating && !dbStatus.lastCheck) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 24, animation: 'fadeIn 0.5s' }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="spin" style={{ width: 80, height: 80, border: '4px solid rgba(0,188,212,0.1)', borderTopColor: 'var(--accent-blue)', borderRadius: '50%' }}></div>
+          <Shield size={32} style={{ position: 'absolute', color: 'var(--accent-blue)' }} />
+        </div>
+        <div style={{ textAlign: 'center', maxWidth: '450px' }}>
+          <h2 style={{ fontSize: '1.4rem', marginBottom: 10, color: 'var(--text-main)' }}>Initializing Security Database</h2>
+          <p style={{ color: 'var(--text-muted)', lineHeight: 1.5, fontSize: '0.95rem' }}>
+            We are downloading the latest vulnerability definitions from the global database. This is required for accurate image scanning and may take a few minutes depending on your connection.
+          </p>
+        </div>
+        <div style={{ width: '300px', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+          <div className="progress-bar-fill" style={{ height: '100%', background: 'linear-gradient(90deg, var(--accent-blue), var(--accent-cyan))', width: '100%', animation: 'loading-pulse 2s infinite' }}></div>
+        </div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--accent-cyan)', fontWeight: 500 }}>DOWNLOADING DEFINITIONS...</div>
+        
+        <style>{`
+          @keyframes loading-pulse {
+            0% { opacity: 0.4; transform: translateX(-100%); }
+            50% { opacity: 1; transform: translateX(0); }
+            100% { opacity: 0.4; transform: translateX(100%); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // Localized Filters (rest of state)
   const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
 
   useEffect(() => {
@@ -311,9 +373,10 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
           <button 
             className="btn btn-primary"
             onClick={() => scanSingleImage(selectedScanFilterImage)}
+            disabled={dbStatus.isUpdating}
             style={{ margin: '0 auto' }}
           >
-            Scan Image
+            {dbStatus.isUpdating ? 'Waiting for Security DB...' : 'Scan Image'}
           </button>
         </div>
       );
@@ -338,9 +401,10 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
           <button 
             className="btn"
             onClick={() => scanSingleImage(selectedScanFilterImage)}
+            disabled={dbStatus.isUpdating}
             style={{ margin: '0 auto', background: 'rgba(255,255,255,0.02)' }}
           >
-            Retry Scan
+            {dbStatus.isUpdating ? 'Waiting for Security DB...' : 'Retry Scan'}
           </button>
         </div>
       );
@@ -355,6 +419,28 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
 
   return (
     <div className="image-scanner-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* DB Status Banner */}
+      {dbStatus.error && (
+        <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ color: '#ef4444', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertTriangle size={16} />
+            <span><strong>Database Error:</strong> {dbStatus.error}</span>
+          </div>
+          <button className="btn btn-sm" onClick={triggerDbUpdate} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            Retry Update
+          </button>
+        </div>
+      )}
+
+      {dbStatus.isUpdating && dbStatus.lastCheck && (
+        <div style={{ background: 'rgba(0, 188, 212, 0.05)', border: '1px solid rgba(0, 188, 212, 0.2)', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <RefreshCw size={16} className="spin" style={{ color: 'var(--accent-blue)' }} />
+          <div style={{ color: 'var(--accent-cyan)', fontSize: '0.85rem' }}>
+            <strong>Updating Vulnerability Database:</strong> Scans are temporarily disabled while we refresh security definitions...
+          </div>
+        </div>
+      )}
+
       {/* Top Control Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', flexWrap: 'wrap', gap: 12 }}>
         <div>
@@ -385,11 +471,11 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
           <button 
             className="btn btn-primary"
             onClick={fetchRunningImagesAndScan}
-            disabled={isScanningAllRunningImages}
+            disabled={isScanningAllRunningImages || dbStatus.isUpdating}
             style={{ display: 'flex', alignItems: 'center', gap: 8 }}
           >
             <RefreshCw size={16} className={isScanningAllRunningImages ? 'spin' : ''} />
-            {isScanningAllRunningImages ? 'Scanning Cluster...' : 'Scan All Running Images'}
+            {isScanningAllRunningImages ? 'Scanning Cluster...' : dbStatus.isUpdating ? 'Waiting for DB...' : 'Scan All Running Images'}
           </button>
         </div>
       </div>
@@ -901,9 +987,9 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                         className="btn"
                         style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)' }}
                         onClick={() => scanSingleImage(img)}
-                        disabled={scan?.status === 'scanning'}
+                        disabled={scan?.status === 'scanning' || dbStatus.isUpdating}
                       >
-                        {scan?.status === 'scanning' ? 'Scanning...' : scan ? 'Rescan' : 'Scan'}
+                        {scan?.status === 'scanning' ? 'Scanning...' : dbStatus.isUpdating ? 'DB Updating' : scan ? 'Rescan' : 'Scan'}
                       </button>
                     </td>
                   </tr>
