@@ -144,6 +144,7 @@ const fetchers = {
     'jobs': (ns) => k8sBatchApi.listNamespacedJob({ namespace: ns }),
     'cronjobs': (ns) => k8sBatchApi.listNamespacedCronJob({ namespace: ns }),
     'events': (ns) => k8sCoreApi.listNamespacedEvent({ namespace: ns }),
+    'namespaces': () => k8sCoreApi.listNamespace(),
     'persistentvolumes': () => k8sCoreApi.listPersistentVolume(),
     'persistentvolumeclaims': (ns) => k8sCoreApi.listNamespacedPersistentVolumeClaim({ namespace: ns })
 };
@@ -169,8 +170,8 @@ app.get('/api/resource/:kind', async (req, res) => {
     const ns = req.query.namespace;
     try {
         let response;
-        if (ns === 'all') {
-            if (kind === 'persistentvolumes' || kind === 'nodes') {
+        if (ns === 'all' || kind === 'namespaces') {
+            if (kind === 'persistentvolumes' || kind === 'nodes' || kind === 'namespaces') {
                 response = await fetchers[kind]();
             } else if (allNamespacesFetchers[kind]) {
                 response = await allNamespacesFetchers[kind]();
@@ -240,6 +241,7 @@ app.delete('/api/resource/:kind/:namespace/:name', async (req, res) => {
         else if (kind === 'ingresses') await k8sNetApi.deleteNamespacedIngress({ name, namespace });
         else if (kind === 'jobs') await k8sBatchApi.deleteNamespacedJob({ name, namespace });
         else if (kind === 'cronjobs') await k8sBatchApi.deleteNamespacedCronJob({ name, namespace });
+        else if (kind === 'namespaces') await k8sCoreApi.deleteNamespace({ name });
         else if (kind === 'persistentvolumes') await k8sCoreApi.deletePersistentVolume({ name });
         else if (kind === 'persistentvolumeclaims') await k8sCoreApi.deleteNamespacedPersistentVolumeClaim({ name, namespace });
         else return res.status(400).json({ error: 'Unsupported kind' });
@@ -781,6 +783,7 @@ const readers = {
     'ingresses': (n, ns) => k8sNetApi.readNamespacedIngress({ name: n, namespace: ns }),
     'jobs': (n, ns) => k8sBatchApi.readNamespacedJob({ name: n, namespace: ns }),
     'cronjobs': (n, ns) => k8sBatchApi.readNamespacedCronJob({ name: n, namespace: ns }),
+    'namespaces': (n) => k8sCoreApi.readNamespace({ name: n }),
     'persistentvolumes': (n) => k8sCoreApi.readPersistentVolume({ name: n }),
     'persistentvolumeclaims': (n, ns) => k8sCoreApi.readNamespacedPersistentVolumeClaim({ name: n, namespace: ns }),
     'helm': (n, ns) => new Promise((resolve, reject) => {
@@ -821,6 +824,7 @@ const updaters = {
     'ingresses': (n, ns, body) => k8sNetApi.replaceNamespacedIngress({ name: n, namespace: ns, body }),
     'jobs': (n, ns, body) => k8sBatchApi.replaceNamespacedJob({ name: n, namespace: ns, body }),
     'cronjobs': (n, ns, body) => k8sBatchApi.replaceNamespacedCronJob({ name: n, namespace: ns, body }),
+    'namespaces': (n, ns, body) => k8sCoreApi.replaceNamespace({ name: n, body }),
     'persistentvolumes': (n, ns, body) => k8sCoreApi.replacePersistentVolume({ name: n, body }),
     'persistentvolumeclaims': (n, ns, body) => k8sCoreApi.replaceNamespacedPersistentVolumeClaim({ name: n, namespace: ns, body }),
 };
