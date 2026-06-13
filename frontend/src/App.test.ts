@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCpu, parseMem } from './App';
+import { parseCpu, parseMem } from './utils/helpers';
 
 describe('Frontend CPU Metric Parser', () => {
   it('should parse nanocores correctly', () => {

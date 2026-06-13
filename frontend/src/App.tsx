@@ -1,101 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
-import { Network } from 'vis-network';
 import { 
   Box, Layers, Server, Activity, Trash2, Terminal,
   FileText, Shield, Key, GitCommit, RefreshCw, X, Save, Search, Settings, Info, Power, SlidersHorizontal,
-  ArrowDown, Copy, Database, Package, Radio, Command, Code, List, Globe, ExternalLink, Download, Upload,
+  ArrowDown, Copy, Database, Package, Radio, Command, Code, List, Globe, ExternalLink,
   Bell
 } from 'lucide-react';
 import './index.css';
 
-type ResourceKind = 'pods' | 'deployments' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state' | 'kubescape' | 'gitea';
+// Import modular components
+import { DashboardView } from './components/DashboardView';
+import { TopologyView } from './components/TopologyView';
+import { ImageScannerView } from './components/ImageScannerView';
+import { KubescapeView } from './components/KubescapeView';
+import { HelmManagerView } from './components/HelmManagerView';
+import { ZarfManagerView } from './components/ZarfManagerView';
+import { PodFilesExplorer } from './components/PodFilesExplorer';
+import { LogsView } from './components/LogsView';
+
+// Import helpers
+import { parseCpu, parseMem, highlightYaml, colorizeLogs, pluralizeKind, matchesSelector } from './utils/helpers';
+
+type ResourceKind = 'pods' | 'deployments' | 'daemonsets' | 'statefulsets' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state' | 'kubescape' | 'gitea' | 'logs';
 type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history' | 'files' | 'values';
 
-// Unit parsers for metrics
-export const parseCpu = (cpuStr: string) => {
-  if (!cpuStr) return 0;
-  if (cpuStr.endsWith('n')) return parseFloat(cpuStr) / 1000000000;
-  if (cpuStr.endsWith('u')) return parseFloat(cpuStr) / 1000000;
-  if (cpuStr.endsWith('m')) return parseFloat(cpuStr) / 1000;
-  return parseFloat(cpuStr);
-};
-
-export const parseMem = (memStr: string) => {
-  if (!memStr) return 0;
-  if (memStr.endsWith('Ki')) return parseFloat(memStr) * 1024;
-  if (memStr.endsWith('Mi')) return parseFloat(memStr) * 1024 * 1024;
-  if (memStr.endsWith('Gi')) return parseFloat(memStr) * 1024 * 1024 * 1024;
-  return parseFloat(memStr);
-};
-
-// YAML JSON syntax highlighter
-const highlightYaml = (text: string) => {
-  if (!text) return '';
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  
-  html = html.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*")(\s*:)/g, '<span class="yaml-key">$1</span>$3');
-  html = html.replace(/:(\s*)("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*")/g, ':$1<span class="yaml-string">$2</span>');
-  html = html.replace(/:(\s*)([0-9.-]+)(?=\s|,|$|\n)/g, ':$1<span class="yaml-number">$2</span>');
-  html = html.replace(/:(\s*)(true|false)(?=\s|,|$|\n)/g, ':$1<span class="yaml-boolean">$2</span>');
-  html = html.replace(/:(\s*)(null)(?=\s|,|$|\n)/g, ':$1<span class="yaml-null">$2</span>');
-  
-  return html;
-};
-
-// Log viewer with regex colors and search filters
-const colorizeLogs = (logs: string, filter: string) => {
-  if (!logs) return [];
-  const lines = logs.split('\n');
-  
-  return lines
-    .filter(line => !filter || line.toLowerCase().includes(filter.toLowerCase()))
-    .map((line, i) => {
-      let type = 'normal';
-      
-      if (/error|fail|exception|fatal/i.test(line)) {
-        type = 'error';
-      } else if (/warn|warning/i.test(line)) {
-        type = 'warn';
-      } else if (/info/i.test(line)) {
-        type = 'info';
-      } else if (/success|ok|ready/i.test(line)) {
-        type = 'success';
-      }
-      
-      if (filter) {
-        const regex = new RegExp(`(${filter})`, 'gi');
-        const parts = line.split(regex);
-        return (
-          <span key={i} className={`log-line log-${type}`}>
-            {parts.map((part, pi) => 
-              part.toLowerCase() === filter.toLowerCase() 
-                ? <mark key={pi} className="log-highlight">{part}</mark>
-                : part
-            )}
-          </span>
-        );
-      }
-      return <span key={i} className={`log-line log-${type}`}>{line}</span>;
-    });
-};
-
-const pluralizeKind = (kind: string): string => {
-  if (!kind) return '';
-  const k = kind.toLowerCase();
-  if (k === 'ingress') return 'ingresses';
-  if (k === 'persistentvolume') return 'persistentvolumes';
-  if (k === 'persistentvolumeclaim') return 'persistentvolumeclaims';
-  if (k.endsWith('y')) return k.slice(0, -1) + 'ies';
-  return k + 's';
-};
-
-const matchesSelector = (labels: any, selector: any) => {
-  if (!labels || !selector) return false;
-  return Object.keys(selector).every(key => labels[key] === selector[key]);
-};
 
 function App() {
   const [activeTab, setActiveTab] = useState<ResourceKind>('dashboard');
@@ -173,11 +100,10 @@ function App() {
   }>({ nodes: [], services: [], deployments: [], pods: [] });
   const [hoveredTopologyItem, setHoveredTopologyItem] = useState<{type: 'node' | 'service' | 'deployment' | 'pod', name: string, item: any} | null>(null);
   const [topologyMode, setTopologyMode] = useState<'columns' | 'graph'>('columns');
-  const graphRef = useRef<HTMLDivElement>(null);
-  const networkInstance = useRef<any>(null);
 
   // Command Executor Ref & Zarf Registry States
   const cmdInputRef = useRef<HTMLInputElement>(null);
+  const cmdPaletteInputRef = useRef<HTMLInputElement>(null);
   const [registryPullSource, setRegistryPullSource] = useState('');
   const [registryPullTarget, setRegistryPullTarget] = useState('');
   const [registryPushTarget, setRegistryPushTarget] = useState('');
@@ -275,6 +201,7 @@ function App() {
   const [zarfUploadFile, setZarfUploadFile] = useState<File | null>(null);
   const [zarfConfigFile, setZarfConfigFile] = useState<File | null>(null);
   const [zarfUploadProgress, setZarfUploadProgress] = useState(-1);
+  const [isZarfUploadModalOpen, setIsZarfUploadModalOpen] = useState(false);
 
   // Real-time task logs state
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -313,11 +240,9 @@ function App() {
   
   // Standalone Image Scanner States
   const [runningImagesScanResults, setRunningImagesScanResults] = useState<Record<string, { sbom: any, vulnerabilities: any, status: 'pending' | 'scanning' | 'success' | 'failed', error?: string }>>({});
+  const [enableAutoScan, setEnableAutoScan] = useState(false);
   const [isScanningAllRunningImages, setIsScanningAllRunningImages] = useState(false);
-  const [selectedScanFilterImage, setSelectedScanFilterImage] = useState<string>('all');
-  const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'images'>('vulnerabilities');
-  const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
-  const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
+
   const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null);
 
   // Kubescape compliance scanner states
@@ -528,7 +453,13 @@ function App() {
     fetch('/api/zarf/local-packages')
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) setZarfLocalPackages(data);
+        if (Array.isArray(data)) {
+          setZarfLocalPackages(data);
+          const pkgs = data.filter((pkg: any) => pkg.name.endsWith('.tar.zst') || pkg.name.endsWith('.zst'));
+          if (pkgs.length > 0 && !sbomPackageName) {
+            setSbomPackageName(pkgs[0].name);
+          }
+        }
       })
       .catch(console.error);
   };
@@ -588,8 +519,8 @@ function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        setZarfViewMode('local');
-        setActiveTab('zarf-deploy');
+        setZarfViewMode('packages');
+        setActiveTab('zarf');
         setZarfUnpackTempDir('');
         setZarfConfigText('');
         startTaskLogsStreaming(data.taskId);
@@ -733,144 +664,7 @@ function App() {
     }
   };
 
-  const getFilteredVulnerabilities = () => {
-    const list: any[] = [];
-    Object.keys(runningImagesScanResults).forEach(imgRef => {
-      if (selectedScanFilterImage !== 'all' && selectedScanFilterImage !== imgRef) return;
-      const res = runningImagesScanResults[imgRef];
-      if (res && res.status === 'success' && res.vulnerabilities && res.vulnerabilities.matches) {
-        res.vulnerabilities.matches.forEach((m: any) => {
-          list.push({ ...m, imageRef: imgRef });
-        });
-      }
-    });
 
-    return list.filter((m: any) => {
-      const vuln = m.vulnerability || {};
-      const art = m.artifact || {};
-      const severity = vuln.severity || 'Unknown';
-      const imageRef = m.imageRef || '';
-
-      if (imageScanSeverityFilter !== 'all' && severity.toLowerCase() !== imageScanSeverityFilter.toLowerCase()) {
-        return false;
-      }
-
-      if (imageScanSearchQuery.trim()) {
-        const q = imageScanSearchQuery.toLowerCase();
-        return (
-          (vuln.id || '').toLowerCase().includes(q) ||
-          (severity || '').toLowerCase().includes(q) ||
-          (art.name || '').toLowerCase().includes(q) ||
-          (imageRef || '').toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  };
-
-  const getFilteredPackages = () => {
-    const list: any[] = [];
-    Object.keys(runningImagesScanResults).forEach(imgRef => {
-      if (selectedScanFilterImage !== 'all' && selectedScanFilterImage !== imgRef) return;
-      const res = runningImagesScanResults[imgRef];
-      if (res && res.status === 'success' && res.sbom && res.sbom.artifacts) {
-        res.sbom.artifacts.forEach((art: any) => {
-          list.push({ ...art, imageRef: imgRef });
-        });
-      }
-    });
-
-    return list.filter((art: any) => {
-      if (imageScanSearchQuery.trim()) {
-        const q = imageScanSearchQuery.toLowerCase();
-        const name = (art.name || '').toLowerCase();
-        const ver = (art.version || '').toLowerCase();
-        const type = (art.type || '').toLowerCase();
-        const imageRef = (art.imageRef || '').toLowerCase();
-        const licenses = Array.isArray(art.licenses)
-          ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || '')).join(' ').toLowerCase()
-          : '';
-        return name.includes(q) || ver.includes(q) || type.includes(q) || licenses.includes(q) || imageRef.includes(q);
-      }
-      return true;
-    });
-  };
-
-  const exportImageScannerVulnerabilitiesJson = () => {
-    const data = getFilteredVulnerabilities();
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `security-vulnerabilities-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const exportImageScannerVulnerabilitiesCsv = () => {
-    const data = getFilteredVulnerabilities();
-    const headers = ['Image', 'Vulnerability ID', 'Severity', 'Package', 'Installed Version', 'Fixed In'];
-    const rows = data.map((m: any) => {
-      const vuln = m.vulnerability || {};
-      const art = m.artifact || {};
-      const fixedIn = vuln.fix?.versions?.join(', ') || 'Not Fixed';
-      return [
-        `"${m.imageRef}"`,
-        `"${vuln.id}"`,
-        `"${vuln.severity}"`,
-        `"${art.name}"`,
-        `"${art.version}"`,
-        `"${fixedIn}"`
-      ];
-    });
-    const csvContent = [headers.join(','), ...rows.map((r: any) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", url);
-    downloadAnchor.setAttribute("download", `security-vulnerabilities-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.csv`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const exportImageScannerPackagesJson = () => {
-    const data = getFilteredPackages();
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `security-packages-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const exportImageScannerPackagesCsv = () => {
-    const data = getFilteredPackages();
-    const headers = ['Image', 'Package Name', 'Version', 'Type', 'Licenses', 'Language'];
-    const rows = data.map((art: any) => {
-      const licenseStrs = Array.isArray(art.licenses)
-        ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || ''))
-        : [];
-      return [
-        `"${art.imageRef}"`,
-        `"${art.name}"`,
-        `"${art.version}"`,
-        `"${art.type}"`,
-        `"${licenseStrs.join(', ')}"`,
-        `"${art.language || 'N/A'}"`
-      ];
-    });
-    const csvContent = [headers.join(','), ...rows.map((r: any) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", url);
-    downloadAnchor.setAttribute("download", `security-packages-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.csv`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
 
   const handleZarfUpload = async () => {
     if (!zarfUploadFile) return alert('Please select a file to upload first.');
@@ -903,14 +697,32 @@ function App() {
         }
       };
       
-      xhr.onload = () => {
+      xhr.onload = async () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           const data = JSON.parse(xhr.responseText);
-          alert(`Uploaded ${data.filename} successfully! ${uploadedConfigPath ? 'Config file also saved.' : ''}`);
           setZarfUploadFile(null);
           setZarfConfigFile(null);
           setZarfUploadProgress(-1);
           fetchZarfLocalPackages();
+
+          try {
+            const res = await fetch('/api/zarf/deploy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                packagePath: data.filename,
+                configPath: uploadedConfigPath || undefined
+              })
+            });
+            const deployData = await res.json();
+            if (res.ok) {
+              startTaskLogsStreaming(deployData.taskId);
+            } else {
+              alert('Failed to deploy package: ' + (deployData.error || 'Unknown error'));
+            }
+          } catch (err: any) {
+            alert('Error deploying package: ' + err.message);
+          }
         } else {
           alert('Upload failed: ' + xhr.statusText);
           setZarfUploadProgress(-1);
@@ -1512,7 +1324,7 @@ function App() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === 'zarf-deploy') {
+    if (activeTab === 'zarf') {
       fetchZarfLocalPackages();
     }
   }, [activeTab]);
@@ -1912,17 +1724,19 @@ function App() {
 
   const fetchResources = () => {
     if (
+      activeTab === 'logs' ||
       activeTab === 'zarf-registry' || 
       activeTab === 'zarf-creds' || 
       activeTab === 'helm-install' || 
-      activeTab === 'helm-repos' || 
-      activeTab === 'zarf-deploy' || 
-      activeTab === 'zarf-sbom'
+      activeTab === 'helm-repos'
     ) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    const hasExistingData = activeTab === 'dashboard' ? (dashboardData !== null) : (resources.length > 0);
+    if (!hasExistingData) {
+      setLoading(true);
+    }
     if (activeTab === 'dashboard') {
       fetch(`/api/dashboard/stats?namespace=${selectedNs}`)
         .then(res => res.json())
@@ -1997,7 +1811,10 @@ function App() {
   };
 
   const fetchTopologyData = async () => {
-    setLoading(true);
+    const hasExistingData = (topologyData.nodes?.length > 0) || (topologyData.services?.length > 0) || (topologyData.deployments?.length > 0) || (topologyData.pods?.length > 0);
+    if (!hasExistingData) {
+      setLoading(true);
+    }
     try {
       const [n, s, d, p] = await Promise.all([
         fetch('/api/nodes').then(res => res.json()).catch(() => []),
@@ -2161,250 +1978,15 @@ function App() {
     fetchNamespaces();
     fetchZarfStatus();
     fetchContexts();
+    fetchScannerConfig();
   }, []);
 
-  useEffect(() => {
-    if (activeTab === 'topology' && topologyMode === 'graph' && graphRef.current) {
-      // 1. Build nodes and edges
-      const nodesList: any[] = [];
-      const edgesList: any[] = [];
 
-      // Add Nodes
-      topologyData.nodes.forEach(n => {
-        nodesList.push({
-          id: `node-${n.metadata.name}`,
-          label: n.metadata.name,
-          title: `Node: ${n.metadata.name}\nKubelet: ${n.status?.nodeInfo?.kubeletVersion || 'N/A'}\nOS: ${n.status?.nodeInfo?.operatingSystem || 'N/A'}`,
-          group: 'nodes',
-          shape: 'box',
-          margin: 10,
-          color: {
-            background: '#0a0a0a',
-            border: '#3b82f6',
-            highlight: { background: '#1d4ed8', border: '#60a5fa' },
-            hover: { background: '#111111', border: '#60a5fa' }
-          },
-          font: { color: '#ffffff', face: 'Inter', size: 12 }
-        });
-      });
-
-      // Add Services
-      topologyData.services.forEach(s => {
-        nodesList.push({
-          id: `service-${s.metadata.name}`,
-          label: s.metadata.name,
-          title: `Service: ${s.metadata.name}\nType: ${s.spec?.type}\nClusterIP: ${s.spec?.clusterIP}`,
-          group: 'services',
-          shape: 'hexagon',
-          color: {
-            background: '#0a0a0a',
-            border: '#60a5fa',
-            highlight: { background: '#2563eb', border: '#60a5fa' },
-            hover: { background: '#111111', border: '#60a5fa' }
-          },
-          font: { color: '#ffffff', face: 'Inter', size: 12 }
-        });
-      });
-
-      // Add Deployments
-      topologyData.deployments.forEach(d => {
-        nodesList.push({
-          id: `deployment-${d.metadata.name}`,
-          label: d.metadata.name,
-          title: `Deployment: ${d.metadata.name}\nReplicas: ${d.status?.readyReplicas || 0}/${d.spec?.replicas || 0}`,
-          group: 'deployments',
-          shape: 'ellipse',
-          color: {
-            background: '#0a0a0a',
-            border: '#8b5cf6',
-            highlight: { background: '#6d28d9', border: '#a78bfa' },
-            hover: { background: '#111111', border: '#a78bfa' }
-          },
-          font: { color: '#ffffff', face: 'Inter', size: 12 }
-        });
-      });
-
-      // Add Pods
-      topologyData.pods.forEach(p => {
-        const phase = (p.status?.phase || 'Unknown').toLowerCase();
-        let color = '#3b82f6'; // running
-        if (phase === 'pending') color = '#ffb800';
-        if (phase === 'failed') color = '#e00';
-        if (phase === 'succeeded') color = '#10b981';
-
-        let borderCol = color;
-        let borderDashes = false;
-        let nodeLabel = p.metadata.name.length > 20 ? p.metadata.name.substring(0, 17) + '...' : p.metadata.name;
-        let nodeTitle = `Pod: ${p.metadata.name}\nStatus: ${p.status?.phase}\nNode: ${p.spec?.nodeName}`;
-
-        nodesList.push({
-          id: `pod-${p.metadata.name}`,
-          label: nodeLabel,
-          title: nodeTitle,
-          group: 'pods',
-          shape: 'dot',
-          size: 16,
-          color: {
-            background: '#0a0a0a',
-            border: borderCol,
-            highlight: { background: '#111111', border: borderCol },
-            hover: { background: '#111111', border: borderCol }
-          },
-          shapeProperties: {
-            borderDashes: borderDashes
-          },
-          font: { color: '#ffffff', face: 'Inter', size: 10 }
-        });
-
-        // Edges: Pod -> Node
-        if (p.spec?.nodeName) {
-          edgesList.push({
-            from: `pod-${p.metadata.name}`,
-            to: `node-${p.spec.nodeName}`,
-            color: { color: '#222222', highlight: '#444444' },
-            dashes: true,
-            title: 'Runs on Node'
-          });
-        }
-
-        // Edges: Pod -> Deployment
-        topologyData.deployments.forEach(d => {
-          if (matchesSelector(p.metadata?.labels, d.spec?.selector?.matchLabels)) {
-            edgesList.push({
-              from: `pod-${p.metadata.name}`,
-              to: `deployment-${d.metadata.name}`,
-              color: { color: '#8b5cf6', highlight: '#a78bfa' },
-              width: 1.5,
-              title: 'Managed by Deployment'
-            });
-          }
-        });
-
-        // Edges: Pod -> Service
-        topologyData.services.forEach(s => {
-          if (matchesSelector(p.metadata?.labels, s.spec?.selector)) {
-            edgesList.push({
-              from: `pod-${p.metadata.name}`,
-              to: `service-${s.metadata.name}`,
-              color: { color: '#60a5fa', highlight: '#93c5fd' },
-              width: 1.5,
-              arrows: 'to',
-              title: 'Service Routes to Pod'
-            });
-          }
-        });
-      });
-
-      // Initialize vis.Network
-      const data = { nodes: nodesList, edges: edgesList };
-      const options = {
-        nodes: {
-          borderWidth: 2,
-          shadow: {
-            enabled: true,
-            color: 'rgba(0,0,0,0.5)',
-            size: 4,
-            x: 2,
-            y: 2
-          }
-        },
-        edges: {
-          smooth: {
-            enabled: true,
-            type: 'continuous',
-            roundness: 0.5
-          }
-        },
-        physics: {
-          stabilization: {
-            enabled: true,
-            iterations: 200
-          },
-          barnesHut: {
-            gravitationalConstant: -1800,
-            centralGravity: 0.3,
-            springLength: 120,
-            springConstant: 0.04,
-            damping: 0.09
-          }
-        },
-        interaction: {
-          hover: true,
-          tooltipDelay: 200,
-          hideEdgesOnDrag: false
-        }
-      };
-
-      if (networkInstance.current) {
-        networkInstance.current.destroy();
-      }
-
-      networkInstance.current = new Network(graphRef.current, data, options);
-
-      // Node double-click / click handler to open modals
-      networkInstance.current.on('click', (params: any) => {
-        if (params.nodes && params.nodes.length > 0) {
-          setSelectedTopologyNode(params.nodes[0]);
-        } else {
-          setSelectedTopologyNode(null);
-        }
-      });
-
-      networkInstance.current.on('doubleClick', (params: any) => {
-        if (params.nodes && params.nodes.length > 0) {
-          const selectedId = params.nodes[0];
-          const parts = selectedId.split('-');
-          const type = parts[0];
-          const name = parts.slice(1).join('-');
-          
-          if (type === 'pod') {
-            const pod = topologyData.pods.find(p => p.metadata.name === name);
-            if (pod) {
-              setModal({
-                type: 'yaml',
-                name: pod.metadata.name,
-                namespace: pod.metadata.namespace,
-                kind: 'pods',
-                uid: pod.metadata.uid
-              });
-            }
-          } else if (type === 'deployment') {
-            const dep = topologyData.deployments.find(d => d.metadata.name === name);
-            if (dep) {
-              setModal({
-                type: 'yaml',
-                name: dep.metadata.name,
-                namespace: dep.metadata.namespace,
-                kind: 'deployments',
-                uid: dep.metadata.uid
-              });
-            }
-          } else if (type === 'service') {
-            const svc = topologyData.services.find(s => s.metadata.name === name);
-            if (svc) {
-              setModal({
-                type: 'yaml',
-                name: svc.metadata.name,
-                namespace: svc.metadata.namespace,
-                kind: 'services',
-                uid: svc.metadata.uid
-              });
-            }
-          }
-        }
-      });
-    }
-
-    return () => {
-      if (networkInstance.current) {
-        networkInstance.current.destroy();
-        networkInstance.current = null;
-      }
-    };
-  }, [activeTab, topologyMode, topologyData]);
 
   useEffect(() => {
     setResources([]);
+    setTopologyData({ nodes: [], services: [], deployments: [], pods: [] });
+    setDashboardData(null);
     setLoading(true);
     if (activeTab === 'topology') {
       fetchTopologyData();
@@ -2455,7 +2037,7 @@ function App() {
 
       if (e.key === ':' && !isInput) {
         e.preventDefault();
-        setCmdPaletteSearch(':');
+        setCmdPaletteSearch('');
         setIsCmdPaletteOpen(true);
         return;
       }
@@ -2552,6 +2134,13 @@ function App() {
     if (!isCmdPaletteOpen) {
       setCmdPaletteSearch('');
       setActivePaletteIndex(0);
+    } else {
+      const timer = setTimeout(() => {
+        if (cmdPaletteInputRef.current) {
+          cmdPaletteInputRef.current.focus();
+        }
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [isCmdPaletteOpen]);
 
@@ -2764,6 +2353,16 @@ function App() {
       const total = resource.spec?.replicas || 0;
       return <span className={`badge ${ready === total ? 'ready' : 'pending'}`}>{ready}/{total}</span>;
     }
+    if (activeTab === 'daemonsets') {
+      const ready = resource.status?.numberReady || 0;
+      const desired = resource.status?.desiredNumberScheduled || 0;
+      return <span className={`badge ${ready === desired ? 'ready' : 'pending'}`}>{ready}/{desired}</span>;
+    }
+    if (activeTab === 'statefulsets') {
+      const ready = resource.status?.readyReplicas || 0;
+      const replicas = resource.status?.replicas || 0;
+      return <span className={`badge ${ready === replicas ? 'ready' : 'pending'}`}>{ready}/{replicas}</span>;
+    }
     if (activeTab === 'nodes') {
       const readyCondition = resource.status?.conditions?.find((c: any) => c.type === 'Ready');
       return <span className={`badge ${readyCondition?.status === 'True' ? 'ready' : 'error'}`}>
@@ -2785,7 +2384,12 @@ function App() {
     return <span className="badge ready">Active</span>;
   };
 
-  const getNodeCapacity = (nodeName: string) => {
+  const getNodeCapacity = (nodeName: string, nodeMetric?: any) => {
+    if (nodeMetric && nodeMetric.capacity) {
+      const cpuCap = parseCpu(nodeMetric.capacity.cpu || '1');
+      const memCap = parseMem(nodeMetric.capacity.memory || '1Ki');
+      return { cpu: cpuCap, memory: memCap };
+    }
     const node = resources.find(r => r && r.metadata && r.metadata.name === nodeName) || topologyData.nodes.find(r => r && r.metadata && r.metadata.name === nodeName);
     if (!node) return { cpu: 1, memory: 1 };
     const cpuCap = parseCpu(node.status?.capacity?.cpu || '1');
@@ -2794,65 +2398,13 @@ function App() {
   };
 
   const getNodeUsagePercent = (nodeMetric: any) => {
-    const { cpu, memory } = getNodeCapacity(nodeMetric.metadata.name);
+    const { cpu, memory } = getNodeCapacity(nodeMetric.metadata.name, nodeMetric);
     const cpuUse = parseCpu(nodeMetric.usage?.cpu || '0');
     const memUse = parseMem(nodeMetric.usage?.memory || '0');
     return {
       cpuPercent: Math.min(100, Math.round((cpuUse / cpu) * 100)),
       memPercent: Math.min(100, Math.round((memUse / memory) * 100))
     };
-  };
-
-  const isTopologyItemConnected = (colType: 'node' | 'service' | 'deployment' | 'pod', item: any) => {
-    if (!hoveredTopologyItem) return false;
-    const { type: hType, name: hName, item: hItem } = hoveredTopologyItem;
-    
-    if (hType === colType && hName === item.metadata.name) return true;
-
-    if (hType === 'pod') {
-      if (colType === 'node') return hItem.spec?.nodeName === item.metadata.name;
-      if (colType === 'deployment') return matchesSelector(hItem.metadata?.labels, item.spec?.selector?.matchLabels);
-      if (colType === 'service') return matchesSelector(hItem.metadata?.labels, item.spec?.selector);
-    }
-    
-    if (hType === 'node') {
-      if (colType === 'pod') return item.spec?.nodeName === hName;
-      if (colType === 'deployment' || colType === 'service') {
-        const relatedPods = topologyData.pods.filter(p => p.spec?.nodeName === hName);
-        if (colType === 'deployment') {
-          return relatedPods.some(p => matchesSelector(p.metadata?.labels, item.spec?.selector?.matchLabels));
-        }
-        if (colType === 'service') {
-          return relatedPods.some(p => matchesSelector(p.metadata?.labels, item.spec?.selector));
-        }
-      }
-    }
-    
-    if (hType === 'deployment') {
-      if (colType === 'pod') return matchesSelector(item.metadata?.labels, hItem.spec?.selector?.matchLabels);
-      if (colType === 'node') {
-        const relatedPods = topologyData.pods.filter(p => matchesSelector(p.metadata?.labels, hItem.spec?.selector?.matchLabels));
-        return relatedPods.some(p => p.spec?.nodeName === item.metadata.name);
-      }
-      if (colType === 'service') {
-        const depPods = topologyData.pods.filter(p => matchesSelector(p.metadata?.labels, hItem.spec?.selector?.matchLabels));
-        return depPods.some(p => matchesSelector(p.metadata?.labels, item.spec?.selector));
-      }
-    }
-    
-    if (hType === 'service') {
-      if (colType === 'pod') return matchesSelector(item.metadata?.labels, hItem.spec?.selector);
-      if (colType === 'node') {
-        const relatedPods = topologyData.pods.filter(p => matchesSelector(p.metadata?.labels, hItem.spec?.selector));
-        return relatedPods.some(p => p.spec?.nodeName === item.metadata.name);
-      }
-      if (colType === 'deployment') {
-        const svcPods = topologyData.pods.filter(p => matchesSelector(p.metadata?.labels, hItem.spec?.selector));
-        return svcPods.some(p => matchesSelector(p.metadata?.labels, item.spec?.selector?.matchLabels));
-      }
-    }
-    
-    return false;
   };
 
   const renderSmallSparkline = (points: number[], color: string) => {
@@ -2883,2833 +2435,33 @@ function App() {
     );
   };
 
-  const renderTopologyOverlay = () => {
-    if (!selectedTopologyNode) return null;
-    const parts = selectedTopologyNode.split('-');
-    const type = parts[0];
-    const name = parts.slice(1).join('-');
-    
-    let item: any = null;
-    let category = '';
-    let namespace = selectedNs === 'all' ? 'default' : selectedNs;
-    let actions: { label: string; icon: any; action: () => void }[] = [];
-    
-    if (type === 'pod') {
-      item = topologyData.pods.find(p => p.metadata.name === name);
-      if (item) {
-        category = 'Pod';
-        namespace = item.metadata.namespace;
-        actions = [
-          { label: 'View Logs', icon: <FileText size={12}/>, action: () => setModal({ type: 'logs', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'pods', uid: item.metadata.uid }) },
-          { label: 'Console', icon: <Terminal size={12}/>, action: () => setModal({ type: 'terminal', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'pods', uid: item.metadata.uid }) },
-          { label: 'Files', icon: <FileText size={12}/>, action: () => setModal({ type: 'files', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'pods', uid: item.metadata.uid }) },
-          { label: 'Smart Doctor', icon: <span>🩺</span>, action: () => handleOpenDiagnostics(item.metadata.name, item.metadata.namespace) },
-          { label: 'View YAML', icon: <Settings size={12}/>, action: () => setModal({ type: 'yaml', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'pods', uid: item.metadata.uid }) }
-        ];
-      }
-    } else if (type === 'deployment') {
-      item = topologyData.deployments.find(d => d.metadata.name === name);
-      if (item) {
-        category = 'Deployment';
-        namespace = item.metadata.namespace;
-        actions = [
-          { label: 'View YAML', icon: <Settings size={12}/>, action: () => setModal({ type: 'yaml', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'deployments', uid: item.metadata.uid }) },
-          { label: 'Restart Rollout', icon: <RefreshCw size={12}/>, action: () => handleRestart(item.metadata.name, item.metadata.namespace) },
-          { label: 'Scale Replicas', icon: <SlidersHorizontal size={12}/>, action: () => handleScale(item.metadata.name, item.metadata.namespace, item.spec?.replicas || 0) }
-        ];
-      }
-    } else if (type === 'service') {
-      item = topologyData.services.find(s => s.metadata.name === name);
-      if (item) {
-        category = 'Service';
-        namespace = item.metadata.namespace;
-        actions = [
-          { label: 'View YAML', icon: <Settings size={12}/>, action: () => setModal({ type: 'yaml', name: item.metadata.name, namespace: item.metadata.namespace, kind: 'services', uid: item.metadata.uid }) },
-          { label: 'Website', icon: <Globe size={12}/>, action: () => handleOpenServiceWebsite(item) }
-        ];
-      }
-    } else if (type === 'node') {
-      item = topologyData.nodes.find(n => n.metadata.name === name);
-      if (item) {
-        category = 'Node';
-        namespace = 'Cluster Scope';
-        actions = [
-          { label: 'View YAML', icon: <Settings size={12}/>, action: () => setModal({ type: 'yaml', name: item.metadata.name, namespace: 'default', kind: 'nodes', uid: item.metadata.uid }) }
-        ];
-      }
-    }
-    
-    if (!item) return null;
-    
-    return (
-      <div style={{
-        position: 'absolute',
-        bottom: 12,
-        left: 12,
-        background: 'rgba(7, 7, 7, 0.9)',
-        backdropFilter: 'blur(12px)',
-        border: '1px solid var(--accent-blue)',
-        borderRadius: 'var(--radius-md)',
-        padding: '12px 16px',
-        zIndex: 20,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.8), 0 0 10px rgba(59, 130, 246, 0.2)',
-        width: '260px',
-        animation: 'slide-in-up 0.2s ease-out'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '6px' }}>
-          <div>
-            <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--accent-blue)', fontWeight: 600 }}>{category} ({namespace})</div>
-            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', wordBreak: 'break-all', marginTop: 2 }}>{item.metadata.name}</div>
-          </div>
-          <button 
-            className="btn btn-icon" 
-            style={{ padding: 4 }}
-            onClick={() => setSelectedTopologyNode(null)}
-          >
-            <X size={14} />
-          </button>
-        </div>
-        
-        {category === 'Pod' && (
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Status: <span className={`status-dot ${item.status?.phase?.toLowerCase()}`} style={{ marginRight: 6 }}></span>
-            <span style={{ color: 'var(--text-main)' }}>{item.status?.phase}</span>
-          </div>
-        )}
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
-          {actions.map((act, idx) => (
-            <button
-              key={idx}
-              className="btn btn-sm btn-secondary"
-              style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-start', padding: '6px 10px', fontSize: '0.75rem' }}
-              onClick={act.action}
-            >
-              {act.icon}
-              <span>{act.label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
+  const fetchScannerConfig = () => {
+    fetch('/api/security/scanner/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data && typeof data.enableAutoScan === 'boolean') {
+          setEnableAutoScan(data.enableAutoScan);
+        }
+      })
+      .catch(console.error);
   };
 
-  const renderTopologyView = () => {
-    if (topologyMode === 'graph') {
-      return (
-        <div className="topology-container animate-fade-in" style={{ height: 'calc(100vh - 280px)', position: 'relative' }}>
-          <div 
-            ref={graphRef} 
-            className="topology-graph-canvas" 
-            style={{ 
-              width: '100%', 
-              height: '100%', 
-              background: '#070707', 
-              border: '1px solid var(--border-color)', 
-              borderRadius: 'var(--radius-lg)',
-              position: 'relative',
-              overflow: 'hidden'
-            }} 
-          />
-          {/* Visual Graph Legend */}
-          <div style={{
-            position: 'absolute',
-            top: 12,
-            left: 12,
-            background: 'rgba(7, 7, 7, 0.85)',
-            backdropFilter: 'blur(8px)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md)',
-            padding: '12px 16px',
-            zIndex: 10,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-            fontSize: '0.75rem',
-            width: '160px',
-            pointerEvents: 'none'
-          }}>
-            <div style={{ fontWeight: 600, color: '#fff', marginBottom: '4px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '4px', letterSpacing: '0.5px', fontSize: '0.8rem' }}>GRAPH LEGEND</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-              <div style={{ width: '12px', height: '12px', background: '#0a0a0a', border: '2px solid #3b82f6', borderRadius: 'var(--radius-sm)' }} />
-              <span>Node</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-              <div style={{ width: '12px', height: '12px', background: '#0a0a0a', border: '2px solid #8b5cf6', borderRadius: '50%' }} />
-              <span>Deployment</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-              <svg viewBox="0 0 100 100" width="12" height="12" style={{ display: 'block', flexShrink: 0 }}>
-                <polygon points="50,5 95,28 95,72 50,95 5,72 5,28" fill="#0a0a0a" stroke="#60a5fa" strokeWidth="15" />
-              </svg>
-              <span>Service</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-              <div style={{ width: '8px', height: '8px', background: '#0a0a0a', border: '2px solid #3b82f6', borderRadius: '50%' }} />
-              <span>Pod (Running)</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-              <div style={{ width: '8px', height: '8px', background: '#0a0a0a', border: '2px solid #10b981', borderRadius: '50%' }} />
-              <span>Pod (Succeeded)</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-              <div style={{ width: '8px', height: '8px', background: '#0a0a0a', border: '2px solid #ffb800', borderRadius: '50%' }} />
-              <span>Pod (Pending)</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-              <div style={{ width: '8px', height: '8px', background: '#0a0a0a', border: '2px solid #ef4444', borderRadius: '50%' }} />
-              <span>Pod (Failed)</span>
-            </div>
-          </div>
-          <div style={{ position: 'absolute', bottom: 12, right: 12, fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.6)', padding: '4px 8px', borderRadius: 4, zIndex: 10, pointerEvents: 'none' }}>
-            Click a node for actions | Double-click to inspect
-          </div>
-          {renderTopologyOverlay()}
-        </div>
-      );
+  const handleToggleAutoScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const enabled = e.target.checked;
+    setEnableAutoScan(enabled);
+    try {
+      await fetch('/api/security/scanner/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enableAutoScan: enabled })
+      });
+    } catch (err) {
+      console.error('Failed to update scanner config:', err);
     }
-
-    return (
-      <div className="topology-container animate-fade-in">
-        <div className="topology-layout">
-          {/* Column 1: Nodes */}
-          <div className="topology-col">
-            <div className="topology-col-title">Nodes ({topologyData.nodes.length})</div>
-            {topologyData.nodes.map(node => {
-              const isActive = hoveredTopologyItem ? isTopologyItemConnected('node', node) : false;
-              const metric = nodeMetrics.find(nm => nm.metadata.name === node.metadata.name);
-              const { cpuPercent, memPercent } = metric ? getNodeUsagePercent(metric) : { cpuPercent: 0, memPercent: 0 };
-              
-              return (
-                <div 
-                  key={node.metadata.uid} 
-                  className={`topology-card ${isActive ? 'active' : ''}`}
-                  onMouseEnter={() => setHoveredTopologyItem({ type: 'node', name: node.metadata.name, item: node })}
-                  onMouseLeave={() => setHoveredTopologyItem(null)}
-                >
-                  <div className="topology-card-title">{node.metadata.name}</div>
-                  <div className="topology-card-subtitle">
-                    Version: {node.status?.nodeInfo?.kubeletVersion}<br/>
-                    OS: {node.status?.nodeInfo?.operatingSystem}
-                  </div>
-                  {metric && (
-                    <div style={{ marginTop: 8 }}>
-                      <div className="metric-bar-wrapper" title={`CPU Usage: ${cpuPercent}%`}>
-                        <div className="metric-bar-fill normal" style={{ width: `${cpuPercent}%`, background: 'var(--accent-cyan)' }}></div>
-                      </div>
-                      <div className="metric-bar-wrapper" style={{ marginTop: 4 }} title={`Memory Usage: ${memPercent}%`}>
-                        <div className="metric-bar-fill normal" style={{ width: `${memPercent}%`, background: 'var(--accent-purple)' }}></div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Column 2: Services */}
-          <div className="topology-col">
-            <div className="topology-col-title">Services ({topologyData.services.length})</div>
-            {topologyData.services.map(svc => {
-              const isActive = hoveredTopologyItem ? isTopologyItemConnected('service', svc) : false;
-              
-              return (
-                <div 
-                  key={svc.metadata.uid} 
-                  className={`topology-card ${isActive ? 'active' : ''}`}
-                  onMouseEnter={() => setHoveredTopologyItem({ type: 'service', name: svc.metadata.name, item: svc })}
-                  onMouseLeave={() => setHoveredTopologyItem(null)}
-                  onClick={() => setModal({ type: 'yaml', name: svc.metadata.name, namespace: selectedNs, kind: 'services', uid: svc.metadata.uid })}
-                >
-                  <div className="topology-card-title">{svc.metadata.name}</div>
-                  <div className="topology-card-subtitle">
-                    Type: {svc.spec?.type}<br/>
-                    IP: {svc.spec?.clusterIP}<br/>
-                    Port: {svc.spec?.ports?.[0]?.port}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Column 3: Deployments */}
-          <div className="topology-col">
-            <div className="topology-col-title">Deployments ({topologyData.deployments.length})</div>
-            {topologyData.deployments.map(dep => {
-              const isActive = hoveredTopologyItem ? isTopologyItemConnected('deployment', dep) : false;
-              
-              return (
-                <div 
-                  key={dep.metadata.uid} 
-                  className={`topology-card ${isActive ? 'active' : ''}`}
-                  onMouseEnter={() => setHoveredTopologyItem({ type: 'deployment', name: dep.metadata.name, item: dep })}
-                  onMouseLeave={() => setHoveredTopologyItem(null)}
-                  onClick={() => setModal({ type: 'yaml', name: dep.metadata.name, namespace: selectedNs, kind: 'deployments', uid: dep.metadata.uid })}
-                >
-                  <div className="topology-card-title">{dep.metadata.name}</div>
-                  <div className="topology-card-subtitle">
-                    Replicas: {dep.status?.readyReplicas || 0}/{dep.spec?.replicas || 0}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Column 4: Pods */}
-          <div className="topology-col">
-            <div className="topology-col-title">Pods ({topologyData.pods.length})</div>
-            {topologyData.pods.map(pod => {
-              const isActive = hoveredTopologyItem ? isTopologyItemConnected('pod', pod) : false;
-              const status = pod.status?.phase?.toLowerCase() || 'unknown';
-              const metric = podMetrics.find(pm => pm.metadata.name === pod.metadata.name && pm.metadata.namespace === pod.metadata.namespace);
-              let cpuUsage = 0;
-              let memUsage = 0;
-              metric?.containers?.forEach((c: any) => {
-                cpuUsage += parseCpu(c.usage?.cpu || '0');
-                memUsage += parseMem(c.usage?.memory || '0');
-              });
-
-              return (
-                <div 
-                  key={pod.metadata.uid} 
-                  className={`topology-card ${isActive ? 'active' : ''}`}
-                  onMouseEnter={() => setHoveredTopologyItem({ type: 'pod', name: pod.metadata.name, item: pod })}
-                  onMouseLeave={() => setHoveredTopologyItem(null)}
-                  onClick={() => setModal({ type: 'yaml', name: pod.metadata.name, namespace: selectedNs, kind: 'pods', uid: pod.metadata.uid })}
-                >
-                  <div className="topology-card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pod.metadata.name}</span>
-                    <button 
-                      className="btn btn-icon btn-sm" 
-                      style={{ padding: 2, minHeight: 'auto', background: 'transparent', border: 'none' }}
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        handleOpenDiagnostics(pod.metadata.name, pod.metadata.namespace || selectedNs); 
-                      }}
-                      title="Run Pod Diagnostics"
-                    >
-                      🩺
-                    </button>
-                  </div>
-                  <div className="topology-card-subtitle">
-                    Status: <span className={`badge ${status}`} style={{ fontSize: '0.65rem', padding: '0px 4px' }}>{status}</span><br/>
-                    Node: {pod.spec?.nodeName}
-                  </div>
-                  {metric && (
-                    <div style={{ marginTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                      CPU: {cpuUsage < 1 ? (cpuUsage * 1000).toFixed(0) + 'm' : cpuUsage.toFixed(1) + 'c'} | RAM: {(memUsage / (1024 * 1024)).toFixed(0)}MB
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderPodStatusDoughnut = (phases: { running: number, pending: number, succeeded: number, failed: number }) => {
-    const total = phases.running + phases.pending + phases.succeeded + phases.failed;
-    if (total === 0) {
-      return <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>No active Pods in namespace</div>;
-    }
-    const r = 40;
-    const circ = 2 * Math.PI * r; // 251.3
-    
-    const runPct = phases.running / total;
-    const penPct = phases.pending / total;
-    const failPct = phases.failed / total;
-    const succPct = phases.succeeded / total;
-    
-    const runOffset = 0;
-    const penOffset = runPct * circ;
-    const failOffset = (runPct + penPct) * circ;
-    const succOffset = (runPct + penPct + failPct) * circ;
-    
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 24, justifyContent: 'center' }}>
-        <svg width="130" height="130" viewBox="0 0 120 120">
-          <defs>
-            <filter id="doughnutGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-          <circle cx="60" cy="60" r={r} fill="transparent" stroke="var(--border-color)" strokeWidth="12" />
-          
-          {phases.running > 0 && (
-            <circle cx="60" cy="60" r={r} fill="transparent" 
-              stroke="var(--accent-green)" 
-              strokeWidth="12" 
-              strokeDasharray={`${runPct * circ} ${circ}`} 
-              strokeDashoffset={-runOffset} 
-              transform="rotate(-90 60 60)"
-              filter="url(#doughnutGlow)"
-            />
-          )}
-          
-          {phases.pending > 0 && (
-            <circle cx="60" cy="60" r={r} fill="transparent" 
-              stroke="var(--accent-warning)" 
-              strokeWidth="12" 
-              strokeDasharray={`${penPct * circ} ${circ}`} 
-              strokeDashoffset={-penOffset} 
-              transform="rotate(-90 60 60)"
-              filter="url(#doughnutGlow)"
-            />
-          )}
-          
-          {phases.failed > 0 && (
-            <circle cx="60" cy="60" r={r} fill="transparent" 
-              stroke="var(--accent-error)" 
-              strokeWidth="12" 
-              strokeDasharray={`${failPct * circ} ${circ}`} 
-              strokeDashoffset={-failOffset} 
-              transform="rotate(-90 60 60)"
-              filter="url(#doughnutGlow)"
-            />
-          )}
-          
-          {phases.succeeded > 0 && (
-            <circle cx="60" cy="60" r={r} fill="transparent" 
-              stroke="var(--accent-blue)" 
-              strokeWidth="12" 
-              strokeDasharray={`${succPct * circ} ${circ}`} 
-              strokeDashoffset={-succOffset} 
-              transform="rotate(-90 60 60)"
-              filter="url(#doughnutGlow)"
-            />
-          )}
-          
-          <text x="60" y="58" textAnchor="middle" dy="0.3em" className="circular-gauge-text" style={{ fontSize: '1.2rem' }}>
-            {total}
-          </text>
-          <text x="60" y="78" textAnchor="middle" className="circular-gauge-label" style={{ fontSize: '0.55rem' }}>
-            Pods Total
-          </text>
-        </svg>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.8rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-green)', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)', width: 65 }}>Running:</span>
-            <span style={{ fontWeight: 600 }}>{phases.running} ({Math.round(runPct * 100)}%)</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-warning)', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)', width: 65 }}>Pending:</span>
-            <span style={{ fontWeight: 600 }}>{phases.pending} ({Math.round(penPct * 100)}%)</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-error)', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)', width: 65 }}>Failed:</span>
-            <span style={{ fontWeight: 600 }}>{phases.failed} ({Math.round(failPct * 100)}%)</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-blue)', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)', width: 65 }}>Succeeded:</span>
-            <span style={{ fontWeight: 600 }}>{phases.succeeded} ({Math.round(succPct * 100)}%)</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderResourceBarChart = (counts: any) => {
-    const data = [
-      { name: 'Pods', value: counts.pods || 0, color: 'var(--accent-green)' },
-      { name: 'Deploys', value: counts.deployments || 0, color: 'var(--accent-cyan)' },
-      { name: 'Services', value: counts.services || 0, color: 'var(--accent-blue)' },
-      { name: 'Configs', value: (counts.configmaps || 0) + (counts.secrets || 0), color: 'var(--accent-purple)' },
-      { name: 'Helm', value: counts.helmreleases || 0, color: 'var(--accent-pink)' },
-      { name: 'Zarf', value: counts.zarfpackages || 0, color: 'var(--accent-warning)' },
-    ];
-    
-    const maxVal = Math.max(...data.map(d => d.value), 1);
-    const chartHeight = 100;
-    
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-        <div style={{ display: 'flex', height: chartHeight, alignItems: 'flex-end', gap: 16, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
-          {data.map(d => {
-            const barHeight = Math.max(4, Math.round((d.value / maxVal) * chartHeight));
-            return (
-              <div key={d.name} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, height: '100%', justifyContent: 'flex-end' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: 2 }}>{d.value}</div>
-                <div 
-                  style={{ 
-                    width: '100%', 
-                    height: barHeight, 
-                    background: d.color, 
-                    borderRadius: '2px 2px 0 0',
-                    boxShadow: `0 0 10px ${d.color}33`,
-                    transition: 'height 1s ease-out'
-                  }} 
-                />
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ display: 'flex', gap: 16 }}>
-          {data.map(d => (
-            <div key={d.name} style={{ flex: 1, textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              {d.name}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const renderSparkline = (history: number[], color: string) => {
-    let activeHistory = [...history];
-    if (activeHistory.length === 0) {
-      activeHistory = [30, 32, 28, 35, 42, 38, 45, 41, 48, 52, 47, 50, 48, 55, 62, 58, 65, 60, 68, 62];
-    }
-    const width = 300;
-    const height = 100;
-    const maxVal = 100;
-    const pad = 5;
-    
-    const points = activeHistory.map((val, idx) => {
-      const x = pad + (idx * (width - 2 * pad)) / (activeHistory.length - 1 || 1);
-      const y = height - pad - (val / maxVal) * (height - 2 * pad);
-      return `${x},${y}`;
-    }).join(' ');
-    
-    const areaPoints = `${pad},${height - pad} ${points} ${width - pad},${height - pad}`;
-    
-    return (
-      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
-        <defs>
-          <linearGradient id={`areaGlow-${color}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.15" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-          <filter id={`lineGlow-${color}`} x="-10%" y="-10%" width="120%" height="120%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        <polygon points={areaPoints} fill={`url(#areaGlow-${color})`} />
-        <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
-        <polyline 
-          fill="none" 
-          stroke={color} 
-          strokeWidth="2.5" 
-          points={points} 
-          filter={`url(#lineGlow-${color})`}
-        />
-        {activeHistory.length > 0 && (() => {
-          const lastVal = activeHistory[activeHistory.length - 1];
-          const x = width - pad;
-          const y = height - pad - (lastVal / maxVal) * (height - 2 * pad);
-          return (
-            <circle cx={x} cy={y} r="4" fill={color} stroke="var(--bg-main)" strokeWidth="1" />
-          );
-        })()}
-      </svg>
-    );
-  };
-
-  const renderDashboardView = () => {
-    if (!dashboardData) return <div className="loader-container"><div className="loader"></div></div>;
-    if ('error' in (dashboardData as any)) {
-      return (
-        <div style={{ padding: '32px', color: 'var(--accent-error)', fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 600 }}>Failed to Load Dashboard Stats</h2>
-          <div style={{ background: 'rgba(238, 0, 0, 0.05)', border: '1px solid rgba(238, 0, 0, 0.2)', padding: '16px', borderRadius: '6px', fontSize: '0.9rem' }}>
-            {(dashboardData as any).error}
-          </div>
-        </div>
-      );
-    }
-    
-    const { counts, podPhases, resources: dashboardRes } = dashboardData;
-    
-    const cpuPct = dashboardRes?.cpuPct || 0;
-    const memPct = dashboardRes?.memPct || 0;
-    const cpuUse = dashboardRes?.cpuUse || 0;
-    const cpuCap = dashboardRes?.cpuCap || 0;
-    const memUse = dashboardRes?.memUse || 0;
-    const memCap = dashboardRes?.memCap || 0;
-    
-    const formattedMemUse = (memUse / (1024 * 1024 * 1024)).toFixed(1);
-    const formattedMemCap = (memCap / (1024 * 1024 * 1024)).toFixed(1);
-    
-    return (
-      <div className="dashboard-container animate-fade-in">
-        {/* Welcome Hero Banner */}
-        <div style={{
-          background: 'linear-gradient(135deg, rgba(13, 27, 42, 0.45) 0%, rgba(27, 38, 59, 0.2) 100%)',
-          border: '1px solid rgba(255, 255, 255, 0.05)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '24px 32px',
-          marginBottom: '24px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '24px',
-          position: 'relative',
-          overflow: 'hidden',
-          boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.25)'
-        }}>
-          {/* Subtle background glow */}
-          <div style={{
-            position: 'absolute',
-            top: '-50%',
-            right: '-10%',
-            width: '300px',
-            height: '300px',
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(96, 165, 250, 0.12) 0%, transparent 70%)',
-            filter: 'blur(30px)',
-            pointerEvents: 'none'
-          }} />
-          
-          <div style={{ flex: 1, zIndex: 1 }}>
-            <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#fff', marginBottom: '8px', letterSpacing: '-0.5px' }}>
-              Welcome to Periscope
-            </h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5', maxWidth: '620px', margin: 0 }}>
-              Interactive control plane for Kubernetes clusters and Zarf package deployments. 
-              Monitor metrics, trace topologies, execute terminal commands, manage Helm charts, and explore container files instantly.
-            </p>
-            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
-              <button className="btn btn-primary btn-sm" onClick={() => { setActiveTab('topology'); setSearch(''); }} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Activity size={12} /> Open Topology Graph
-              </button>
-              <button className="btn btn-sm" onClick={() => setIsCmdPaletteOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
-                <Command size={12} /> Command Palette
-              </button>
-            </div>
-          </div>
-          
-          <div style={{ width: '220px', height: '125px', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', position: 'relative', zIndex: 1, flexShrink: 0, boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
-            <img 
-              src="/periscope_hero.png" 
-              alt="Periscope Cluster View" 
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-            />
-          </div>
-        </div>
-
-        <div className="dashboard-row">
-          <div className="dashboard-chart-card" style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ width: '100%', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 16, fontWeight: 600, letterSpacing: 0.5 }}>CLUSTER CPU UTILIZATION</div>
-            <svg width="140" height="140" viewBox="0 0 120 120">
-              <defs>
-                <linearGradient id="cpuGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="var(--accent-cyan)" />
-                  <stop offset="100%" stopColor="var(--accent-blue)" />
-                </linearGradient>
-                <filter id="cpuGlow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="4" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-              <circle cx="60" cy="60" r="45" fill="transparent" stroke="var(--border-color)" strokeWidth="8" />
-              <circle cx="60" cy="60" r="45" fill="transparent" 
-                stroke="url(#cpuGradient)" 
-                strokeWidth="8" 
-                strokeDasharray="282.7" 
-                strokeDashoffset={282.7 - (282.7 * cpuPct) / 100} 
-                transform="rotate(-90 60 60)"
-                filter="url(#cpuGlow)"
-                strokeLinecap="round"
-                style={{ transition: 'stroke-dashoffset 1s ease-out' }}
-              />
-              <text x="60" y="58" textAnchor="middle" dy="0.3em" className="circular-gauge-text">
-                {cpuPct}%
-              </text>
-              <text x="60" y="78" textAnchor="middle" className="circular-gauge-label">
-                {cpuUse.toFixed(1)} / {cpuCap.toFixed(0)} Cores
-              </text>
-            </svg>
-          </div>
-          
-          <div className="dashboard-chart-card" style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ width: '100%', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 16, fontWeight: 600, letterSpacing: 0.5 }}>CLUSTER RAM UTILIZATION</div>
-            <svg width="140" height="140" viewBox="0 0 120 120">
-              <defs>
-                <linearGradient id="memGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="var(--accent-purple)" />
-                  <stop offset="100%" stopColor="var(--accent-pink)" />
-                </linearGradient>
-                <filter id="memGlow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="4" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-              <circle cx="60" cy="60" r="45" fill="transparent" stroke="var(--border-color)" strokeWidth="8" />
-              <circle cx="60" cy="60" r="45" fill="transparent" 
-                stroke="url(#memGradient)" 
-                strokeWidth="8" 
-                strokeDasharray="282.7" 
-                strokeDashoffset={282.7 - (282.7 * memPct) / 100} 
-                transform="rotate(-90 60 60)"
-                filter="url(#memGlow)"
-                strokeLinecap="round"
-                style={{ transition: 'stroke-dashoffset 1s ease-out' }}
-              />
-              <text x="60" y="58" textAnchor="middle" dy="0.3em" className="circular-gauge-text">
-                {memPct}%
-              </text>
-              <text x="60" y="78" textAnchor="middle" className="circular-gauge-label">
-                {formattedMemUse} / {formattedMemCap} GB
-              </text>
-            </svg>
-          </div>
-        </div>
-
-        <div className="dashboard-charts-grid">
-          <div className="dashboard-chart-card">
-            <div className="dashboard-chart-title">
-              CPU UTILIZATION TIMELINE
-              <span className="dashboard-chart-subtitle">LIVE LOAD SPARKLINE</span>
-            </div>
-            {renderSparkline(cpuHistory, 'var(--accent-cyan)')}
-          </div>
-
-          <div className="dashboard-chart-card">
-            <div className="dashboard-chart-title">
-              MEMORY UTILIZATION TIMELINE
-              <span className="dashboard-chart-subtitle">HISTORICAL GRAPH</span>
-            </div>
-            {renderSparkline(memHistory, 'var(--accent-purple)')}
-          </div>
-        </div>
-
-        <div className="dashboard-charts-grid">
-          <div className="dashboard-chart-card">
-            <div className="dashboard-chart-title">POD WORKLOAD STATUSES</div>
-            {renderPodStatusDoughnut(podPhases)}
-          </div>
-          
-          <div className="dashboard-chart-card">
-            <div className="dashboard-chart-title">NAMESPACE RESOURCE TOTALS</div>
-            {renderResourceBarChart(counts)}
-          </div>
-        </div>
-
-        <div>
-          <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>QUICK ACTION CONSOLE</h2>
-          <div className="dashboard-quick-actions">
-            <div className="quick-action-btn" onClick={() => setActiveTab('pods')}>
-              <Box size={24} style={{ color: 'var(--accent-green)' }} />
-              <span>Inspect Workloads</span>
-            </div>
-            <div className="quick-action-btn" onClick={() => setActiveTab('topology')}>
-              <Activity size={24} style={{ color: 'var(--accent-cyan)' }} />
-              <span>Topology Maps</span>
-            </div>
-            <div className="quick-action-btn" onClick={() => setActiveTab('helm')}>
-              <Package size={24} style={{ color: 'var(--accent-pink)' }} />
-              <span>Helm Deployer</span>
-            </div>
-            {zarfStatus.installed && (
-              <div className="quick-action-btn" onClick={() => setActiveTab('zarf')}>
-                <Package size={24} style={{ color: 'var(--accent-warning)' }} />
-                <span>Zarf Console</span>
-              </div>
-            )}
-            <div className="quick-action-btn" onClick={() => setIsCmdPaletteOpen(true)}>
-              <Command size={24} style={{ color: 'var(--accent-purple)' }} />
-              <span>Command Palette</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
   };
 
   // We need this state as well
   const [selectedHelmRelease, setSelectedHelmRelease] = useState<{name: string, namespace: string} | null>(null);
-
-  const renderHelmReleasesView = () => {
-    return (
-      <div className="helm-releases-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Active Releases ({filteredResources.length})</h3>
-        {filteredResources.length === 0 ? (
-          <div style={{ color: 'var(--text-muted)', padding: '20px 0', border: '1px dashed var(--border-color)', borderRadius: 8, textAlign: 'center' }}>
-            No Helm releases found in this namespace/cluster.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {filteredResources.filter((res: any) => res && res.metadata && res.metadata.uid?.startsWith('helm-')).map((res: any) => {
-              const name = res.metadata.name;
-              const ns = res.metadata.namespace;
-              const status = res.status?.phase || 'unknown';
-              const isSelected = selectedHelmRelease?.name === name && selectedHelmRelease?.namespace === ns;
-              
-              return (
-                <div 
-                  key={res.metadata.uid}
-                  className={`resource-row ${isSelected ? 'active' : ''}`}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 12,
-                    padding: '16px 20px',
-                    background: 'rgba(255,255,255,0.02)',
-                    border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border-color)'}`,
-                    borderRadius: 8,
-                    alignItems: 'stretch'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-main)' }}>{name}</span>
-                        <span className={`badge ${status.toLowerCase() === 'deployed' ? 'ready' : 'error'}`}>{status}</span>
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        Chart: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{res.chart}</span>
-                        Rev: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{res.revision}</span>
-                        App Version: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{res.appVersion || 'N/A'}</span>
-                        NS: <span style={{ color: 'var(--text-main)' }}>{ns}</span>
-                      </div>
-                    </div>
-                    
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button 
-                        className="btn"
-                        onClick={() => {
-                          if (isSelected) {
-                            setSelectedHelmRelease(null);
-                          } else {
-                            setSelectedHelmRelease({ name, namespace: ns });
-                            fetchHelmInspect(ns, name, helmInspectTab);
-                          }
-                        }}
-                      >
-                        <Search size={14} /> {isSelected ? 'Close Details' : 'Inspect'}
-                      </button>
-                      <button 
-                        className="btn"
-                        onClick={() => setModal({ type: 'history', name, namespace: ns, kind: 'helm', uid: res.metadata.uid })}
-                      >
-                        <RefreshCw size={14} /> History
-                      </button>
-                      <button 
-                        className="btn btn-danger"
-                        onClick={() => handleDelete(res)}
-                      >
-                        <Trash2 size={14} /> Uninstall
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Release Inspect Panel */}
-                  {isSelected && (
-                    <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {/* Inspect tabs */}
-                      <div style={{ display: 'flex', gap: 12, borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 8 }}>
-                        {(['values', 'manifest', 'notes'] as const).map((t) => (
-                          <button 
-                            key={t}
-                            className={`btn ${helmInspectTab === t ? 'btn-primary' : ''}`}
-                            style={{ padding: '4px 8px', fontSize: '0.8rem' }}
-                            onClick={() => {
-                              setHelmInspectTab(t);
-                              fetchHelmInspect(ns, name, t);
-                            }}
-                          >
-                            {t.charAt(0).toUpperCase() + t.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Inspector output */}
-                      {isFetchingHelmInspect ? (
-                        <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)' }}>Fetching release details...</div>
-                      ) : helmInspectTab === 'values' ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Upgrade Chart Reference (e.g. bitnami/nginx or chart name)</label>
-                              <input
-                                type="text"
-                                className="exec-input"
-                                style={{ padding: '6px 10px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, fontSize: '0.85rem' }}
-                                value={helmUpgradeChartRef}
-                                onChange={e => setHelmUpgradeChartRef(e.target.value)}
-                                placeholder="e.g. bitnami/nginx"
-                              />
-                            </div>
-                            <button
-                              className="btn btn-primary"
-                              onClick={() => handleHelmUpgrade(name, ns)}
-                              disabled={isUpgradingHelm}
-                              style={{ padding: '6px 12px', fontSize: '0.85rem' }}
-                            >
-                              {isUpgradingHelm ? 'Upgrading...' : 'Upgrade Release'}
-                            </button>
-                          </div>
-                          <textarea
-                            style={{
-                              padding: '12px 16px',
-                              background: 'var(--bg-main)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: 6,
-                              height: 250,
-                              fontFamily: 'var(--font-mono)',
-                              fontSize: '0.85rem',
-                              color: 'var(--text-main)',
-                              resize: 'vertical'
-                            }}
-                            value={helmUpgradeValues}
-                            onChange={e => setHelmUpgradeValues(e.target.value)}
-                            placeholder="# Enter values overrides here"
-                          />
-                        </div>
-                      ) : (
-                        <pre 
-                          className="code-block"
-                          style={{
-                            background: 'var(--bg-main)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: 6,
-                            padding: '12px 16px',
-                            fontSize: '0.85rem',
-                            maxHeight: 300,
-                            overflowY: 'auto',
-                            fontFamily: 'var(--font-mono)',
-                            color: 'var(--text-main)',
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-all'
-                          }}
-                        >
-                          {helmInspectData || 'No data returned.'}
-                        </pre>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderHelmInstallView = () => {
-    return (
-      <div className="helm-install-view animate-fade-in" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-        <h3 style={{ fontSize: '1.1rem', marginBottom: 16 }}>Deploy Repository Chart</h3>
-        <form onSubmit={handleCustomHelmInstall} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Release Name</label>
-              <input 
-                type="text"
-                className="exec-input"
-                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                value={helmCustomInstall.releaseName}
-                onChange={e => setHelmCustomInstall(prev => ({ ...prev, releaseName: e.target.value }))}
-                placeholder="e.g. my-nginx"
-                required
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Namespace</label>
-              <input 
-                type="text"
-                className="exec-input"
-                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                value={helmCustomInstall.namespace}
-                onChange={e => setHelmCustomInstall(prev => ({ ...prev, namespace: e.target.value }))}
-                placeholder="e.g. default"
-                required
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Chart Repository</label>
-              <input 
-                type="text"
-                className="exec-input"
-                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                value={helmCustomInstall.repo}
-                onChange={e => setHelmCustomInstall(prev => ({ ...prev, repo: e.target.value }))}
-                placeholder="e.g. bitnami"
-                required
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Chart Name</label>
-              <input 
-                type="text"
-                className="exec-input"
-                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                value={helmCustomInstall.chartName}
-                onChange={e => setHelmCustomInstall(prev => ({ ...prev, chartName: e.target.value }))}
-                placeholder="e.g. nginx"
-                required
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Version (Optional)</label>
-              <input 
-                type="text"
-                className="exec-input"
-                style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                value={helmCustomInstall.version}
-                onChange={e => setHelmCustomInstall(prev => ({ ...prev, version: e.target.value }))}
-                placeholder="e.g. 15.2.3"
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Custom values.yaml (Optional)</label>
-            <textarea 
-              style={{ 
-                padding: '12px 16px', 
-                background: 'var(--bg-main)', 
-                border: '1px solid var(--border-color)', 
-                borderRadius: 4, 
-                height: 150, 
-                fontFamily: 'var(--font-mono)', 
-                fontSize: '0.85rem',
-                color: 'var(--text-main)',
-                resize: 'vertical'
-              }}
-              value={helmCustomInstall.valuesYaml}
-              onChange={e => setHelmCustomInstall(prev => ({ ...prev, valuesYaml: e.target.value }))}
-              placeholder="# Enter values.yaml overrides here"
-            />
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
-            <button type="button" className="btn" onClick={() => setActiveTab('helm')} disabled={isSubmittingHelmDeploy}>
-              Cancel
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={isSubmittingHelmDeploy}>
-              {isSubmittingHelmDeploy ? 'Deploying...' : 'Deploy'}
-            </button>
-          </div>
-        </form>
-      </div>
-    );
-  };
-
-  const renderHelmReposView = () => {
-    return (
-      <div className="helm-repos-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Configured Repositories</h3>
-            <button className="btn" onClick={handleUpdateHelmRepos} disabled={isSubmittingHelmRepo}>
-              <RefreshCw size={14} /> Update Repos
-            </button>
-          </div>
-
-          {helmRepos.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '16px 0' }}>No chart repositories configured.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {helmRepos.map((r: any) => (
-                <div 
-                  key={r.name} 
-                  style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center', 
-                    padding: '10px 14px', 
-                    background: 'rgba(255,255,255,0.02)', 
-                    border: '1px solid var(--border-color)', 
-                    borderRadius: 6 
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{r.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.url}</div>
-                  </div>
-                  <button className="btn btn-danger" style={{ padding: '4px 8px' }} onClick={() => handleRemoveHelmRepo(r.name)}>
-                    <Trash2 size={12} /> Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <form onSubmit={handleAddHelmRepo} style={{ display: 'flex', gap: 12, marginTop: 16, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
-            <input 
-              type="text" 
-              placeholder="Repo Name (e.g. bitnami)" 
-              className="exec-input" 
-              style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-              value={newHelmRepo.name}
-              onChange={e => setNewHelmRepo(prev => ({ ...prev, name: e.target.value }))}
-              disabled={isSubmittingHelmRepo}
-            />
-            <input 
-              type="text" 
-              placeholder="URL (e.g. https://charts.bitnami.com/bitnami)" 
-              className="exec-input" 
-              style={{ flex: 2, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-              value={newHelmRepo.url}
-              onChange={e => setNewHelmRepo(prev => ({ ...prev, url: e.target.value }))}
-              disabled={isSubmittingHelmRepo}
-            />
-            <button type="submit" className="btn btn-primary" disabled={isSubmittingHelmRepo}>
-              Add Repo
-            </button>
-          </form>
-        </div>
-
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <h3 style={{ fontSize: '1.1rem', marginBottom: 16 }}>Search Repository Charts</h3>
-          <form onSubmit={handleSearchHelmRepo} style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-            <input 
-              type="text" 
-              placeholder="Search query (e.g. nginx, redis...)" 
-              className="exec-input" 
-              style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-              value={helmSearchQuery}
-              onChange={e => setHelmSearchQuery(e.target.value)}
-            />
-            <button type="submit" className="btn btn-primary" disabled={isSearchingHelm}>
-              {isSearchingHelm ? 'Searching...' : 'Search'}
-            </button>
-          </form>
-
-          {helmSearchResults.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>Enter a query above to search chart repositories.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 300, overflowY: 'auto', paddingRight: 4 }}>
-              {helmSearchResults.map((c: any) => {
-                const parts = c.name.split('/');
-                const repoName = parts[0];
-                const chartName = parts[1] || parts[0];
-                
-                return (
-                  <div 
-                    key={c.name}
-                    style={{ 
-                      padding: '12px 16px', 
-                      background: 'rgba(255,255,255,0.02)', 
-                      border: '1px solid var(--border-color)', 
-                      borderRadius: 6,
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}
-                  >
-                    <div style={{ flex: 1, paddingRight: 16 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{c.name}</span>
-                        <span className="badge badge-running" style={{ fontSize: '0.7rem', padding: '1px 5px', textTransform: 'none' }}>v{c.version}</span>
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>{c.description}</div>
-                    </div>
-                    <button 
-                      className="btn btn-primary"
-                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                      onClick={() => {
-                        setHelmCustomInstall({
-                          releaseName: chartName,
-                          repo: repoName,
-                          chartName: chartName,
-                          version: c.version,
-                          namespace: 'default',
-                          valuesYaml: '# Custom values here\n'
-                        });
-                        setActiveTab('helm-install');
-                      }}
-                    >
-                      Configure & Deploy
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const buildZarfGraphData = (pkg: any, pods: any[]) => {
-    const nodes: any[] = [];
-    const edges: any[] = [];
-    const pkgName = pkg.name || pkg.Name || pkg.package || pkg.Package || 'zarf-package';
-    
-    nodes.push({
-      id: 'package',
-      label: `📦 ${pkgName}\n(Zarf Package)`,
-      shape: 'box',
-      margin: 12,
-      font: { color: '#fff', size: 13, bold: true },
-      color: {
-        background: '#1e293b',
-        border: '#3b82f6',
-        highlight: { background: '#334155', border: '#60a5fa' }
-      },
-      borderWidth: 2
-    });
-
-    const componentsList = Array.isArray(pkg.deployedComponents)
-      ? pkg.deployedComponents.map((c: any) => c.name || c)
-      : (Array.isArray(pkg.components) 
-         ? pkg.components.map((c: any) => c.name || c)
-         : []);
-
-    componentsList.forEach((compName: string, idx: number) => {
-      const compPods = pods.filter(p => p.metadata?.labels?.['zarf.dev/component'] === compName);
-      const isHealthy = compPods.length > 0 && compPods.every(p => p.status?.phase === 'Running');
-      const isPending = compPods.length > 0 && compPods.some(p => p.status?.phase === 'Pending');
-      
-      let nodeColor = '#64748b';
-      if (compPods.length > 0) {
-        if (isHealthy) nodeColor = '#10b981';
-        else if (isPending) nodeColor = '#f59e0b';
-        else nodeColor = '#ef4444';
-      }
-
-      nodes.push({
-        id: `comp-${compName}`,
-        label: `⚙️ ${compName}\n(${compPods.length} pods)`,
-        shape: 'box',
-        margin: 10,
-        font: { color: '#fff', size: 11 },
-        color: {
-          background: '#0f172a',
-          border: nodeColor,
-          highlight: { background: '#1e293b', border: nodeColor }
-        },
-        borderWidth: 2
-      });
-
-      edges.push({
-        from: 'package',
-        to: `comp-${compName}`,
-        arrows: 'to',
-        dashes: true,
-        color: { color: '#475569', highlight: '#94a3b8' }
-      });
-
-      if (idx > 0) {
-        const prevCompName = componentsList[idx - 1];
-        edges.push({
-          from: `comp-${prevCompName}`,
-          to: `comp-${compName}`,
-          arrows: 'to',
-          label: 'deploy order',
-          font: { size: 8, color: 'var(--text-muted)', align: 'horizontal' },
-          color: { color: '#fb923c', highlight: '#fdba74' },
-          smooth: { type: 'curvedCW', roundness: 0.15 }
-        });
-      }
-    });
-
-    return { nodes, edges };
-  };
-
-  const ZarfComponentGraph = ({ pkg, pods }: { pkg: any, pods: any[] }) => {
-    const containerRef = useRef<HTMLDivElement>(null);
-    
-    useEffect(() => {
-      if (!containerRef.current) return;
-      
-      const graphData = buildZarfGraphData(pkg, pods);
-      const options = {
-        physics: {
-          stabilization: true,
-          barnesHut: {
-            gravitationalConstant: -1800,
-            centralGravity: 0.25,
-            smoothCurves: true,
-            springLength: 90,
-            springConstant: 0.035
-          }
-        },
-        layout: {
-          hierarchical: {
-            enabled: true,
-            direction: 'UD',
-            sortMethod: 'directed',
-            nodeSpacing: 160
-          }
-        }
-      };
-      
-      const network = new Network(containerRef.current, graphData, options);
-      return () => network.destroy();
-    }, [pkg, pods]);
-
-    return (
-      <div 
-        ref={containerRef} 
-        style={{ 
-          height: '240px', 
-          background: '#040711', 
-          border: '1px solid var(--border-color)', 
-          borderRadius: 6,
-          position: 'relative'
-        }} 
-      />
-    );
-  };
-
-  const renderZarfPackagesView = () => {
-    return (
-      <div className="zarf-packages-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div 
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'space-between',
-            padding: '16px 20px', 
-            background: zarfStatus.installed ? 'rgba(57, 255, 20, 0.05)' : 'rgba(238, 0, 0, 0.05)', 
-            border: `1px solid ${zarfStatus.installed ? 'rgba(57, 255, 20, 0.2)' : 'rgba(238, 0, 0, 0.2)'}`, 
-            borderRadius: 8 
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Package size={24} style={{ color: zarfStatus.installed ? 'var(--accent-green)' : 'var(--accent-error)' }} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>
-                Zarf Status: {zarfStatus.installed ? `Installed (Version: ${zarfStatus.version})` : 'Not Found / Offline'}
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                {zarfStatus.installed 
-                  ? 'Ready to deploy offline Zarf package archives' 
-                  : 'Ensure the zarf binary is installed and present in the host system PATH'}
-              </div>
-            </div>
-          </div>
-          {zarfStatus.installed && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button 
-                className="btn btn-danger" 
-                onClick={handleClearZarfCache}
-                disabled={isClearingZarfCache}
-              >
-                <Trash2 size={14} /> Clear Cache
-              </button>
-              <button className="btn btn-primary" onClick={() => setActiveTab('zarf-deploy')}>
-                <Package size={14} /> Deploy Package
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div>
-          <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Deployed Packages ({filteredResources.length})</h3>
-          {!zarfStatus.installed ? (
-            <div style={{ color: 'var(--text-muted)', padding: '20px 0' }}>Please install Zarf on the host to list packages.</div>
-          ) : filteredResources.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
-              No deployed packages found in this cluster.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredResources.filter((pkg: any) => pkg && !pkg.metadata).map((pkg: any) => {
-                const name = pkg.name || pkg.Name || pkg.package || pkg.Package || 'Unknown';
-                const version = pkg.version || pkg.Version || 'N/A';
-                const arch = pkg.architecture || pkg.arch || pkg.Architecture || 'N/A';
-                const components = Array.isArray(pkg.components) 
-                  ? pkg.components.join(', ') 
-                  : (Array.isArray(pkg.deployedComponents) 
-                    ? pkg.deployedComponents.map((c: any) => c.name || c).join(', ') 
-                    : String(pkg.components || 'N/A'));
-                
-                return (
-                  <div 
-                    key={name}
-                    className="resource-row animate-fade-in"
-                    style={{
-                      padding: '16px 20px',
-                      background: 'rgba(255,255,255,0.02)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: 8,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 12
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--text-main)' }}>{name}</span>
-                          <span className="badge badge-running" style={{ textTransform: 'none' }}>{arch}</span>
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                          Version: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{version}</span>
-                          Components: <span style={{ color: 'var(--text-main)' }}>{components}</span>
-                        </div>
-                      </div>
-                      
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button 
-                          className="btn"
-                          onClick={() => setSelectedZarfGraphPkg(selectedZarfGraphPkg === name ? null : name)}
-                          style={{
-                            background: selectedZarfGraphPkg === name ? 'rgba(59, 130, 246, 0.15)' : 'none',
-                            borderColor: selectedZarfGraphPkg === name ? 'var(--accent-blue)' : 'var(--border-color)'
-                          }}
-                        >
-                          <Activity size={14} style={{ marginRight: 4 }} /> Graph
-                        </button>
-                        <button 
-                          className="btn"
-                          onClick={() => handleInspectDeployedZarfPackage(name)}
-                          disabled={isFetchingPackageDetail}
-                        >
-                          <Search size={14} /> Inspect
-                        </button>
-                        <button 
-                          className="btn btn-danger"
-                          onClick={() => handleRemoveZarfPackage(name)}
-                        >
-                          <Trash2 size={14} /> Remove
-                        </button>
-                      </div>
-                    </div>
-
-                    {selectedZarfGraphPkg === name && (
-                      <div style={{ width: '100%', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 12 }}>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600, letterSpacing: '0.5px' }}>
-                          ZARF COMPONENT DEPLOYMENT DEPENDENCY TREE:
-                        </div>
-                        <ZarfComponentGraph pkg={pkg} pods={resources.filter((r: any) => r.kind === 'Pod')} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderZarfDeployView = () => {
-    if (zarfViewMode === 'edit') {
-      return (
-        <div className="zarf-edit-view animate-fade-in" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div>
-              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Modify Zarf Config</h3>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                Editing `zarf.yaml` config extracted from package.
-              </div>
-            </div>
-            <button 
-              className="btn btn-danger" 
-              onClick={() => {
-                setZarfViewMode('local');
-                setZarfUnpackTempDir('');
-                setZarfConfigText('');
-              }}
-            >
-              Discard changes
-            </button>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <textarea 
-              style={{ 
-                padding: '12px 16px', 
-                background: 'var(--bg-main)', 
-                border: '1px solid var(--border-color)', 
-                borderRadius: 4, 
-                height: 350, 
-                fontFamily: 'var(--font-mono)', 
-                fontSize: '0.85rem',
-                color: 'var(--text-main)',
-                resize: 'vertical'
-              }}
-              value={zarfConfigText}
-              onChange={e => setZarfConfigText(e.target.value)}
-              placeholder="# Enter zarf.yaml content here"
-            />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-              <button 
-                className="btn" 
-                onClick={() => {
-                  setZarfViewMode('local');
-                  setZarfUnpackTempDir('');
-                  setZarfConfigText('');
-                }}
-              >
-                Cancel
-              </button>
-              <button 
-                className="btn btn-primary" 
-                onClick={handleRebuildAndDeployZarf}
-                disabled={isSavingZarfConfig}
-              >
-                {isSavingZarfConfig ? 'Rebuilding & Deploying...' : 'Rebuild & Deploy'}
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="zarf-deploy-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Upload Zarf Package</h3>
-          <div 
-            style={{ 
-              border: '2px dashed var(--border-color)', 
-              borderRadius: 6, 
-              padding: '30px 20px', 
-              textAlign: 'center', 
-              background: 'rgba(0,0,0,0.1)', 
-              cursor: 'pointer',
-              marginBottom: 16
-            }}
-            onClick={() => document.getElementById('zarf-file-input')?.click()}
-          >
-            <input 
-              type="file" 
-              id="zarf-file-input" 
-              style={{ display: 'none' }} 
-              accept=".zst"
-              onChange={e => {
-                const files = e.target.files;
-                if (files && files.length > 0) {
-                  setZarfUploadFile(files[0]);
-                }
-              }}
-            />
-            <Package size={36} style={{ color: 'var(--text-muted)', marginBottom: 10 }} />
-            {zarfUploadFile ? (
-              <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
-                Selected: {zarfUploadFile.name} ({(zarfUploadFile.size / (1024 * 1024)).toFixed(1)} MB)
-              </div>
-            ) : (
-              <div style={{ color: 'var(--text-muted)' }}>
-                Drag and drop your Zarf package tarball here, or click to browse
-              </div>
-            )}
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-              Supports Zarf package files (ending in .tar.zst)
-            </div>
-          </div>
-
-          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '16px 20px', marginBottom: 16 }}>
-            <h4 style={{ fontSize: '0.9rem', marginBottom: 8, color: 'var(--text-main)' }}>Optional: Zarf Configuration (zarf-config.yaml)</h4>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <input 
-                type="file" 
-                id="zarf-config-input" 
-                style={{ display: 'none' }} 
-                accept=".yaml,.yml"
-                onChange={e => {
-                  const files = e.target.files;
-                  if (files && files.length > 0) {
-                    setZarfConfigFile(files[0]);
-                  }
-                }}
-              />
-              <button 
-                className="btn" 
-                onClick={() => document.getElementById('zarf-config-input')?.click()}
-                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <FileText size={14} /> {zarfConfigFile ? 'Change Config' : 'Browse Config'}
-              </button>
-              {zarfConfigFile ? (
-                <div style={{ fontSize: '0.85rem', color: 'var(--accent-green)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Shield size={14} /> {zarfConfigFile.name}
-                  <button className="btn btn-sm btn-icon" onClick={() => setZarfConfigFile(null)}><X size={12}/></button>
-                </div>
-              ) : (
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No config file selected (optional)</div>
-              )}
-            </div>
-          </div>
-
-          {zarfUploadFile && (
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-              <button 
-                className="btn" 
-                onClick={() => setZarfUploadFile(null)}
-                disabled={zarfUploadProgress >= 0}
-              >
-                Cancel
-              </button>
-              <button 
-                className="btn btn-primary" 
-                onClick={handleZarfUpload}
-                disabled={zarfUploadProgress >= 0}
-              >
-                Upload Package
-              </button>
-            </div>
-          )}
-
-          {zarfUploadProgress >= 0 && (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 4 }}>
-                <span>Uploading {zarfUploadFile?.name}...</span>
-                <span>{zarfUploadProgress}%</span>
-              </div>
-              <div className="metric-bar-wrapper" style={{ margin: 0 }}>
-                <div className="metric-bar-fill normal" style={{ width: `${zarfUploadProgress}%` }}></div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Workspace Directory Contents</h3>
-            <button className="btn btn-icon" onClick={fetchZarfLocalPackages}>
-              <RefreshCw size={14} />
-            </button>
-          </div>
-
-          {zarfLocalPackages.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
-              No workspace files or folders found.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {zarfLocalPackages.map((pkg: any) => {
-                const isPackage = pkg.name.endsWith('.tar.zst') || pkg.name.endsWith('.zst');
-                return (
-                  <div 
-                    key={pkg.name} 
-                    style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center', 
-                      padding: '12px 16px', 
-                      background: 'rgba(255,255,255,0.02)', 
-                      border: '1px solid var(--border-color)', 
-                      borderRadius: 6 
-                    }}
-                  >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-main)' }}>{pkg.name}</span>
-                        {pkg.isDir && <span className="badge badge-running" style={{ textTransform: 'none', background: 'rgba(0, 122, 255, 0.1)', color: '#007aff', borderColor: '#007aff' }}>Folder</span>}
-                        {isPackage && <span className="badge badge-running" style={{ textTransform: 'none', background: 'rgba(57, 255, 20, 0.1)', color: '#39ff14', borderColor: '#39ff14' }}>Package</span>}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        Size: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{pkg.isDir ? 'N/A' : `${(pkg.size / (1024 * 1024)).toFixed(1)} MB`}</span>
-                        Modified: <span style={{ color: 'var(--text-main)' }}>{new Date(pkg.mtime).toLocaleString()}</span>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      {pkg.name.endsWith('.yaml') || pkg.name.endsWith('.yml') ? (
-                        <button 
-                          className={`btn ${selectedZarfConfigPath === pkg.path ? 'btn-primary' : ''}`}
-                          onClick={() => setSelectedZarfConfigPath(selectedZarfConfigPath === pkg.path ? '' : pkg.path)}
-                          style={selectedZarfConfigPath === pkg.path ? { background: 'var(--accent-green)', color: '#000' } : {}}
-                        >
-                          {selectedZarfConfigPath === pkg.path ? 'Active Config' : 'Set as Config'}
-                        </button>
-                      ) : null}
-                      {pkg.isDir && (
-                        <button 
-                          className="btn" 
-                          onClick={() => handleCompressFolder(pkg.name)}
-                        >
-                          Compress
-                        </button>
-                      )}
-                      {isPackage && (
-                        <>
-                          <button 
-                            className="btn" 
-                            onClick={() => handleDecompressPackage(pkg.name)}
-                          >
-                            Decompress
-                          </button>
-                          <button 
-                            className="btn" 
-                            onClick={() => handleUnpackZarfPackage(pkg.path)}
-                            disabled={isUnpackingZarf}
-                          >
-                            {isUnpackingZarf && selectedZarfPackagePath === pkg.path ? 'Unpacking...' : 'Inspect & Edit'}
-                          </button>
-                          <button 
-                            className="btn btn-primary" 
-                            onClick={() => handleDeployLocalPackage(pkg.path)}
-                          >
-                            Deploy
-                          </button>
-                        </>
-                      )}
-                      <button 
-                        className="btn btn-danger btn-icon" 
-                        onClick={() => handleDeleteWorkspaceItem(pkg.name)}
-                        style={{ padding: '6px' }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderZarfSbomView = () => {
-    const packagesOnly = zarfLocalPackages.filter((pkg: any) => pkg.name.endsWith('.tar.zst') || pkg.name.endsWith('.zst'));
-
-    return (
-      <div className="zarf-sbom-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Extract CycloneDX Package Reports</h3>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <select 
-                className="exec-input"
-                style={{ flex: 1, padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)' }}
-                value={sbomPackageName}
-                onChange={e => setSbomPackageName(e.target.value)}
-              >
-                <option value="">-- Select a local Zarf package --</option>
-                {packagesOnly.map((pkg: any) => (
-                  <option key={pkg.name} value={pkg.name}>{pkg.name}</option>
-                ))}
-              </select>
-              <button 
-                className="btn btn-primary"
-                onClick={handleExtractSbom}
-                disabled={isExtractingSbom || !sbomPackageName}
-              >
-                {isExtractingSbom ? 'Extracting...' : 'Extract SBOM'}
-              </button>
-            </div>
-          </div>
-
-          {sbomExtractedFiles.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: 20 }}>
-              <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, maxHeight: '600px', overflowY: 'auto' }}>
-                <h4 style={{ fontSize: '0.9rem', marginBottom: 10, color: 'var(--text-muted)' }}>Component Reports</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {sbomExtractedFiles.map(file => {
-                    const cleanName = file.name.replace(/^sbom-viewer-/, '').replace(/\.html$/, '');
-                    const isActive = sbomSelectedFileUrl === file.url;
-                    return (
-                      <button
-                        key={file.name}
-                        className={`btn ${isActive ? 'btn-primary' : ''}`}
-                        style={{ 
-                          justifyContent: 'flex-start', 
-                          textAlign: 'left', 
-                          fontSize: '0.8rem', 
-                          padding: '8px 12px', 
-                          overflow: 'hidden', 
-                          textOverflow: 'ellipsis', 
-                          whiteSpace: 'nowrap',
-                          background: isActive ? 'var(--accent-blue)' : 'rgba(255,255,255,0.02)'
-                        }}
-                        onClick={() => setSbomSelectedFileUrl(file.url)}
-                        title={cleanName}
-                      >
-                        {cleanName}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div style={{ background: '#fff', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', height: '600px' }}>
-                {sbomSelectedFileUrl ? (
-                  <iframe 
-                    src={sbomSelectedFileUrl}
-                    style={{ width: '100%', height: '100%', border: 'none' }}
-                    title="CycloneDX SBOM Report"
-                  />
-                ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#333' }}>
-                    Select a component report to view.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderImageScannerView = () => {
-    const totalCount = runningImages.length;
-    const scannedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'success').length;
-    const scanningCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'scanning').length;
-    const failedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'failed').length;
-
-    const filteredVulns = getFilteredVulnerabilities();
-    const filteredPkgs = getFilteredPackages();
-
-    const criticalCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'critical').length;
-    const highCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'high').length;
-    const mediumCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'medium').length;
-    const lowCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'low').length;
-    const negligibleCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'negligible').length;
-
-    const renderTablePlaceholder = (tab: 'vulnerabilities' | 'packages') => {
-      if (selectedScanFilterImage === 'all') {
-        if (scannedCount === 0) {
-          return (
-            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
-              <div style={{ color: 'var(--text-muted)', marginBottom: 16 }}>No container images have been scanned yet.</div>
-              <button 
-                className="btn btn-primary"
-                onClick={fetchRunningImagesAndScan}
-                disabled={isScanningAllRunningImages}
-                style={{ margin: '0 auto' }}
-              >
-                <RefreshCw size={14} className={isScanningAllRunningImages ? 'spin' : ''} style={{ marginRight: 6 }} />
-                {isScanningAllRunningImages ? 'Scanning All...' : 'Scan All Running Images'}
-              </button>
-            </div>
-          );
-        }
-        return (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-            No {tab} found matching current filters.
-          </div>
-        );
-      }
-
-      const scan = runningImagesScanResults[selectedScanFilterImage];
-      const cleanedImg = selectedScanFilterImage.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
-
-      if (!scan) {
-        return (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
-            <div style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-              Image <strong>{cleanedImg}</strong> has not been scanned yet.
-            </div>
-            <button 
-              className="btn btn-primary"
-              onClick={() => scanSingleImage(selectedScanFilterImage)}
-              style={{ margin: '0 auto' }}
-            >
-              Scan Image
-            </button>
-          </div>
-        );
-      }
-
-      if (scan.status === 'scanning') {
-        return (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-            <div className="loader" style={{ margin: '0 auto 12px auto' }}></div>
-            Scanning image <strong>{cleanedImg}</strong>...
-          </div>
-        );
-      }
-
-      if (scan.status === 'failed') {
-        return (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
-            <div style={{ color: '#ef4444', marginBottom: 8, fontWeight: 600 }}>Scan Failed</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16, maxWidth: '500px', margin: '0 auto 16px auto' }}>
-              {scan.error || 'Unknown error occurred during scan.'}
-            </div>
-            <button 
-              className="btn"
-              onClick={() => scanSingleImage(selectedScanFilterImage)}
-              style={{ margin: '0 auto', background: 'rgba(255,255,255,0.02)' }}
-            >
-              Retry Scan
-            </button>
-          </div>
-        );
-      }
-
-      return (
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-          No {tab} found for this container image.
-        </div>
-      );
-    };
-
-    return (
-      <div className="image-scanner-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Top Control Bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <h3 style={{ fontSize: '1.1rem', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Shield size={18} style={{ color: 'var(--accent-blue)' }} /> Real-time Container Vulnerabilities
-            </h3>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Images Scanned: <strong style={{ color: 'var(--text-main)' }}>{scannedCount}</strong> / {totalCount}
-              {scanningCount > 0 && <span style={{ marginLeft: 10, color: 'var(--accent-cyan)' }}>({scanningCount} scanning...)</span>}
-              {failedCount > 0 && <span style={{ marginLeft: 10, color: '#ef4444' }}>({failedCount} failed)</span>}
-              <div style={{ width: '250px', height: '6px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '3px', marginTop: '6px', overflow: 'hidden' }}>
-                <div style={{ height: '100%', background: 'var(--accent-blue)', width: `${totalCount > 0 ? (scannedCount / totalCount) * 100 : 0}%`, transition: 'width 0.4s ease' }} />
-              </div>
-            </div>
-          </div>
-          <button 
-            className="btn btn-primary"
-            onClick={fetchRunningImagesAndScan}
-            disabled={isScanningAllRunningImages}
-            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-          >
-            <RefreshCw size={16} className={isScanningAllRunningImages ? 'spin' : ''} />
-            {isScanningAllRunningImages ? 'Scanning Cluster...' : 'Scan All Running Images'}
-          </button>
-        </div>
-
-        {/* Severity Metrics Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-          <div style={{ background: 'rgba(239, 68, 68, 0.03)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>{criticalCount}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Critical</div>
-          </div>
-          <div style={{ background: 'rgba(245, 158, 11, 0.03)', border: '1px solid rgba(245, 158, 11, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f59e0b', lineHeight: 1.2 }}>{highCount}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>High</div>
-          </div>
-          <div style={{ background: 'rgba(252, 211, 77, 0.03)', border: '1px solid rgba(252, 211, 77, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fbbf24', lineHeight: 1.2 }}>{mediumCount}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Medium</div>
-          </div>
-          <div style={{ background: 'rgba(96, 165, 250, 0.03)', border: '1px solid rgba(96, 165, 250, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#60a5fa', lineHeight: 1.2 }}>{lowCount}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Low</div>
-          </div>
-          <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-main)', lineHeight: 1.2 }}>{negligibleCount}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Negligible</div>
-          </div>
-        </div>
-
-        {/* Tab Selection */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', gap: 16 }}>
-          <button 
-            className={`tab-btn ${imageScannerActiveTab === 'vulnerabilities' ? 'active' : ''}`}
-            onClick={() => setImageScannerActiveTab('vulnerabilities')}
-            style={{
-              padding: '10px 20px',
-              background: 'none',
-              border: 'none',
-              borderBottom: imageScannerActiveTab === 'vulnerabilities' ? '2px solid var(--accent-blue)' : '2px solid transparent',
-              color: imageScannerActiveTab === 'vulnerabilities' ? 'var(--text-main)' : 'var(--text-muted)',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '0.9rem'
-            }}
-          >
-            🛡️ Vulnerabilities ({filteredVulns.length})
-          </button>
-          <button 
-            className={`tab-btn ${imageScannerActiveTab === 'packages' ? 'active' : ''}`}
-            onClick={() => setImageScannerActiveTab('packages')}
-            style={{
-              padding: '10px 20px',
-              background: 'none',
-              border: 'none',
-              borderBottom: imageScannerActiveTab === 'packages' ? '2px solid var(--accent-blue)' : '2px solid transparent',
-              color: imageScannerActiveTab === 'packages' ? 'var(--text-main)' : 'var(--text-muted)',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '0.9rem'
-            }}
-          >
-            📦 Packages ({filteredPkgs.length})
-          </button>
-          <button 
-            className={`tab-btn ${imageScannerActiveTab === 'images' ? 'active' : ''}`}
-            onClick={() => setImageScannerActiveTab('images')}
-            style={{
-              padding: '10px 20px',
-              background: 'none',
-              border: 'none',
-              borderBottom: imageScannerActiveTab === 'images' ? '2px solid var(--accent-blue)' : '2px solid transparent',
-              color: imageScannerActiveTab === 'images' ? 'var(--text-main)' : 'var(--text-muted)',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '0.9rem'
-            }}
-          >
-            📷 Scanned Images ({totalCount})
-          </button>
-        </div>
-
-        {/* Filter and Control Actions Bar (for data tabs) */}
-        {imageScannerActiveTab !== 'images' && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.1)', borderRadius: 6, padding: 12, flexWrap: 'wrap', gap: 10 }}>
-            {/* Left filters */}
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div className="search-box" style={{ width: 220 }}>
-                <Search size={14} />
-                <input 
-                  type="text" 
-                  placeholder={imageScannerActiveTab === 'vulnerabilities' ? "Search CVEs/packages..." : "Search packages..."}
-                  value={imageScanSearchQuery}
-                  onChange={e => setImageScanSearchQuery(e.target.value)}
-                  style={{ padding: '6px 10px 6px 30px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                />
-              </div>
-
-              {/* Image Filter */}
-              <select
-                value={selectedScanFilterImage}
-                onChange={e => setSelectedScanFilterImage(e.target.value)}
-                style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem' }}
-              >
-                <option value="all">All Images ({totalCount})</option>
-                {runningImages.map(img => {
-                  const cleaned = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
-                  return <option key={img} value={img}>{cleaned}</option>;
-                })}
-              </select>
-
-              {/* Severity Filter (only for vulnerabilities tab) */}
-              {imageScannerActiveTab === 'vulnerabilities' && (
-                <select
-                  value={imageScanSeverityFilter}
-                  onChange={e => setImageScanSeverityFilter(e.target.value)}
-                  style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem' }}
-                >
-                  <option value="all">All Severities</option>
-                  <option value="Critical">Critical</option>
-                  <option value="High">High</option>
-                  <option value="Medium">Medium</option>
-                  <option value="Low">Low</option>
-                  <option value="Negligible">Negligible</option>
-                </select>
-              )}
-            </div>
-
-            {/* Right exports */}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button 
-                className="btn btn-primary" 
-                onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesCsv : exportImageScannerPackagesCsv}
-                style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Download size={14} /> Export CSV
-              </button>
-              <button 
-                className="btn" 
-                onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesJson : exportImageScannerPackagesJson}
-                style={{ fontSize: '0.8rem', padding: '6px 12px', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Download size={14} /> Export JSON
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Tab Contents Rendering */}
-        {imageScannerActiveTab === 'vulnerabilities' && (
-          filteredVulns.length === 0 ? (
-            renderTablePlaceholder('vulnerabilities')
-          ) : (
-            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                    <th style={{ padding: '10px 14px' }}>Source Image</th>
-                    <th style={{ padding: '10px 14px' }}>Vulnerability</th>
-                    <th style={{ padding: '10px 14px' }}>Severity</th>
-                    <th style={{ padding: '10px 14px' }}>Package</th>
-                    <th style={{ padding: '10px 14px' }}>Installed Version</th>
-                    <th style={{ padding: '10px 14px' }}>Fixed In</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredVulns.map((m: any, idx: number) => {
-                    const vuln = m.vulnerability || {};
-                    const art = m.artifact || {};
-                    const severity = vuln.severity || 'Unknown';
-                    const badgeColor = 
-                      severity === 'Critical' ? '#ef4444' :
-                      severity === 'High' ? '#f59e0b' :
-                      severity === 'Medium' ? '#fbbf24' :
-                      severity === 'Low' ? '#60a5fa' : 'var(--text-muted)';
-                    
-                    const badgeBg = 
-                      severity === 'Critical' ? 'rgba(239, 68, 68, 0.08)' :
-                      severity === 'High' ? 'rgba(245, 158, 11, 0.08)' :
-                      severity === 'Medium' ? 'rgba(251, 191, 36, 0.08)' :
-                      severity === 'Low' ? 'rgba(96, 165, 250, 0.08)' : 'rgba(255, 255, 255, 0.03)';
-                    
-                    const fixedIn = vuln.fix?.versions?.join(', ') || 'Not Fixed';
-                    const cleanedImg = m.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
-
-                    return (
-                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', color: 'var(--accent-blue)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.imageRef}>
-                          {cleanedImg}
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <a 
-                            href={`https://nvd.nist.gov/vuln/detail/${vuln.id}`} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}
-                          >
-                            {vuln.id}
-                          </a>
-                        </td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <span style={{ 
-                            fontSize: '0.7rem', 
-                            fontWeight: 700, 
-                            color: badgeColor, 
-                            background: badgeBg, 
-                            border: `1px solid ${badgeColor}22`,
-                            borderRadius: 4,
-                            padding: '2px 8px'
-                          }}>
-                            {severity}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{art.name}</td>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>{art.version}</td>
-                        <td style={{ padding: '10px 14px', color: fixedIn === 'Not Fixed' ? 'var(--text-muted)' : '#10b981' }}>{fixedIn}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )
-        )}
-
-        {imageScannerActiveTab === 'packages' && (
-          filteredPkgs.length === 0 ? (
-            renderTablePlaceholder('packages')
-          ) : (
-            <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                    <th style={{ padding: '10px 14px' }}>Source Image</th>
-                    <th style={{ padding: '10px 14px' }}>Package Name</th>
-                    <th style={{ padding: '10px 14px' }}>Version</th>
-                    <th style={{ padding: '10px 14px' }}>Type</th>
-                    <th style={{ padding: '10px 14px' }}>Licenses</th>
-                    <th style={{ padding: '10px 14px' }}>Language</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPkgs.map((art: any, idx: number) => {
-                    const licenseStrs = Array.isArray(art.licenses)
-                      ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || ''))
-                      : [];
-                    const cleanedImg = art.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
-
-                    return (
-                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', color: 'var(--accent-blue)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={art.imageRef}>
-                          {cleanedImg}
-                        </td>
-                        <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-main)' }}>{art.name}</td>
-                        <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>{art.version}</td>
-                        <td style={{ padding: '10px 14px' }}>
-                          <span className="badge badge-running" style={{ textTransform: 'none', padding: '2px 6px', background: 'rgba(255,255,255,0.03)' }}>
-                            {art.type}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 14px', color: '#ffd700' }}>
-                          {licenseStrs.length > 0 ? licenseStrs.join(', ') : <span style={{ color: 'var(--text-muted)' }}>None</span>}
-                        </td>
-                        <td style={{ padding: '10px 14px', color: 'var(--text-muted)' }}>{art.language || 'N/A'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )
-        )}
-
-        {imageScannerActiveTab === 'images' && (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '12px 16px' }}>Container Image Reference</th>
-                  <th style={{ padding: '12px 16px' }}>Scan Status</th>
-                  <th style={{ padding: '12px 16px' }}>Vulnerability Counts (C/H/M/L)</th>
-                  <th style={{ padding: '12px 16px' }}>Packages</th>
-                  <th style={{ padding: '12px 16px' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runningImages.map((img: string, idx: number) => {
-                  const scan = runningImagesScanResults[img];
-                  const cleanedName = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
-                  
-                  let cCount = 0, hCount = 0, mCount = 0, lCount = 0;
-                  if (scan && scan.status === 'success' && scan.vulnerabilities && scan.vulnerabilities.matches) {
-                    scan.vulnerabilities.matches.forEach((m: any) => {
-                      const sev = (m.vulnerability?.severity || '').toLowerCase();
-                      if (sev === 'critical') cCount++;
-                      else if (sev === 'high') hCount++;
-                      else if (sev === 'medium') mCount++;
-                      else if (sev === 'low') lCount++;
-                    });
-                  }
-
-                  return (
-                    <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                      <td style={{ padding: '12px 16px', fontFamily: 'var(--font-mono)', fontWeight: 600 }} title={img}>
-                        {cleanedName}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        {!scan ? (
-                          <span style={{ color: 'var(--text-muted)' }}>Not Scanned</span>
-                        ) : scan.status === 'scanning' ? (
-                          <span style={{ color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <RefreshCw size={12} className="spin" /> Scanning...
-                          </span>
-                        ) : scan.status === 'success' ? (
-                          <span style={{ color: '#10b981' }}>✓ Success</span>
-                        ) : (
-                          <span style={{ color: '#ef4444' }} title={scan.error || 'Unknown error'}>✗ Failed</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        {scan && scan.status === 'success' ? (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <span style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{cCount}</span>
-                            <span style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{hCount}</span>
-                            <span style={{ background: 'rgba(251,191,36,0.1)', color: '#fbbf24', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{mCount}</span>
-                            <span style={{ background: 'rgba(96,165,250,0.1)', color: '#60a5fa', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{lCount}</span>
-                          </div>
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)' }}>-</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        {scan && scan.status === 'success' ? (
-                          <span>{scan.sbom?.artifacts?.length || 0} packages</span>
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)' }}>-</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <button
-                          className="btn"
-                          style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)' }}
-                          onClick={() => scanSingleImage(img)}
-                          disabled={scan?.status === 'scanning'}
-                        >
-                          {scan?.status === 'scanning' ? 'Scanning...' : scan ? 'Rescan' : 'Scan'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderKubescapeView = () => {
-    const report = kubescapeReport;
-    const isScanning = isScanningKubescape;
-
-    const filteredControls = report ? report.failedControls.filter((c: any) => {
-      const matchesSeverity = kubescapeSeverityFilter === 'all' || c.severity.toLowerCase() === kubescapeSeverityFilter.toLowerCase();
-      const matchesSearch = !kubescapeSearchQuery || 
-        c.name.toLowerCase().includes(kubescapeSearchQuery.toLowerCase()) || 
-        c.id.toLowerCase().includes(kubescapeSearchQuery.toLowerCase()) ||
-        c.description.toLowerCase().includes(kubescapeSearchQuery.toLowerCase());
-      return matchesSeverity && matchesSearch;
-    }) : [];
-
-    return (
-      <div className="kubescape-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <h3 style={{ fontSize: '1.1rem', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Shield size={18} style={{ color: 'var(--accent-success)' }} /> Security Compliance Scan (Kubescape)
-            </h3>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Scan cluster configurations against NSA-CISA, MITRE ATT&CK, and CIS Benchmarks.
-            </div>
-          </div>
-          <button 
-            className="btn btn-primary"
-            onClick={triggerKubescapeScan}
-            disabled={isScanning}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--accent-success)', color: '#000' }}
-          >
-            <RefreshCw size={16} className={isScanning ? 'spin' : ''} />
-            {isScanning ? 'Scanning Cluster Compliance...' : 'Run Compliance Scan'}
-          </button>
-        </div>
-
-        {isScanning && (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-            <div className="loader" style={{ margin: '0 auto 16px auto', width: 32, height: 32 }}></div>
-            <div style={{ fontWeight: 600, color: 'var(--text-main)', marginBottom: 8 }}>Compliance scan in progress...</div>
-            <div style={{ fontSize: '0.85rem' }}>Downloading local catalog definitions, compiling rules, and scanning RBAC & resource manifests. This may take up to 20 seconds.</div>
-          </div>
-        )}
-
-        {!isScanning && !report && (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
-            <div style={{ color: 'var(--text-muted)', marginBottom: 16 }}>No compliance report available. Click "Run Compliance Scan" to begin.</div>
-            <button className="btn btn-primary" onClick={triggerKubescapeScan} style={{ margin: '0 auto', background: 'var(--accent-success)', color: '#000' }}>
-              Run Compliance Scan
-            </button>
-          </div>
-        )}
-
-        {!isScanning && report && (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-              {report.frameworks.map((fw: any) => {
-                const score = fw.complianceScore;
-                const scoreColor = score > 80 ? '#10b981' : score > 60 ? '#f59e0b' : '#ef4444';
-                return (
-                  <div key={fw.name} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <h4 style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 500 }}>{fw.name} Compliance</h4>
-                      <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#fff' }}>{score}%</div>
-                    </div>
-                    <svg width="60" height="60" viewBox="0 0 36 36" style={{ transform: 'rotate(-90deg)' }}>
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="#222"
-                        strokeWidth="3.5"
-                      />
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke={scoreColor}
-                        strokeWidth="3.5"
-                        strokeDasharray={`${score}, 100`}
-                        strokeLinecap="round"
-                        style={{ transition: 'stroke-dasharray 0.8s ease' }}
-                      />
-                    </svg>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              <div style={{ background: 'rgba(239, 68, 68, 0.03)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>{report.summary?.critical || 0}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Critical Controls Failed</div>
-              </div>
-              <div style={{ background: 'rgba(245, 158, 11, 0.03)', border: '1px solid rgba(245, 158, 11, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f59e0b', lineHeight: 1.2 }}>{report.summary?.high || 0}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>High Controls Failed</div>
-              </div>
-              <div style={{ background: 'rgba(252, 211, 77, 0.03)', border: '1px solid rgba(252, 211, 77, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fbbf24', lineHeight: 1.2 }}>{report.summary?.medium || 0}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Medium Controls Failed</div>
-              </div>
-              <div style={{ background: 'rgba(96, 165, 250, 0.03)', border: '1px solid rgba(96, 165, 250, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#60a5fa', lineHeight: 1.2 }}>{report.summary?.low || 0}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>Low Controls Failed</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.1)', borderRadius: 6, padding: 12, flexWrap: 'wrap', gap: 10 }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div className="search-box" style={{ width: 250 }}>
-                  <Search size={14} />
-                  <input 
-                    type="text" 
-                    placeholder="Search controls, IDs, descriptions..."
-                    value={kubescapeSearchQuery}
-                    onChange={e => setKubescapeSearchQuery(e.target.value)}
-                    style={{ padding: '6px 10px 6px 30px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                  />
-                </div>
-
-                <select
-                  value={kubescapeSeverityFilter}
-                  onChange={e => setKubescapeSeverityFilter(e.target.value)}
-                  style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem' }}
-                >
-                  <option value="all">All Severities</option>
-                  <option value="Critical">Critical</option>
-                  <option value="High">High</option>
-                  <option value="Medium">Medium</option>
-                  <option value="Low">Low</option>
-                </select>
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Showing <strong>{filteredControls.length}</strong> of {report.failedControls?.length || 0} failed checks
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {filteredControls.length === 0 ? (
-                <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-                  No failed compliance controls match current filters.
-                </div>
-              ) : (
-                filteredControls.map((c: any) => {
-                  const isExpanded = expandedControlId === c.id;
-                  const sevColor = 
-                    c.severity === 'Critical' ? '#ef4444' :
-                    c.severity === 'High' ? '#f59e0b' :
-                    c.severity === 'Medium' ? '#fbbf24' : '#60a5fa';
-                  
-                  return (
-                    <div 
-                      key={c.id} 
-                      style={{ 
-                        background: 'var(--bg-card)', 
-                        border: `1px solid ${isExpanded ? sevColor : 'var(--border-color)'}`, 
-                        borderRadius: 8, 
-                        overflow: 'hidden',
-                        transition: 'border-color 0.2s'
-                      }}
-                    >
-                      <div 
-                        onClick={() => setExpandedControlId(isExpanded ? null : c.id)}
-                        style={{ 
-                          padding: '14px 20px', 
-                          display: 'flex', 
-                          justifyContent: 'space-between', 
-                          alignItems: 'center', 
-                          cursor: 'pointer',
-                          background: isExpanded ? 'rgba(255,255,255,0.02)' : 'none',
-                          userSelect: 'none'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{c.id}</span>
-                          <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{c.name}</span>
-                          <span 
-                            style={{ 
-                              fontSize: '0.7rem', 
-                              fontWeight: 700, 
-                              color: sevColor, 
-                              background: `${sevColor}12`, 
-                              border: `1px solid ${sevColor}22`,
-                              borderRadius: 4, 
-                              padding: '2px 8px' 
-                            }}
-                          >
-                            {c.severity}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <span style={{ fontSize: '0.8rem', color: '#ef4444', background: 'rgba(239,68,68,0.08)', padding: '2px 8px', borderRadius: 4, fontWeight: 500 }}>
-                            {c.resources?.length || 0} violations
-                          </span>
-                          <span style={{ transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', color: 'var(--text-muted)', fontSize: '0.8rem' }}>▼</span>
-                        </div>
-                      </div>
-
-                      {isExpanded && (
-                        <div style={{ padding: '20px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 16, background: 'rgba(0,0,0,0.1)' }}>
-                          <div>
-                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.5px', marginBottom: 4 }}>Control Description</div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.5 }}>{c.description}</div>
-                          </div>
-
-                          <div style={{ background: 'rgba(16, 185, 129, 0.03)', border: '1px solid rgba(16, 185, 129, 0.15)', borderRadius: 6, padding: '12px 16px' }}>
-                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#10b981', fontWeight: 600, letterSpacing: '0.5px', marginBottom: 4 }}>Remediation Recommendation</div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.5, fontFamily: 'var(--font-sans)' }}>{c.remediation}</div>
-                          </div>
-
-                          <div>
-                            <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.5px', marginBottom: 8 }}>Violating Cluster Resources</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '200px', overflowY: 'auto', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 6, padding: 10 }}>
-                              {c.resources && c.resources.length > 0 ? (
-                                c.resources.map((res: string, rIdx: number) => (
-                                  <div key={rIdx} style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
-                                    {res}
-                                  </div>
-                                ))
-                              ) : (
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No specific violating resources returned in this namespace. Check global cluster permissions.</div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  };
-
-  const renderZarfRegistryView = () => {
-    return (
-      <div className="zarf-registry-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Pull and Push Forms Panel */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          {/* Pull / Upstream Copy Form */}
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Download size={18} style={{ color: 'var(--accent-blue)' }} /> Pull / Copy Upstream Image
-            </h3>
-            <form onSubmit={handlePullRegistryImage} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Source Image (e.g. Docker Hub or Public Registry)</label>
-                <input 
-                  type="text"
-                  className="exec-input"
-                  style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                  placeholder="e.g. nginx:alpine"
-                  value={registryPullSource}
-                  onChange={e => setRegistryPullSource(e.target.value)}
-                  required
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Target Local Tag (stored in registry)</label>
-                <input 
-                  type="text"
-                  className="exec-input"
-                  style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                  placeholder="e.g. library/nginx:alpine"
-                  value={registryPullTarget}
-                  onChange={e => setRegistryPullTarget(e.target.value)}
-                  required
-                />
-              </div>
-              <button 
-                type="submit" 
-                className="btn btn-primary" 
-                style={{ alignSelf: 'flex-start', marginTop: 8 }}
-                disabled={isPullingRegistry}
-              >
-                {isPullingRegistry ? 'Pulling...' : 'Copy Image to Registry'}
-              </button>
-            </form>
-          </div>
-
-          {/* Push Tarball Form */}
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Upload size={18} style={{ color: 'var(--accent-blue)' }} /> Push Image Tarball
-            </h3>
-            <form onSubmit={handlePushRegistryImage} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Select Docker Image Tarball (.tar)</label>
-                <input 
-                  type="file"
-                  id="registry-image-file-input"
-                  accept=".tar"
-                  className="exec-input"
-                  style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                  required
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Target Local Tag (e.g. repo:tag)</label>
-                <input 
-                  type="text"
-                  className="exec-input"
-                  style={{ padding: '8px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4 }}
-                  placeholder="e.g. library/my-app:1.0.0"
-                  value={registryPushTarget}
-                  onChange={e => setRegistryPushTarget(e.target.value)}
-                  required
-                />
-              </div>
-              <button 
-                type="submit" 
-                className="btn btn-primary" 
-                style={{ alignSelf: 'flex-start', marginTop: 8 }}
-                disabled={isPushingRegistry}
-              >
-                {isPushingRegistry ? 'Pushing...' : 'Push Tarball to Registry'}
-              </button>
-            </form>
-          </div>
-        </div>
-
-        {/* Combined Images List */}
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Local Registry Images ({zarfRegistryImages.length})</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn" onClick={handlePruneRegistry}>
-                Prune Unused
-              </button>
-              <button className="btn btn-icon" onClick={fetchZarfRegistryImages} disabled={isFetchingRegistry}>
-                <RefreshCw size={14} />
-              </button>
-            </div>
-          </div>
-
-          {isFetchingRegistry ? (
-            <div style={{ color: 'var(--text-muted)', padding: '40px 0', textAlign: 'center' }}>
-              <div className="loader" style={{ margin: '0 auto 12px auto' }}></div>
-              Fetching images and tags from registry...
-            </div>
-          ) : zarfRegistryImages.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '40px 0', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
-              No images found in the local Zarf registry.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px 180px', padding: '0 14px 8px 14px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                <div>REPOSITORY:TAG</div>
-                <div>TAG</div>
-                <div style={{ textAlign: 'right' }}>ACTIONS</div>
-              </div>
-              {zarfRegistryImages.map((img, idx) => (
-                <div 
-                  key={idx}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 150px 180px',
-                    alignItems: 'center',
-                    padding: '12px 14px',
-                    background: 'rgba(255,255,255,0.02)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 6
-                  }}
-                >
-                  <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>
-                    {img.repository}
-                  </div>
-                  <div>
-                    <span style={{ 
-                      fontSize: '0.75rem', 
-                      background: 'rgba(96, 165, 250, 0.1)', 
-                      color: 'var(--accent-blue)', 
-                      padding: '2px 8px', 
-                      borderRadius: 4, 
-                      border: '1px solid rgba(96, 165, 250, 0.2)' 
-                    }}>
-                      {img.tag}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    <button 
-                      className="btn btn-sm" 
-                      title="Download as TAR"
-                      onClick={() => handleDownloadRegistryImage(img.full)}
-                      style={{ padding: '4px 8px' }}
-                    >
-                      <Download size={14} />
-                    </button>
-                    <button 
-                      className="btn btn-sm" 
-                      title="Copy Pull Command"
-                      onClick={() => {
-                        navigator.clipboard.writeText(`docker pull zarf-docker-registry.zarf.svc.cluster.local:5000/${img.full}`);
-                        alert('Pull command copied to clipboard!');
-                      }}
-                      style={{ padding: '4px 8px' }}
-                    >
-                      <Copy size={14} />
-                    </button>
-                    <button 
-                      className="btn btn-danger btn-sm" 
-                      title="Delete Image"
-                      onClick={() => handleDeleteRegistryImage(img.repository, img.tag)}
-                      style={{ padding: '4px 8px' }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderPodFilesTab = () => {
-    if (!modal) return null;
-    
-    const handleNavigateUp = () => {
-      if (currentDirPath === '/') return;
-      const parts = currentDirPath.split('/').filter(Boolean);
-      parts.pop();
-      const parentPath = '/' + parts.join('/') + (parts.length > 0 ? '/' : '');
-      fetchPodFilesList(parentPath);
-    };
-
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Path:</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--text-main)', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, padding: '4px 8px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {currentDirPath}
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input 
-              type="file" 
-              id="pod-file-upload-input" 
-              style={{ display: 'none' }} 
-              onChange={handleUploadPodFile} 
-            />
-            <button className="btn" onClick={() => document.getElementById('pod-file-upload-input')?.click()} disabled={podFileUploadProgress >= 0}>
-              Upload File
-            </button>
-            <button className="btn" onClick={handleCreatePodFolder}>
-              New Folder
-            </button>
-            <button className="btn btn-icon" onClick={() => fetchPodFilesList(currentDirPath)} disabled={isListingFiles}>
-              <RefreshCw size={14} />
-            </button>
-          </div>
-        </div>
-
-        {podFileUploadProgress >= 0 && (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>
-              <span>Uploading: {podFileUploadName}</span>
-              <span>{podFileUploadProgress}%</span>
-            </div>
-            <div className="metric-bar-wrapper" style={{ margin: 0 }}>
-              <div className="metric-bar-fill normal" style={{ width: `${podFileUploadProgress}%` }}></div>
-            </div>
-          </div>
-        )}
-
-        <div className="terminal-container" style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 6 }}>
-          {isListingFiles ? (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
-              <div className="loader" style={{ margin: '0 auto 10px auto', width: 24, height: 24 }}></div>
-              Reading directory contents...
-            </div>
-          ) : (
-            <table className="crd-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.1)' }}>
-                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>Name</th>
-                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem', width: 80 }}>Type</th>
-                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem', width: 100, textAlign: 'right' }}>Size</th>
-                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem', width: 140 }}>Modified</th>
-                  <th style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.75rem', width: 100, textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentDirPath !== '/' && (
-                  <tr 
-                    style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', cursor: 'pointer' }}
-                    onClick={handleNavigateUp}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <td style={{ padding: '6px 12px', fontWeight: 600, color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span>📁 ..</span>
-                    </td>
-                    <td style={{ padding: '6px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Parent Dir</td>
-                    <td style={{ padding: '6px 12px', textAlign: 'right', color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</td>
-                    <td style={{ padding: '6px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>--</td>
-                    <td style={{ padding: '6px 12px', textAlign: 'right' }}></td>
-                  </tr>
-                )}
-
-                {podFiles.length === 0 && currentDirPath === '/' ? (
-                  <tr>
-                    <td colSpan={5} style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      No files found.
-                    </td>
-                  </tr>
-                ) : (
-                  podFiles.map(file => (
-                    <tr 
-                      key={file.name} 
-                      style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.01)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <td 
-                        style={{ padding: '8px 12px', fontWeight: 500, cursor: file.isDir ? 'pointer' : 'default', color: file.isDir ? 'var(--accent-green)' : 'var(--text-main)' }}
-                        onClick={() => {
-                          if (file.isDir) {
-                            fetchPodFilesList(currentDirPath + file.name + '/');
-                          }
-                        }}
-                      >
-                        {file.isDir ? `📁 ${file.name}` : `📄 ${file.name}`}
-                      </td>
-                      <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                        {file.isDir ? 'Folder' : file.isLink ? 'Symlink' : 'File'}
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: '0.8rem' }}>
-                        {file.isDir ? '--' : `${(file.size / 1024).toFixed(1)} KB`}
-                      </td>
-                      <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                        {file.date}
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', gap: 6 }}>
-                          {!file.isDir && (
-                            <button 
-                              className="btn" 
-                              style={{ padding: '2px 6px', fontSize: '0.7rem', color: 'var(--accent-cyan)' }} 
-                              onClick={() => handleEditPodFile(file.name)}
-                            >
-                              Edit
-                            </button>
-                          )}
-                          <button 
-                            className="btn" 
-                            style={{ padding: '2px 6px', fontSize: '0.7rem' }} 
-                            onClick={() => handleDownloadPodFile(file.name, file.isDir)}
-                          >
-                            Download
-                          </button>
-                          <button 
-                            className="btn btn-danger" 
-                            style={{ padding: '2px 6px', fontSize: '0.7rem' }} 
-                            onClick={() => handleDeletePodFile(file.name, file.isDir)}
-                          >
-                            Del
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="layout-container">
@@ -5756,6 +2508,7 @@ function App() {
               <a className={`nav-item ${activeTab === 'topology' ? 'active' : ''}`} onClick={() => { setActiveTab('topology'); setSearch(''); }}><Activity size={16} /> Topology</a>
               <a className={`nav-item ${activeTab === 'nodes' ? 'active' : ''}`} onClick={() => { setActiveTab('nodes'); setSearch(''); }}><Server size={16} /> Nodes</a>
               <a className={`nav-item ${activeTab === 'events' ? 'active' : ''}`} onClick={() => { setActiveTab('events'); setSearch(''); }}><List size={16} /> Events</a>
+              <a className={`nav-item ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => { setActiveTab('logs'); setSearch(''); }}><Terminal size={16} /> Logs</a>
             </nav>
           )}
         </div>
@@ -5771,7 +2524,7 @@ function App() {
           </div>
           {!collapsedSections['security'] && (
             <nav className="nav-menu">
-              <a className={`nav-item ${activeTab === 'image-scanner' ? 'active' : ''}`} onClick={() => { setActiveTab('image-scanner'); setSearch(''); }}><Shield size={16} style={{ color: '#60a5fa' }} /> Image Scanner</a>
+              <a className={`nav-item ${activeTab === 'image-scanner' ? 'active' : ''}`} onClick={() => { setActiveTab('image-scanner'); setSearch(''); }}><Shield size={16} style={{ color: '#60a5fa' }} /> SBOM (Syft/Grype)</a>
               <a className={`nav-item ${activeTab === 'kubescape' ? 'active' : ''}`} onClick={() => { setActiveTab('kubescape'); setSearch(''); }}><Shield size={16} style={{ color: '#10b981' }} /> Compliance (Kubescape)</a>
             </nav>
           )}
@@ -5790,6 +2543,8 @@ function App() {
             <nav className="nav-menu">
               <a className={`nav-item ${activeTab === 'pods' ? 'active' : ''}`} onClick={() => { setActiveTab('pods'); setSearch(''); }}><Box size={16} /> Pods</a>
               <a className={`nav-item ${activeTab === 'deployments' ? 'active' : ''}`} onClick={() => { setActiveTab('deployments'); setSearch(''); }}><Layers size={16} /> Deployments</a>
+              <a className={`nav-item ${activeTab === 'daemonsets' ? 'active' : ''}`} onClick={() => { setActiveTab('daemonsets'); setSearch(''); }}><Layers size={16} /> DaemonSets</a>
+              <a className={`nav-item ${activeTab === 'statefulsets' ? 'active' : ''}`} onClick={() => { setActiveTab('statefulsets'); setSearch(''); }}><Layers size={16} /> StatefulSets</a>
               <a className={`nav-item ${activeTab === 'jobs' ? 'active' : ''}`} onClick={() => { setActiveTab('jobs'); setSearch(''); }}><Activity size={16} /> Jobs</a>
               <a className={`nav-item ${activeTab === 'cronjobs' ? 'active' : ''}`} onClick={() => { setActiveTab('cronjobs'); setSearch(''); }}><RefreshCw size={16} /> CronJobs</a>
             </nav>
@@ -5876,10 +2631,8 @@ function App() {
           </div>
           {!collapsedSections['zarf'] && (
             <nav className="nav-menu">
-              <a className={`nav-item ${activeTab === 'zarf' ? 'active' : ''}`} onClick={() => { setZarfViewMode('packages'); setActiveTab('zarf'); setSearch(''); }}><Package size={16} /> Deployed Packages</a>
-              <a className={`nav-item ${activeTab === 'zarf-deploy' ? 'active' : ''}`} onClick={() => { setZarfViewMode('local'); setActiveTab('zarf-deploy'); setSearch(''); }}><Save size={16} /> Deploy Zarf Package</a>
+              <a className={`nav-item ${activeTab === 'zarf' ? 'active' : ''}`} onClick={() => { setZarfViewMode('packages'); setActiveTab('zarf'); setSearch(''); }}><Package size={16} /> Packages</a>
               <a className={`nav-item ${activeTab === 'zarf-registry' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-registry'); setSearch(''); }}><Database size={16} /> Zarf Registry</a>
-              <a className={`nav-item ${activeTab === 'zarf-sbom' ? 'active' : ''}`} onClick={() => { setActiveTab('zarf-sbom'); setSearch(''); }}><Shield size={16} /> Zarf SBOMs</a>
             </nav>
           )}
         </div>
@@ -6029,7 +2782,7 @@ function App() {
               let totalMemCap = 0;
               
               nodeMetrics.forEach(nm => {
-                const { cpu, memory } = getNodeCapacity(nm.metadata.name);
+                const { cpu, memory } = getNodeCapacity(nm.metadata.name, nm);
                 totalCpuCap += cpu;
                 totalMemCap += memory;
                 totalCpuUse += parseCpu(nm.usage?.cpu || '0');
@@ -6076,24 +2829,28 @@ function App() {
                   : activeTab === 'helm-repos'
                   ? 'Repo Manager'
                   : activeTab === 'zarf' 
-                  ? 'Deployed Packages'
-                  : activeTab === 'zarf-deploy'
-                  ? 'Deploy Zarf Package'
+                  ? 'Packages'
                   : activeTab === 'zarf-registry'
                   ? 'Zarf Registry'
                   : activeTab === 'zarf-sbom'
                   ? 'Zarf SBOMs'
+                  : activeTab === 'daemonsets'
+                  ? 'DaemonSets'
+                  : activeTab === 'statefulsets'
+                  ? 'StatefulSets'
                   : activeTab === 'image-scanner'
-                  ? 'Security Image Scanner'
+                  ? 'SBOM (Syft/Grype)'
                   : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
               </h1>
               <div className="subtitle">
                 {activeTab === 'topology' 
                   ? `Visualizing cluster relationships in ${selectedNs}` 
                   : activeTab === 'zarf'
-                  ? 'Manage in-cluster deployed Zarf packages'
-                  : activeTab === 'zarf-deploy'
-                  ? 'Upload, compress/decompress, and deploy local package archives'
+                  ? 'Manage deployed packages and local workspace archives'
+                  : activeTab === 'daemonsets'
+                  ? 'Manage background node agent daemonsets'
+                  : activeTab === 'statefulsets'
+                  ? 'Manage stateful clustered application sets'
                   : activeTab === 'zarf-registry'
                   ? 'Manage containers and tag images inside the in-cluster registry'
                   : activeTab === 'zarf-sbom'
@@ -6133,8 +2890,8 @@ function App() {
               </button>
             )}
             {activeTab === 'zarf' && zarfStatus.installed && (
-              <button className="btn btn-primary" onClick={() => setActiveTab('zarf-deploy')}>
-                <Package size={16} /> Deploy Zarf Package
+              <button className="btn btn-primary" onClick={() => setIsZarfUploadModalOpen(true)}>
+                <Package size={16} /> Deploy New Package
               </button>
             )}
           </div>
@@ -6142,27 +2899,179 @@ function App() {
           {loading ? (
             <div className="loader-container"><div className="loader"></div></div>
           ) : activeTab === 'topology' ? (
-            renderTopologyView()
-          ) : activeTab === 'zarf' ? (
-            renderZarfPackagesView()
-          ) : activeTab === 'zarf-deploy' ? (
-            renderZarfDeployView()
-          ) : activeTab === 'zarf-registry' ? (
-            renderZarfRegistryView()
-          ) : activeTab === 'zarf-sbom' ? (
-            renderZarfSbomView()
+            <TopologyView 
+              topologyMode={topologyMode}
+              topologyData={topologyData}
+              selectedNs={selectedNs}
+              hoveredTopologyItem={hoveredTopologyItem}
+              setHoveredTopologyItem={setHoveredTopologyItem}
+              selectedTopologyNode={selectedTopologyNode}
+              setSelectedTopologyNode={setSelectedTopologyNode}
+              resources={resources}
+              podMetrics={podMetrics}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              setModal={setModal}
+              setSelectedContainer={setSelectedContainer}
+              handleRestart={handleRestart}
+              handleScale={handleScale}
+              handleDrillDownToPods={handleDrillDownToPods}
+              handleOpenDiagnostics={handleOpenDiagnostics}
+              handleOpenServiceWebsite={handleOpenServiceWebsite}
+              nodeMetrics={nodeMetrics}
+              getNodeUsagePercent={getNodeUsagePercent}
+              getNodeCapacity={getNodeCapacity}
+            />
+          ) : activeTab === 'zarf' || activeTab === 'zarf-registry' ? (
+            <ZarfManagerView
+              resources={resources}
+              search={search}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              zarfStatus={zarfStatus}
+              zarfViewMode={zarfViewMode}
+              setZarfViewMode={setZarfViewMode}
+              isClearingZarfCache={isClearingZarfCache}
+              handleClearZarfCache={handleClearZarfCache}
+              zarfLocalPackages={zarfLocalPackages}
+              fetchZarfLocalPackages={fetchZarfLocalPackages}
+              handleDeleteWorkspaceItem={handleDeleteWorkspaceItem}
+              handleCompressFolder={handleCompressFolder}
+              handleDecompressPackage={handleDecompressPackage}
+              handleUnpackZarfPackage={handleUnpackZarfPackage}
+              isUnpackingZarf={isUnpackingZarf}
+              selectedZarfPackagePath={selectedZarfPackagePath}
+              zarfConfigText={zarfConfigText}
+              setZarfConfigText={setZarfConfigText}
+              isSavingZarfConfig={isSavingZarfConfig}
+              handleRebuildAndDeployZarf={handleRebuildAndDeployZarf}
+              setZarfUnpackTempDir={setZarfUnpackTempDir}
+              
+              // Lifted Upload Modal States
+              isDeployModalOpen={isZarfUploadModalOpen}
+              setIsDeployModalOpen={setIsZarfUploadModalOpen}
+
+              zarfUploadFile={zarfUploadFile}
+              setZarfUploadFile={setZarfUploadFile}
+              zarfConfigFile={zarfConfigFile}
+              setZarfConfigFile={setZarfConfigFile}
+              zarfUploadProgress={zarfUploadProgress}
+              setZarfUploadProgress={setZarfUploadProgress}
+              handleUploadZarfPackage={handleZarfUpload}
+              selectedZarfConfigPath={selectedZarfConfigPath}
+              setSelectedZarfConfigPath={setSelectedZarfConfigPath}
+              handleDeployLocalPackage={handleDeployLocalPackage}
+              sbomPackageName={sbomPackageName}
+              setSbomPackageName={setSbomPackageName}
+              sbomExtractedFiles={sbomExtractedFiles}
+              setSbomExtractedFiles={setSbomExtractedFiles}
+              sbomSelectedFileUrl={sbomSelectedFileUrl}
+              setSbomSelectedFileUrl={setSbomSelectedFileUrl}
+              isExtractingSbom={isExtractingSbom}
+              handleExtractSbom={handleExtractSbom}
+              selectedZarfPackageDetail={selectedZarfPackageDetail}
+              setSelectedZarfPackageDetail={setSelectedZarfPackageDetail}
+              isPackageDetailModalOpen={isPackageDetailModalOpen}
+              setIsPackageDetailModalOpen={setIsPackageDetailModalOpen}
+              isFetchingPackageDetail={isFetchingPackageDetail}
+              handleInspectDeployedZarfPackage={handleInspectDeployedZarfPackage}
+              handleRemoveZarfPackage={handleRemoveZarfPackage}
+              selectedZarfGraphPkg={selectedZarfGraphPkg}
+              setSelectedZarfGraphPkg={setSelectedZarfGraphPkg}
+              registryPullSource={registryPullSource}
+              setRegistryPullSource={setRegistryPullSource}
+              registryPullTarget={registryPullTarget}
+              setRegistryPullTarget={setRegistryPullTarget}
+              handlePullRegistryImage={handlePullRegistryImage}
+              isPullingRegistry={isPullingRegistry}
+              registryPushTarget={registryPushTarget}
+              setRegistryPushTarget={setRegistryPushTarget}
+              handlePushRegistryImage={handlePushRegistryImage}
+              isPushingRegistry={isPushingRegistry}
+              zarfRegistryImages={zarfRegistryImages}
+              isFetchingRegistry={isFetchingRegistry}
+              fetchZarfRegistryImages={fetchZarfRegistryImages}
+              handleDownloadRegistryImage={handleDownloadRegistryImage}
+              handleDeleteRegistryImage={handleDeleteRegistryImage}
+              handlePruneRegistry={handlePruneRegistry}
+            />
+          ) : activeTab === 'logs' ? (
+            <LogsView
+              namespaces={namespaces}
+              initialNamespace={selectedNs}
+            />
           ) : activeTab === 'image-scanner' ? (
-            renderImageScannerView()
+            <ImageScannerView
+              runningImages={runningImages}
+              runningImagesScanResults={runningImagesScanResults}
+              isScanningAllRunningImages={isScanningAllRunningImages}
+
+              scanSingleImage={scanSingleImage}
+              fetchRunningImagesAndScan={fetchRunningImagesAndScan}
+              enableAutoScan={enableAutoScan}
+              handleToggleAutoScan={handleToggleAutoScan}
+            />
           ) : activeTab === 'kubescape' ? (
-            renderKubescapeView()
-          ) : activeTab === 'helm' ? (
-            renderHelmReleasesView()
-          ) : activeTab === 'helm-install' ? (
-            renderHelmInstallView()
-          ) : activeTab === 'helm-repos' ? (
-            renderHelmReposView()
+            <KubescapeView
+              kubescapeReport={kubescapeReport}
+              isScanningKubescape={isScanningKubescape}
+              triggerKubescapeScan={triggerKubescapeScan}
+              kubescapeSearchQuery={kubescapeSearchQuery}
+              setKubescapeSearchQuery={setKubescapeSearchQuery}
+              kubescapeSeverityFilter={kubescapeSeverityFilter}
+              setKubescapeSeverityFilter={setKubescapeSeverityFilter}
+              expandedControlId={expandedControlId}
+              setExpandedControlId={setExpandedControlId}
+            />
+          ) : activeTab === 'helm' || activeTab === 'helm-install' || activeTab === 'helm-repos' ? (
+            <HelmManagerView
+              resources={resources}
+              selectedNs={selectedNs}
+              search={search}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              setModal={setModal}
+              handleDelete={handleDelete}
+              selectedHelmRelease={selectedHelmRelease}
+              setSelectedHelmRelease={setSelectedHelmRelease}
+              fetchHelmInspect={fetchHelmInspect}
+              helmInspectTab={helmInspectTab}
+              setHelmInspectTab={setHelmInspectTab}
+              isFetchingHelmInspect={isFetchingHelmInspect}
+              helmInspectData={helmInspectData}
+              helmUpgradeChartRef={helmUpgradeChartRef}
+              setHelmUpgradeChartRef={setHelmUpgradeChartRef}
+              isUpgradingHelm={isUpgradingHelm}
+              handleHelmUpgrade={handleHelmUpgrade}
+              helmUpgradeValues={helmUpgradeValues}
+              setHelmUpgradeValues={setHelmUpgradeValues}
+              helmCustomInstall={helmCustomInstall}
+              setHelmCustomInstall={setHelmCustomInstall}
+              handleCustomHelmInstall={handleCustomHelmInstall}
+              isSubmittingHelmDeploy={isSubmittingHelmDeploy}
+              helmRepos={helmRepos}
+              newHelmRepo={newHelmRepo}
+              setNewHelmRepo={setNewHelmRepo}
+              isSubmittingHelmRepo={isSubmittingHelmRepo}
+              handleAddHelmRepo={handleAddHelmRepo}
+              handleRemoveHelmRepo={handleRemoveHelmRepo}
+              handleUpdateHelmRepos={handleUpdateHelmRepos}
+              helmSearchQuery={helmSearchQuery}
+              setHelmSearchQuery={setHelmSearchQuery}
+              helmSearchResults={helmSearchResults}
+              isSearchingHelm={isSearchingHelm}
+              handleSearchHelmRepo={handleSearchHelmRepo}
+            />
           ) : activeTab === 'dashboard' ? (
-            renderDashboardView()
+            <DashboardView
+              dashboardData={dashboardData}
+              cpuHistory={cpuHistory}
+              memHistory={memHistory}
+              setActiveTab={setActiveTab}
+              setSearch={setSearch}
+              setIsCmdPaletteOpen={setIsCmdPaletteOpen}
+              zarfStatus={zarfStatus}
+            />
           ) : (
             <div className="resource-list">
               {filteredResources.length === 0 ? (
@@ -7127,7 +4036,21 @@ function App() {
  
             <div className="modal-body">
               {modal.type === 'files' ? (
-                renderPodFilesTab()
+                <PodFilesExplorer
+                  modal={modal}
+                  currentDirPath={currentDirPath}
+                  setCurrentDirPath={setCurrentDirPath}
+                  isListingFiles={isListingFiles}
+                  podFiles={podFiles}
+                  podFileUploadProgress={podFileUploadProgress}
+                  podFileUploadName={podFileUploadName}
+                  handleUploadPodFile={handleUploadPodFile}
+                  handleCreatePodFolder={handleCreatePodFolder}
+                  fetchPodFilesList={fetchPodFilesList}
+                  handleEditPodFile={handleEditPodFile}
+                  handleDownloadPodFile={handleDownloadPodFile}
+                  handleDeletePodFile={handleDeletePodFile}
+                />
               ) : modalData === null ? (
                 <div className="loader-container"><div className="loader"></div></div>
               ) : modal.type === 'yaml' ? (
@@ -7563,8 +4486,11 @@ function App() {
                 { name: 'Topology Map', category: 'Views', action: () => { setActiveTab('topology'); setIsCmdPaletteOpen(false); } },
                 { name: 'Node Status', category: 'Views', action: () => { setActiveTab('nodes'); setIsCmdPaletteOpen(false); } },
                 { name: 'Cluster Events Feed', category: 'Views', action: () => { setActiveTab('events'); setIsCmdPaletteOpen(false); } },
+                { name: 'Cluster & Pod Logs Console', category: 'Views', action: () => { setActiveTab('logs'); setIsCmdPaletteOpen(false); } },
                 { name: 'Pods List', category: 'Views', action: () => { setActiveTab('pods'); setIsCmdPaletteOpen(false); } },
                 { name: 'Deployments Scale & Restart', category: 'Views', action: () => { setActiveTab('deployments'); setIsCmdPaletteOpen(false); } },
+                { name: 'DaemonSets Node Agents', category: 'Views', action: () => { setActiveTab('daemonsets'); setIsCmdPaletteOpen(false); } },
+                { name: 'StatefulSets Clustered Apps', category: 'Views', action: () => { setActiveTab('statefulsets'); setIsCmdPaletteOpen(false); } },
                 { name: 'Services Network', category: 'Views', action: () => { setActiveTab('services'); setIsCmdPaletteOpen(false); } },
                 { name: 'Ingresses SSL Routing', category: 'Views', action: () => { setActiveTab('ingresses'); setIsCmdPaletteOpen(false); } },
                 { name: 'Jobs Batch run', category: 'Views', action: () => { setActiveTab('jobs'); setIsCmdPaletteOpen(false); } },
@@ -7593,7 +4519,7 @@ function App() {
                 })),
 
                 // Security & Scans
-                { name: 'Open Image Scanner', category: 'Security & Scans', action: () => { setActiveTab('image-scanner'); setIsCmdPaletteOpen(false); } },
+                { name: 'Open SBOM (Syft/Grype)', category: 'Security & Scans', action: () => { setActiveTab('image-scanner'); setIsCmdPaletteOpen(false); } },
                 { name: 'Open Kubescape Compliance', category: 'Security & Scans', action: () => { setActiveTab('kubescape'); setIsCmdPaletteOpen(false); } },
                 { name: 'Scan All Running Images', category: 'Security & Scans', action: () => { fetchRunningImagesAndScan(); setIsCmdPaletteOpen(false); } },
 
@@ -7627,10 +4553,16 @@ function App() {
                   >
                     <Search size={18} style={{ color: 'var(--accent-green)' }} />
                     <input
+                      ref={cmdPaletteInputRef}
                       type="text"
                       placeholder="Search views, namespaces, custom resources..."
                       value={cmdPaletteSearch}
-                      onChange={e => { setCmdPaletteSearch(e.target.value); setActivePaletteIndex(0); }}
+                      onChange={e => {
+                        let val = e.target.value;
+                        if (val === ':') val = '';
+                        setCmdPaletteSearch(val);
+                        setActivePaletteIndex(0);
+                      }}
                       onKeyDown={e => {
                         if (e.key === 'ArrowDown') {
                           e.preventDefault();
@@ -7641,49 +4573,48 @@ function App() {
                         } else if (e.key === 'Enter') {
                           e.preventDefault();
                           const query = cmdPaletteSearch.trim().toLowerCase();
-                          if (query.startsWith(':')) {
-                            const command = query.slice(1).trim();
-                            let targetTab: ResourceKind | null = null;
-                            if (['po', 'pod', 'pods'].includes(command)) targetTab = 'pods';
-                            else if (['dep', 'deploy', 'deployments'].includes(command)) targetTab = 'deployments';
-                            else if (['svc', 'service', 'services'].includes(command)) targetTab = 'services';
-                            else if (['ing', 'ingress', 'ingresses'].includes(command)) targetTab = 'ingresses';
-                            else if (['no', 'node', 'nodes'].includes(command)) targetTab = 'nodes';
-                            else if (['cm', 'configmap', 'configmaps'].includes(command)) targetTab = 'configmaps';
-                            else if (['sec', 'secret', 'secrets'].includes(command)) targetTab = 'secrets';
-                            else if (['pv'].includes(command)) targetTab = 'persistentvolumes';
-                            else if (['pvc'].includes(command)) targetTab = 'persistentvolumeclaims';
-                            else if (['job', 'jobs'].includes(command)) targetTab = 'jobs';
-                            else if (['cj', 'cronjob', 'cronjobs'].includes(command)) targetTab = 'cronjobs';
-                            else if (['helm'].includes(command)) targetTab = 'helm';
-                            else if (['crd', 'crds'].includes(command)) targetTab = 'crds';
-                            else if (['audit'].includes(command)) targetTab = 'cluster-auditor';
-                            else if (['scan', 'scanner'].includes(command)) targetTab = 'image-scanner';
-                            else if (['kube', 'compliance', 'kubescape'].includes(command)) targetTab = 'kubescape';
-                            else if (['gitea', 'git', 'tea'].includes(command)) targetTab = 'gitea';
-                            else if (['topo', 'topology'].includes(command)) targetTab = 'topology';
-                            else if (['event', 'events'].includes(command)) targetTab = 'events';
+                          const command = query.startsWith(':') ? query.slice(1).trim() : query;
+                          let targetTab: ResourceKind | null = null;
+                          if (['po', 'pod', 'pods'].includes(command)) targetTab = 'pods';
+                          else if (['dep', 'deploy', 'deployments'].includes(command)) targetTab = 'deployments';
+                          else if (['svc', 'service', 'services'].includes(command)) targetTab = 'services';
+                          else if (['ing', 'ingress', 'ingresses'].includes(command)) targetTab = 'ingresses';
+                          else if (['no', 'node', 'nodes'].includes(command)) targetTab = 'nodes';
+                          else if (['cm', 'configmap', 'configmaps'].includes(command)) targetTab = 'configmaps';
+                          else if (['sec', 'secret', 'secrets'].includes(command)) targetTab = 'secrets';
+                          else if (['pv'].includes(command)) targetTab = 'persistentvolumes';
+                          else if (['pvc'].includes(command)) targetTab = 'persistentvolumeclaims';
+                          else if (['job', 'jobs'].includes(command)) targetTab = 'jobs';
+                          else if (['cj', 'cronjob', 'cronjobs'].includes(command)) targetTab = 'cronjobs';
+                          else if (['helm'].includes(command)) targetTab = 'helm';
+                          else if (['crd', 'crds'].includes(command)) targetTab = 'crds';
+                          else if (['audit'].includes(command)) targetTab = 'cluster-auditor';
+                          else if (['scan', 'scanner'].includes(command)) targetTab = 'image-scanner';
+                          else if (['kube', 'compliance', 'kubescape'].includes(command)) targetTab = 'kubescape';
+                          else if (['gitea', 'git', 'tea'].includes(command)) targetTab = 'gitea';
+                          else if (['topo', 'topology'].includes(command)) targetTab = 'topology';
+                          else if (['event', 'events'].includes(command)) targetTab = 'events';
+                          else if (['log', 'logs'].includes(command)) targetTab = 'logs';
 
-                            if (targetTab) {
-                              setActiveTab(targetTab);
+                          if (targetTab) {
+                            setActiveTab(targetTab);
+                            setIsCmdPaletteOpen(false);
+                            return;
+                          }
+
+                          if (command.startsWith('ns ')) {
+                            const nsName = command.slice(3).trim();
+                            if (namespaces.includes(nsName)) {
+                              setSelectedNs(nsName);
                               setIsCmdPaletteOpen(false);
                               return;
                             }
+                          }
 
-                            if (command.startsWith('ns ')) {
-                              const nsName = command.slice(3).trim();
-                              if (namespaces.includes(nsName)) {
-                                setSelectedNs(nsName);
-                                setIsCmdPaletteOpen(false);
-                                return;
-                              }
-                            }
-
-                            if (namespaces.includes(command)) {
-                              setSelectedNs(command);
-                              setIsCmdPaletteOpen(false);
-                              return;
-                            }
+                          if (namespaces.includes(command)) {
+                            setSelectedNs(command);
+                            setIsCmdPaletteOpen(false);
+                            return;
                           }
                           if (filtered[activePaletteIndex]) {
                             filtered[activePaletteIndex].action();
@@ -7702,7 +4633,6 @@ function App() {
                         fontSize: '1rem',
                         fontFamily: 'var(--font-sans)'
                       }}
-                      autoFocus
                     />
                     <button 
                       className="btn btn-icon" 

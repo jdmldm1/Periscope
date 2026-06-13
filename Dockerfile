@@ -11,10 +11,10 @@ FROM node:22-alpine
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --production
+RUN npm install --production && npm cache clean --force
 
-# Install curl/ca-certificates, Zarf v0.75.1, and kubectl
-RUN apk add --no-cache curl ca-certificates && \
+# Install curl/ca-certificates, Zarf v0.75.1, kubectl, and zstd
+RUN apk add --no-cache curl ca-certificates zstd && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then ZARF_ARCH="amd64"; else ZARF_ARCH="arm64"; fi && \
     curl -sL "https://github.com/zarf-dev/zarf/releases/download/v0.75.1/zarf_v0.75.1_Linux_${ZARF_ARCH}" -o /usr/local/bin/zarf && \
@@ -24,7 +24,8 @@ RUN apk add --no-cache curl ca-certificates && \
     printf '#!/bin/sh\nexec zarf tools helm "$@"\n' > /usr/local/bin/helm && \
     chmod +x /usr/local/bin/helm && \
     curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin && \
-    grype db update
+    grype db update && \
+    zstd -T0 -q --rm /root/.cache/grype/db/*/vulnerability.db
 
 COPY server.js ./
 COPY --from=builder /app/frontend/dist ./frontend/dist

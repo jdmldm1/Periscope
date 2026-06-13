@@ -80,6 +80,7 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.0
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}
 
   helm-package-oci:
@@ -154,9 +155,9 @@ jobs:
       - name: Create Zarf Package and Export SBOMs
         run: |
           mkdir -p sbom-output
-          # Use sed to replace the placeholder with the lowercase repo name
-          # Zarf's image parser is strict and doesn't like the ###ZARF_VAR_...### syntax in the images list
-          sed -i "s|###ZARF_VAR_IMAGE_REPO###|${{ env.REPO_LOWER }}|g" zarf.yaml
+          # Use sed to replace the default repository with the lowercase repo name
+          # Zarf's image parser is strict and doesn't like template syntax in the images list
+          sed -i "s|jdmldm1/periscope-kubernetes|${{ env.REPO_LOWER }}|g" zarf.yaml
           zarf package create --confirm --sbom-out ./sbom-output
           echo "Contents of sbom-output:"
           ls -R sbom-output

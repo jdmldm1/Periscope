@@ -10,7 +10,7 @@ components:
     required: true
 
     images:
-      - ghcr.io/###ZARF_VAR_IMAGE_REPO###:latest
+      - ghcr.io/jdmldm1/periscope-kubernetes:1.0.0
 
     charts:
       - name: periscope

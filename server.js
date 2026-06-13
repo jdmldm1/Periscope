@@ -9,6 +9,36 @@ const http = require('http');
 const fs = require('fs');
 
 
+// Decompress Grype vulnerability database on startup if it was compressed using zstd to save image space.
+// Run this check asynchronously in the background.
+(function decompressGrypeDb() {
+    const dbBaseDir = '/root/.cache/grype/db';
+    if (!fs.existsSync(dbBaseDir)) {
+        return;
+    }
+    try {
+        const schemas = fs.readdirSync(dbBaseDir);
+        for (const schema of schemas) {
+            const schemaDir = path.join(dbBaseDir, schema);
+            if (fs.statSync(schemaDir).isDirectory()) {
+                const compressedPath = path.join(schemaDir, 'vulnerability.db.zst');
+                const decompressedPath = path.join(schemaDir, 'vulnerability.db');
+                if (fs.existsSync(compressedPath) && !fs.existsSync(decompressedPath)) {
+                    console.log(`Found compressed Grype database in schema v${schema}. Decompressing in background...`);
+                    exec(`zstd -d -f -q --rm "${compressedPath}" -o "${decompressedPath}"`, (error, stdout, stderr) => {
+                        if (error) {
+                            console.error(`Failed to decompress Grype database in schema v${schema}:`, error);
+                        } else {
+                            console.log(`Grype database decompressed successfully for schema v${schema}.`);
+                        }
+                    });
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Error checking Grype database:', err);
+    }
+})();
 
 const app = express();
 app.use(cors());
@@ -102,6 +132,8 @@ app.get('/api/nodes', async (req, res) => {
 const fetchers = {
     'pods': (ns) => k8sCoreApi.listNamespacedPod({ namespace: ns }),
     'deployments': (ns) => k8sAppsApi.listNamespacedDeployment({ namespace: ns }),
+    'daemonsets': (ns) => k8sAppsApi.listNamespacedDaemonSet({ namespace: ns }),
+    'statefulsets': (ns) => k8sAppsApi.listNamespacedStatefulSet({ namespace: ns }),
     'services': (ns) => k8sCoreApi.listNamespacedService({ namespace: ns }),
     'configmaps': (ns) => k8sCoreApi.listNamespacedConfigMap({ namespace: ns }),
     'secrets': (ns) => k8sCoreApi.listNamespacedSecret({ namespace: ns }),
@@ -116,6 +148,8 @@ const fetchers = {
 const allNamespacesFetchers = {
     'pods': () => k8sCoreApi.listPodForAllNamespaces(),
     'deployments': () => k8sAppsApi.listDeploymentForAllNamespaces(),
+    'daemonsets': () => k8sAppsApi.listDaemonSetForAllNamespaces(),
+    'statefulsets': () => k8sAppsApi.listStatefulSetForAllNamespaces(),
     'services': () => k8sCoreApi.listServiceForAllNamespaces(),
     'configmaps': () => k8sCoreApi.listConfigMapForAllNamespaces(),
     'secrets': () => k8sCoreApi.listSecretForAllNamespaces(),
@@ -177,6 +211,10 @@ app.get('/api/resource/:kind', async (req, res) => {
             });
         }
 
+        if (kind === 'daemonsets' || kind === 'statefulsets') {
+            items.sort((a, b) => a.metadata.name.localeCompare(b.metadata.name));
+        }
+
         res.json(items);
 
     } catch (err) {
@@ -190,6 +228,8 @@ app.delete('/api/resource/:kind/:namespace/:name', async (req, res) => {
     try {
         if (kind === 'pods') await k8sCoreApi.deleteNamespacedPod({ name, namespace });
         else if (kind === 'deployments') await k8sAppsApi.deleteNamespacedDeployment({ name, namespace });
+        else if (kind === 'daemonsets') await k8sAppsApi.deleteNamespacedDaemonSet({ name, namespace });
+        else if (kind === 'statefulsets') await k8sAppsApi.deleteNamespacedStatefulSet({ name, namespace });
         else if (kind === 'services') await k8sCoreApi.deleteNamespacedService({ name, namespace });
         else if (kind === 'configmaps') await k8sCoreApi.deleteNamespacedConfigMap({ name, namespace });
         else if (kind === 'secrets') await k8sCoreApi.deleteNamespacedSecret({ name, namespace });
@@ -500,12 +540,26 @@ app.get('/api/diagnose/:namespace/:podName', async (req, res) => {
 // Metrics endpoints
 app.get('/api/metrics/nodes', async (req, res) => {
     try {
-        const response = await k8sCustom.listClusterCustomObject({
-            group: 'metrics.k8s.io',
-            version: 'v1beta1',
-            plural: 'nodes'
+        const [metricsResponse, nodesResponse] = await Promise.all([
+            k8sCustom.listClusterCustomObject({
+                group: 'metrics.k8s.io',
+                version: 'v1beta1',
+                plural: 'nodes'
+            }),
+            k8sCoreApi.listNode()
+        ]);
+        const nodes = nodesResponse.items || [];
+        const items = (metricsResponse.items || []).map(nm => {
+            const node = nodes.find(n => n.metadata?.name === nm.metadata?.name);
+            return {
+                ...nm,
+                capacity: node ? {
+                    cpu: node.status?.capacity?.cpu || '1',
+                    memory: node.status?.capacity?.memory || '1Ki'
+                } : { cpu: '1', memory: '1Ki' }
+            };
         });
-        res.json(response.items || []);
+        res.json(items);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -715,6 +769,8 @@ app.post('/api/resource/pods/:namespace/:name/exec', async (req, res) => {
 const readers = {
     'pods': (n, ns) => k8sCoreApi.readNamespacedPod({ name: n, namespace: ns }),
     'deployments': (n, ns) => k8sAppsApi.readNamespacedDeployment({ name: n, namespace: ns }),
+    'daemonsets': (n, ns) => k8sAppsApi.readNamespacedDaemonSet({ name: n, namespace: ns }),
+    'statefulsets': (n, ns) => k8sAppsApi.readNamespacedStatefulSet({ name: n, namespace: ns }),
     'services': (n, ns) => k8sCoreApi.readNamespacedService({ name: n, namespace: ns }),
     'configmaps': (n, ns) => k8sCoreApi.readNamespacedConfigMap({ name: n, namespace: ns }),
     'secrets': (n, ns) => k8sCoreApi.readNamespacedSecret({ name: n, namespace: ns }),
@@ -753,6 +809,8 @@ app.get('/api/yaml/:kind/:namespace/:name', async (req, res) => {
 const updaters = {
     'pods': (n, ns, body) => k8sCoreApi.replaceNamespacedPod({ name: n, namespace: ns, body }),
     'deployments': (n, ns, body) => k8sAppsApi.replaceNamespacedDeployment({ name: n, namespace: ns, body }),
+    'daemonsets': (n, ns, body) => k8sAppsApi.replaceNamespacedDaemonSet({ name: n, namespace: ns, body }),
+    'statefulsets': (n, ns, body) => k8sAppsApi.replaceNamespacedStatefulSet({ name: n, namespace: ns, body }),
     'services': (n, ns, body) => k8sCoreApi.replaceNamespacedService({ name: n, namespace: ns, body }),
     'configmaps': (n, ns, body) => k8sCoreApi.replaceNamespacedConfigMap({ name: n, namespace: ns, body }),
     'secrets': (n, ns, body) => k8sCoreApi.replaceNamespacedSecret({ name: n, namespace: ns, body }),
@@ -1632,8 +1690,36 @@ app.post('/api/zarf/sbom/inspect', (req, res) => {
 
 // Persistent cache config
 const os = require('os');
-const sbomCacheFile = path.join(os.tmpdir(), 'periscope-sbom-cache.json');
-const vulnsCacheFile = path.join(os.tmpdir(), 'periscope-vulns-cache.json');
+const cacheDir = path.join(__dirname, '.cache');
+if (!fs.existsSync(cacheDir)) {
+    fs.mkdirSync(cacheDir, { recursive: true });
+}
+const sbomCacheFile = path.join(cacheDir, 'periscope-sbom-cache.json');
+const vulnsCacheFile = path.join(cacheDir, 'periscope-vulns-cache.json');
+
+let enableAutoScan = false;
+const configCacheFile = path.join(cacheDir, 'periscope-config.json');
+
+// Load scanner config
+try {
+    if (fs.existsSync(configCacheFile)) {
+        const configData = JSON.parse(fs.readFileSync(configCacheFile, 'utf8'));
+        if (typeof configData.enableAutoScan === 'boolean') {
+            enableAutoScan = configData.enableAutoScan;
+        }
+        console.log(`[Config] Loaded scanner config: enableAutoScan = ${enableAutoScan}`);
+    }
+} catch (err) {
+    console.error('[Config] Failed to load scanner config:', err);
+}
+
+function saveScannerConfig() {
+    try {
+        fs.writeFileSync(configCacheFile, JSON.stringify({ enableAutoScan }, null, 2), 'utf8');
+    } catch (err) {
+        console.error('[Config] Failed to save scanner config:', err);
+    }
+}
 
 // In-memory caches for scans
 const sbomScanCache = new Map();
@@ -1880,6 +1966,26 @@ app.get('/api/zarf/sbom/scans', (req, res) => {
     res.json(results);
 });
 
+// Get scanner auto-scan config
+app.get('/api/security/scanner/config', (req, res) => {
+    res.json({ enableAutoScan });
+});
+
+// Update scanner auto-scan config
+app.post('/api/security/scanner/config', (req, res) => {
+    const { enableAutoScan: value } = req.body;
+    if (typeof value === 'boolean') {
+        enableAutoScan = value;
+        saveScannerConfig();
+        if (enableAutoScan) {
+            backgroundScanLoop();
+        }
+        res.json({ success: true, enableAutoScan });
+    } else {
+        res.status(400).json({ error: 'enableAutoScan must be a boolean' });
+    }
+});
+
 // Background scanning loop
 let currentlyScanningImage = null;
 let isBackgroundScanning = false;
@@ -1902,6 +2008,10 @@ async function getUniqueRunningImages() {
 }
 
 async function backgroundScanLoop() {
+    if (!enableAutoScan) {
+        setTimeout(backgroundScanLoop, 15000);
+        return;
+    }
     if (isBackgroundScanning) return;
     isBackgroundScanning = true;
     try {
@@ -2691,7 +2801,7 @@ app.get('/api/zarf/running-images', async (req, res) => {
 });
 
 // Kubescape compliance scanner state
-const kubescapeCacheFile = path.join(os.tmpdir(), 'periscope-kubescape-cache.json');
+const kubescapeCacheFile = path.join(cacheDir, 'periscope-kubescape-cache.json');
 let kubescapeScanCache = null;
 let isKubescapeScanning = false;
 
