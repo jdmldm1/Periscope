@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Shield, RefreshCw, Search, Download } from 'lucide-react';
 import { SbomDiffView } from './SbomDiffView';
 
@@ -23,8 +23,15 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
 }) => {
   // Localized Filters
   const [selectedScanFilterImage, setSelectedScanFilterImage] = useState<string>('all');
-  const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'remediation' | 'drift' | 'images'>('vulnerabilities');
+  const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'remediation' | 'drift' | 'images'>(() => {
+    const saved = localStorage.getItem('imageScannerActiveTab');
+    return (saved as any) || 'vulnerabilities';
+  });
   const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    localStorage.setItem('imageScannerActiveTab', imageScannerActiveTab);
+  }, [imageScannerActiveTab]);
   const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
 
   interface RemediationItem {

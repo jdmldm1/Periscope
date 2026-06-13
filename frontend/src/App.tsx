@@ -24,12 +24,20 @@ import { TrafficInspectorView } from './components/TrafficInspectorView';
 // Import helpers
 import { parseCpu, parseMem, highlightYaml, colorizeLogs, pluralizeKind, matchesSelector } from './utils/helpers';
 
-type ResourceKind = 'pods' | 'deployments' | 'daemonsets' | 'statefulsets' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state' | 'kubescape' | 'gitea' | 'logs' | 'traffic' | 'cluster-terminal';
+type ResourceKind = 'pods' | 'deployments' | 'daemonsets' | 'statefulsets' | 'services' | 'configmaps' | 'secrets' | 'ingresses' | 'jobs' | 'cronjobs' | 'nodes' | 'topology' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-install' | 'helm-repos' | 'crds' | 'custom' | 'events' | 'zarf' | 'zarf-deploy' | 'zarf-registry' | 'zarf-creds' | 'zarf-sbom' | 'cluster-auditor' | 'dashboard' | 'image-scanner' | 'zarf-state' | 'kubescape' | 'gitea' | 'logs' | 'traffic' | 'cluster-terminal' | 'namespaces';
 type ModalType = 'yaml' | 'logs' | 'events' | 'terminal' | 'portforward' | 'history' | 'files' | 'values' | 'decoded';
 
 
 function App() {
-  const [activeTab, setActiveTab] = useState<ResourceKind>('dashboard');
+  const [activeTab, setActiveTab] = useState<ResourceKind>(() => {
+    const saved = localStorage.getItem('activeTab');
+    return (saved as ResourceKind) || 'dashboard';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
+
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [selectedNs, setSelectedNs] = useState<string>('all');
   const [resources, setResources] = useState<any[]>([]);
@@ -2340,6 +2348,10 @@ function App() {
       const status = resource.status?.phase?.toLowerCase() || 'unknown';
       return <span className={`badge ${status === 'deployed' ? 'ready' : 'error'}`}>{status}</span>;
     }
+    if (activeTab === 'namespaces') {
+      const status = resource.status?.phase?.toLowerCase() || 'unknown';
+      return <span className={`badge ${status === 'active' ? 'ready' : 'error'}`}>{status}</span>;
+    }
     return <span className="badge ready">Active</span>;
   };
 
@@ -2501,6 +2513,7 @@ function App() {
           </div>
           {!collapsedSections['workloads'] && (
             <nav className="nav-menu">
+              <a className={`nav-item ${activeTab === 'namespaces' ? 'active' : ''}`} onClick={() => { setActiveTab('namespaces'); setSearch(''); }}><Globe size={16} /> Namespaces</a>
               <a className={`nav-item ${activeTab === 'pods' ? 'active' : ''}`} onClick={() => { setActiveTab('pods'); setSearch(''); }}><Box size={16} /> Pods</a>
               <a className={`nav-item ${activeTab === 'deployments' ? 'active' : ''}`} onClick={() => { setActiveTab('deployments'); setSearch(''); }}><Layers size={16} /> Deployments</a>
               <a className={`nav-item ${activeTab === 'daemonsets' ? 'active' : ''}`} onClick={() => { setActiveTab('daemonsets'); setSearch(''); }}><Layers size={16} /> DaemonSets</a>
