@@ -4,12 +4,13 @@ import { SbomDiffView } from './SbomDiffView';
 
 interface ImageScannerViewProps {
   runningImages: string[];
-  runningImagesScanResults: Record<string, { sbom: any; vulnerabilities: any; status: 'pending' | 'scanning' | 'success' | 'failed'; error?: string }>;
+  runningImagesScanResults: Record<string, { sbom: any; vulnerabilities: any; status: 'pending' | 'scanning' | 'success' | 'failed' | 'notScanned'; error?: string }>;
   isScanningAllRunningImages: boolean;
   scanSingleImage: (img: string) => Promise<void>;
   fetchRunningImagesAndScan: () => Promise<void>;
   enableAutoScan: boolean;
   handleToggleAutoScan: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  grypeDbStatus?: { isUpdating: boolean; error: string | null; lastCheck: string | null };
 }
 
 export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
@@ -29,7 +30,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
 
   const fetchDbStatus = async () => {
     try {
-      const res = await fetch('/api/zarf/grype/db-status');
+      const res = await fetch('/api/zarf/scanner/grype/db-status');
       const data = await res.json();
       setDbStatus(data);
     } catch (err) {
@@ -52,7 +53,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
 
   const triggerDbUpdate = async () => {
     try {
-      await fetch('/api/zarf/grype/db-update', { method: 'POST' });
+      await fetch('/api/zarf/scanner/grype/db-update', { method: 'POST' });
       fetchDbStatus();
     } catch (err) {
       console.error('Failed to trigger Grype DB update:', err);
@@ -919,7 +920,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
 
       {imageScannerActiveTab === 'images' && (
         <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+          <table className="crd-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
                 <th style={{ padding: '12px 16px' }}>Container Image Reference</th>
@@ -951,7 +952,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                       {cleanedName}
                     </td>
                     <td style={{ padding: '12px 16px' }}>
-                      {!scan ? (
+                      {!scan || scan.status === 'notScanned' ? (
                         <span style={{ color: 'var(--text-muted)' }}>Not Scanned</span>
                       ) : scan.status === 'scanning' ? (
                         <span style={{ color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -989,7 +990,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                         onClick={() => scanSingleImage(img)}
                         disabled={scan?.status === 'scanning' || dbStatus.isUpdating}
                       >
-                        {scan?.status === 'scanning' ? 'Scanning...' : dbStatus.isUpdating ? 'DB Updating' : scan ? 'Rescan' : 'Scan'}
+                        {scan?.status === 'scanning' ? 'Scanning...' : dbStatus.isUpdating ? 'DB Updating' : (scan && scan.status !== 'notScanned') ? 'Rescan' : 'Scan'}
                       </button>
                     </td>
                   </tr>

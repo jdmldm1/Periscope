@@ -3,14 +3,14 @@ kind: ZarfPackageConfig
 metadata:
   name: periscope-airgap
   description: A Periscope web console (airgap mode) for exploring and managing Kubernetes resources
-  version: 1.0.2
+  version: 1.1.2
 
 components:
   - name: periscope
     required: true
 
     images:
-      - ghcr.io/jdmldm1/periscope-kubernetes:1.0.3
+      - ghcr.io/jdmldm1/periscope-kubernetes:1.1.2
 
     charts:
       - name: periscope
