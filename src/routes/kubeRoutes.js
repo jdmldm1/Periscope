@@ -89,6 +89,162 @@ router.get('/resource/:kind/:namespace/:name/events', async (req, res) => {
     }
 });
 
+router.get('/diagnose/:namespace/:podName', async (req, res) => {
+    const { namespace, podName } = req.params;
+    try {
+        const podRes = await k8sService.core.readNamespacedPod({ name: podName, namespace });
+        const pod = podRes.body || podRes;
+        const eventsResponse = await k8sService.core.listNamespacedEvent({ namespace });
+        const allEvents = eventsResponse.items || eventsResponse.body?.items || [];
+        const events = allEvents.filter(e => e.involvedObject && e.involvedObject.uid === pod.metadata.uid);
+        
+        let targetContainer = null;
+        if (pod.status?.containerStatuses) {
+            const failing = pod.status.containerStatuses.find(cs => cs.state?.waiting || (cs.state?.terminated && cs.state.terminated.exitCode !== 0));
+            if (failing) {
+                targetContainer = failing.name;
+            }
+        }
+        if (!targetContainer && pod.spec?.containers?.length > 0) {
+            targetContainer = pod.spec.containers[0].name;
+        }
+
+        let logTail = '';
+        if (targetContainer) {
+            try {
+                const logRes = await k8sService.core.readNamespacedPodLog({
+                    name: podName,
+                    namespace,
+                    container: targetContainer,
+                    tailLines: 50
+                });
+                logTail = logRes.body || logRes;
+            } catch (logErr) {
+                logTail = `Could not fetch logs for container ${targetContainer}: ${logErr.message}`;
+            }
+        } else {
+            logTail = 'No containers found in pod spec.';
+        }
+
+        let diagnosis = {
+            status: 'Healthy',
+            summary: 'No issues detected. The pod is running normally.',
+            details: [],
+            events: events.map(e => ({
+                type: e.type,
+                reason: e.reason,
+                message: e.message,
+                firstTimestamp: e.firstTimestamp || e.metadata.creationTimestamp,
+                count: e.count
+            })),
+            logTail: logTail
+        };
+
+        const containerStatuses = [
+            ...(pod.status?.containerStatuses || []),
+            ...(pod.status?.initContainerStatuses || [])
+        ];
+
+        let hasIssue = false;
+
+        containerStatuses.forEach(cs => {
+            const name = cs.name;
+            const state = cs.state || {};
+            const lastState = cs.lastState || {};
+            
+            if (state.waiting) {
+                hasIssue = true;
+                const reason = state.waiting.reason;
+                const message = state.waiting.message || '';
+                
+                if (reason === 'CrashLoopBackOff') {
+                    diagnosis.status = 'Critical';
+                    const exitCode = lastState.terminated?.exitCode;
+                    const termReason = lastState.terminated?.reason;
+                    let detail = `Container '${name}' is in CrashLoopBackOff.`;
+                    if (exitCode !== undefined) {
+                        detail += ` It terminated with exit code ${exitCode} (${termReason || 'unknown reason'}).`;
+                    }
+                    if (exitCode === 137 || termReason === 'OOMKilled') {
+                        detail += ` Root cause: Out Of Memory (OOMKilled). The container exceeded its memory limit.`;
+                    } else if (exitCode === 1) {
+                        detail += ` This usually indicates an application crash or misconfiguration.`;
+                    } else if (exitCode === 127) {
+                        detail += ` Command or entrypoint binary not found.`;
+                    }
+                    diagnosis.details.push(detail);
+                } else if (reason === 'ErrImagePull' || reason === 'ImagePullBackOff') {
+                    diagnosis.status = 'Critical';
+                    diagnosis.details.push(`Container '${name}' failed to pull image. Reason: ${reason}. Check if the image reference is correct, the registry exists, and credentials are correct.`);
+                } else if (reason === 'CreateContainerConfigError' || reason === 'CreateContainerError') {
+                    diagnosis.status = 'Critical';
+                    diagnosis.details.push(`Container '${name}' failed to create. Reason: ${reason}. This is often caused by a missing ConfigMap, Secret, or invalid command arguments.`);
+                } else {
+                    diagnosis.status = 'Warning';
+                    diagnosis.details.push(`Container '${name}' is waiting. Reason: ${reason}. Message: ${message}`);
+                }
+            }
+            
+            if (state.terminated && state.terminated.exitCode !== 0) {
+                hasIssue = true;
+                const term = state.terminated;
+                let detail = `Container '${name}' terminated with non-zero exit code ${term.exitCode}. Reason: ${term.reason}.`;
+                if (term.reason === 'OOMKilled') {
+                    diagnosis.status = 'Critical';
+                    detail += ` The container was terminated because it ran out of memory. Try increasing the memory limits in the deployment spec.`;
+                } else {
+                    if (diagnosis.status !== 'Critical') diagnosis.status = 'Warning';
+                }
+                diagnosis.details.push(detail);
+            }
+        });
+
+        if (pod.status?.phase === 'Pending') {
+            hasIssue = true;
+            diagnosis.status = 'Critical';
+            let unschedulable = false;
+            (pod.status.conditions || []).forEach(cond => {
+                if (cond.type === 'PodScheduled' && cond.status === 'False' && cond.reason === 'Unschedulable') {
+                    unschedulable = true;
+                    diagnosis.details.push(`Pod scheduling failed. Reason: Unschedulable. Message: ${cond.message || 'No resources available.'}`);
+                }
+            });
+            if (!unschedulable) {
+                diagnosis.details.push(`Pod is pending. Current conditions: ${(pod.status.conditions || []).map(c => `${c.type}=${c.status}`).join(', ')}`);
+            }
+        }
+
+        const warnings = events.filter(e => e.type === 'Warning');
+        warnings.forEach(w => {
+            if (w.reason === 'Unhealthy') {
+                hasIssue = true;
+                if (diagnosis.status !== 'Critical') diagnosis.status = 'Warning';
+                diagnosis.details.push(`Probe failure: ${w.message} (Reason: ${w.reason}, Count: ${w.count})`);
+            } else if (w.reason === 'FailedScheduling') {
+                hasIssue = true;
+                diagnosis.status = 'Critical';
+                diagnosis.details.push(`Scheduling issue: ${w.message}`);
+            } else if (w.reason === 'FailedMount') {
+                hasIssue = true;
+                diagnosis.status = 'Critical';
+                diagnosis.details.push(`Volume mount failure: ${w.message}`);
+            }
+        });
+
+        if (hasIssue) {
+            if (diagnosis.status === 'Critical') {
+                diagnosis.summary = `Critical issues detected in pod '${podName}'. Actions are required to restore service.`;
+            } else {
+                diagnosis.summary = `Warnings detected in pod '${podName}'. The resource may be unstable or misconfigured.`;
+            }
+        }
+
+        res.json(diagnosis);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.get('/resource/pods/:namespace/:name/logs', async (req, res) => {
     const { namespace, name } = req.params;
     const { container } = req.query;

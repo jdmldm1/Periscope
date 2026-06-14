@@ -60,7 +60,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('cluster')}>
           <span>Cluster</span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['cluster'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['cluster'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['cluster'] && (
           <nav className="nav-menu">
@@ -77,7 +77,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('workloads')}>
           <span>Workloads</span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['workloads'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['workloads'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['workloads'] && (
           <nav className="nav-menu">
@@ -94,7 +94,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('network')}>
           <span>Networking</span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['network'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['network'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['network'] && (
           <nav className="nav-menu">
@@ -108,7 +108,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('config')}>
           <span>Config & Storage</span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['config'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['config'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['config'] && (
           <nav className="nav-menu">
@@ -116,6 +116,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
             <NavItem id="secrets" icon={Key} label="Secrets" />
             <NavItem id="persistentvolumes" icon={Database} label="PVs" />
             <NavItem id="persistentvolumeclaims" icon={HardDriveDownload} label="PVCs" />
+            <NavItem id="pvc-explorer" icon={HardDrive} label="PVC Explorer" />
           </nav>
         )}
       </div>
@@ -123,7 +124,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('helm')}>
           <span>Helm & Zarf</span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['helm'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['helm'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['helm'] && (
           <nav className="nav-menu">
@@ -158,7 +159,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('security')}>
           <span>Security & Compliance</span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['security'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['security'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['security'] && (
           <nav className="nav-menu">
@@ -172,13 +173,12 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('operations')}>
           <span>Operations</span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['operations'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+          <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['operations'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['operations'] && (
           <nav className="nav-menu">
             <NavItem id="cluster-pruner" icon={Trash2} label="Cluster Pruner" color="var(--accent-warning)" />
             <NavItem id="alert-settings" icon={Bell} label="Event Alerts" color="var(--accent-cyan)" />
-            <NavItem id="pvc-explorer" icon={HardDrive} label="PVC Explorer" />
           </nav>
         )}
       </div>

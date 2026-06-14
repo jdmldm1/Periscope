@@ -1,4 +1,4 @@
-import { useState, useCallback, Fragment } from 'react';
+import { useState, useCallback, useEffect, Fragment } from 'react';
 import { FolderOpen, File, Trash2, Eye, HardDrive, RefreshCw, X, ChevronRight, Copy, ArrowLeft } from 'lucide-react';
 import axios from 'axios';
 
@@ -26,9 +26,21 @@ const formatDate = (dateStr?: string) => {
   } catch { return dateStr; }
 };
 
-export const PvcExplorerView = () => {
-  const [namespace, setNamespace] = useState('');
-  const [pvcName, setPvcName] = useState('');
+interface PvcExplorerViewProps {
+  initialNamespace?: string;
+  setInitialNamespace?: (ns: string) => void;
+  initialPvcName?: string;
+  setInitialPvcName?: (name: string) => void;
+}
+
+export const PvcExplorerView = ({
+  initialNamespace = '',
+  setInitialNamespace,
+  initialPvcName = '',
+  setInitialPvcName
+}: PvcExplorerViewProps) => {
+  const [namespace, setNamespace] = useState(initialNamespace);
+  const [pvcName, setPvcName] = useState(initialPvcName);
   const [currentPath, setCurrentPath] = useState('/');
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -43,16 +55,22 @@ export const PvcExplorerView = () => {
   // Cleanup
   const [isCleaning, setIsCleaning] = useState(false);
 
-  const browse = useCallback(async (path: string = '/') => {
-    if (!namespace || !pvcName) {
+  const browse = useCallback(async (path: string = '/', ns: string = namespace, pvc: string = pvcName) => {
+    if (!ns || !pvc) {
       setError('Namespace and PVC Name are required');
       return;
     }
     setIsLoading(true);
     setError('');
     try {
-      const { data } = await api.get(`/volumes/${namespace}/${pvcName}/browse`, { params: { path } });
-      setFiles(Array.isArray(data) ? data : []);
+      const { data } = await api.get(`/volumes/${ns}/${pvc}/browse`, { params: { path } });
+      const mapped: FileEntry[] = (Array.isArray(data) ? data : []).map((item: any) => ({
+        name: item.name,
+        type: item.isDir ? 'directory' : 'file',
+        size: item.size,
+        modified: item.mtime
+      }));
+      setFiles(mapped);
       setCurrentPath(path);
       setIsBrowsing(true);
     } catch (err: any) {
@@ -62,6 +80,18 @@ export const PvcExplorerView = () => {
       setIsLoading(false);
     }
   }, [namespace, pvcName]);
+
+  useEffect(() => {
+    if (initialNamespace && initialPvcName) {
+      setNamespace(initialNamespace);
+      setPvcName(initialPvcName);
+      browse('/', initialNamespace, initialPvcName);
+
+      // Clear the parent prefilled state
+      if (setInitialNamespace) setInitialNamespace('');
+      if (setInitialPvcName) setInitialPvcName('');
+    }
+  }, [initialNamespace, initialPvcName, setInitialNamespace, setInitialPvcName, browse]);
 
   const navigateTo = useCallback((folderName: string) => {
     const newPath = currentPath === '/' ? `/${folderName}` : `${currentPath}/${folderName}`;

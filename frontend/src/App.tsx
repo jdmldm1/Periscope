@@ -66,6 +66,9 @@ function App() {
     }
   }, [contextsData]);
 
+  const [pvcExplorerNs, setPvcExplorerNs] = useState<string>('');
+  const [pvcExplorerName, setPvcExplorerName] = useState<string>('');
+
   const { search, setSearch, filteredResources, loading } = useClusterResources(activeTab, selectedNs);
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
@@ -163,7 +166,27 @@ function App() {
     let status = 'Unknown';
     let type: 'success' | 'warning' | 'error' | 'info' = 'warning';
 
-    if (activeTab === 'pods') {
+    // Infer kind from unique fields to be extremely robust
+    let inferredKind = '';
+    if (res.spec?.backoffLimit !== undefined || res.status?.succeeded !== undefined || res.status?.failed !== undefined) {
+      inferredKind = 'jobs';
+    } else if (res.spec?.schedule !== undefined) {
+      inferredKind = 'cronjobs';
+    } else if (res.status?.podIP !== undefined || (res.spec?.containers && !res.spec?.template)) {
+      inferredKind = 'pods';
+    } else if (res.status?.nodeInfo !== undefined) {
+      inferredKind = 'nodes';
+    } else if (res.spec?.template !== undefined) {
+      inferredKind = 'workloads'; // deployments, statefulsets, daemonsets
+    }
+
+    const isJob = activeTab === 'jobs' || inferredKind === 'jobs';
+    const isCronJob = activeTab === 'cronjobs' || inferredKind === 'cronjobs';
+    const isPod = activeTab === 'pods' || inferredKind === 'pods';
+    const isNode = activeTab === 'nodes' || inferredKind === 'nodes';
+    const isWorkload = ['deployments', 'statefulsets', 'daemonsets'].includes(activeTab) || inferredKind === 'workloads';
+
+    if (isPod) {
       status = res.status?.phase || 'Unknown';
       if (status === 'Running') type = 'success';
       else if (status === 'Succeeded') type = 'info';
@@ -185,17 +208,17 @@ function App() {
         status = containerErrors[0].state?.waiting?.reason || containerErrors[0].state?.terminated?.reason || 'Error';
         type = 'error';
       }
-    } else if (activeTab === 'deployments' || activeTab === 'statefulsets' || activeTab === 'daemonsets') {
+    } else if (isWorkload) {
       const ready = res.status?.readyReplicas || res.status?.numberReady || 0;
       const desired = res.status?.replicas || res.status?.desiredNumberScheduled || 0;
       status = `${ready}/${desired} Ready`;
       type = (ready === desired && desired > 0) ? 'success' : 'warning';
       if (desired === 0) type = 'info';
-    } else if (activeTab === 'nodes') {
+    } else if (isNode) {
       const readyCond = (res.status?.conditions || []).find((c: any) => c.type === 'Ready');
       status = readyCond?.status === 'True' ? 'Ready' : 'NotReady';
       type = status === 'Ready' ? 'success' : 'error';
-    } else if (activeTab === 'jobs') {
+    } else if (isJob) {
       const succeeded = res.status?.succeeded || 0;
       const failed = res.status?.failed || 0;
       const active = res.status?.active || 0;
@@ -216,7 +239,7 @@ function App() {
         status = 'Completed';
         type = 'success';
       }
-    } else if (activeTab === 'cronjobs') {
+    } else if (isCronJob) {
       const active = res.status?.active || [];
       const suspend = res.spec?.suspend || false;
       if (suspend) {
@@ -275,6 +298,7 @@ function App() {
       if (type === 'yaml') endpoint = `/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/yaml`;
       else if (type === 'events') endpoint = `/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/events`;
       else if (type === 'logs') endpoint = `/kube/resource/pods/${modal.namespace}/${modal.name}/logs?container=${selectedContainer}`;
+      else if (type === 'diagnose') endpoint = `/kube/diagnose/${modal.namespace}/${modal.name}`;
       else if (type === 'history') endpoint = `/helm/${modal.namespace}/${modal.name}/history`;
       else if (type === 'values') endpoint = `/helm/${modal.namespace}/${modal.name}/values`;
       else if (type === 'decoded') endpoint = `/kube/resource/secrets/${modal.namespace}/${modal.name}`;
@@ -298,6 +322,105 @@ function App() {
   useEffect(() => {
     if (modal) fetchModalData(modal.type);
   }, [modal?.type, modal?.name, selectedContainer]);
+
+  useEffect(() => {
+    setFocusedRowIndex(null);
+  }, [activeTab, selectedNs]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdPaletteSearch('');
+        setIsCmdPaletteOpen(true);
+        return;
+      }
+
+      const target = e.target as HTMLElement;
+      if (
+        target && 
+        (target.tagName === 'INPUT' || 
+         target.tagName === 'TEXTAREA' || 
+         target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === ':') {
+        e.preventDefault();
+        setCmdPaletteSearch(':');
+        setIsCmdPaletteOpen(true);
+        return;
+      }
+
+      if (!modal && !isCmdPaletteOpen && filteredResources.length > 0) {
+        const numResources = filteredResources.length;
+
+        if (e.key === 'ArrowDown' || e.key === 'j') {
+          e.preventDefault();
+          setFocusedRowIndex(prev => {
+            if (prev === null) return 0;
+            const nextIdx = Math.min(prev + 1, numResources - 1);
+            const el = document.querySelector(`[data-row-index="${nextIdx}"]`);
+            el?.scrollIntoView({ block: 'nearest' });
+            return nextIdx;
+          });
+        } else if (e.key === 'ArrowUp' || e.key === 'k') {
+          e.preventDefault();
+          setFocusedRowIndex(prev => {
+            if (prev === null) return 0;
+            const nextIdx = Math.max(prev - 1, 0);
+            const el = document.querySelector(`[data-row-index="${nextIdx}"]`);
+            el?.scrollIntoView({ block: 'nearest' });
+            return nextIdx;
+          });
+        } else if (e.key === 'd') {
+          if (focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
+            const res = filteredResources[focusedRowIndex];
+            setIsEditingYaml(false);
+            setModal({
+              type: 'yaml',
+              name: res.metadata.name,
+              namespace: res.metadata.namespace,
+              kind: activeTab,
+              uid: res.metadata.uid
+            });
+          }
+        } else if (e.key === 'e') {
+          if (focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
+            const res = filteredResources[focusedRowIndex];
+            setIsEditingYaml(true);
+            setModal({
+              type: 'yaml',
+              name: res.metadata.name,
+              namespace: res.metadata.namespace,
+              kind: activeTab,
+              uid: res.metadata.uid
+            });
+          }
+        } else if (e.key === 'Enter') {
+          if (focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
+            const res = filteredResources[focusedRowIndex];
+            if (activeTab === 'pods') {
+              setSelectedContainer(res.spec?.containers?.[0]?.name || '');
+              setModal({
+                type: 'logs',
+                name: res.metadata.name,
+                namespace: res.metadata.namespace,
+                kind: activeTab,
+                uid: res.metadata.uid
+              });
+            }
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [modal, isCmdPaletteOpen, filteredResources, focusedRowIndex, activeTab]);
 
   useEffect(() => {
     const fetchScannerConfig = async () => {
@@ -737,6 +860,9 @@ function App() {
   };
 
   const { handleRestart, handleScale, handleDelete } = useClusterActions(() => {});
+  const handleOpenDiagnostics = (name: string, namespace: string) => {
+    setModal({ type: 'diagnose', kind: 'pods', name, namespace });
+  };
 
   const [topologyMode, setTopologyMode] = useState<'columns' | 'graph'>('graph');
   const [hoveredTopologyItem, setHoveredTopologyItem] = useState<any>(null);
@@ -1089,7 +1215,7 @@ function App() {
               setHoveredTopologyItem={setHoveredTopologyItem}
               podMetrics={podMetrics || []}
               setModal={setModal}
-              handleOpenDiagnostics={() => {}}
+              handleOpenDiagnostics={handleOpenDiagnostics}
               nodeMetrics={nodeMetrics || []}
               getNodeUsagePercent={getNodeUsagePercent}
             />
@@ -1234,7 +1360,12 @@ function App() {
           ) : activeTab === 'alert-settings' ? (
             <AlertSettingsView />
           ) : activeTab === 'pvc-explorer' ? (
-            <PvcExplorerView />
+            <PvcExplorerView 
+              initialNamespace={pvcExplorerNs}
+              setInitialNamespace={setPvcExplorerNs}
+              initialPvcName={pvcExplorerName}
+              setInitialPvcName={setPvcExplorerName}
+            />
           ) : activeTab === 'cluster-terminal' ? (
             <ClusterTerminalView />
           ) : activeTab === 'traffic' ? (
@@ -1276,11 +1407,13 @@ function App() {
               handleDrillDownToPods={() => {}}
               handleOpenServiceWebsite={handleOpenServiceWebsite}
               establishingPortForward={establishingPortForward}
-              handleOpenDiagnostics={() => {}}
+              handleOpenDiagnostics={handleOpenDiagnostics}
               handleDelete={(res) => handleDelete(activeTab, res.metadata.name, res.metadata.namespace)}
               setIsEditingYaml={setIsEditingYaml}
               renderStatusBadge={renderStatusBadge}
               renderSmallSparkline={renderSmallSparkline}
+              setPvcExplorerNs={setPvcExplorerNs}
+              setPvcExplorerName={setPvcExplorerName}
             />
           )}
         </div>

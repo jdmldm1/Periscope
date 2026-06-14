@@ -60,13 +60,25 @@ export const ClusterPrunerView = () => {
 
   const resourceKey = (r: OrphanedResource) => `${r.kind}/${r.namespace}/${r.name}`;
 
+  const groupScanResults = (data: any[]): ScanResults => {
+    const list = Array.isArray(data) ? data : [];
+    return {
+      failedPods: list.filter(r => r.kind === 'Pod'),
+      completedJobs: list.filter(r => r.kind === 'Job'),
+      danglingPVCs: list.filter(r => r.kind === 'PersistentVolumeClaim'),
+      unusedConfigMaps: list.filter(r => r.kind === 'ConfigMap'),
+      unusedSecrets: list.filter(r => r.kind === 'Secret'),
+      stalledReplicaSets: list.filter(r => r.kind === 'ReplicaSet'),
+    };
+  };
+
   const handleScan = useCallback(async () => {
     setIsScanning(true);
     setCleanupResult(null);
     setSelected(new Set());
     try {
       const { data } = await api.get('/prune/scan');
-      setScanResults(data);
+      setScanResults(groupScanResults(data));
     } catch (err: any) {
       alert('Scan failed: ' + (err.response?.data?.error || err.message));
     } finally {
@@ -87,7 +99,7 @@ export const ClusterPrunerView = () => {
       setCleanupResult({ deleted: data.deleted?.length || 0, errors: data.errors?.length || 0 });
       // Re-scan after cleanup
       const { data: newScan } = await api.get('/prune/scan');
-      setScanResults(newScan);
+      setScanResults(groupScanResults(newScan));
       setSelected(new Set());
     } catch (err: any) {
       alert('Cleanup failed: ' + (err.response?.data?.error || err.message));
