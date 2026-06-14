@@ -32,6 +32,7 @@ RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump && \
     fi
 
 COPY server.js ./
+COPY src/ ./src/
 COPY --from=builder /app/frontend/dist ./frontend/dist
 
 EXPOSE 3001

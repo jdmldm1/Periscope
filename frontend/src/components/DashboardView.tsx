@@ -9,7 +9,7 @@ interface DashboardViewProps {
   setSearch: (search: string) => void;
   setIsCmdPaletteOpen: (open: boolean) => void;
   zarfStatus: { installed: boolean; version?: string };
-  runningImagesScanResults: Record<string, { sbom: any; vulnerabilities: any; status: 'pending' | 'scanning' | 'success' | 'failed'; error?: string }>;
+  runningImagesScanResults: Record<string, { sbom: any; vulnerabilities: any; status: 'pending' | 'scanning' | 'success' | 'failed' | 'notScanned'; error?: string }>;
   kubescapeReport: any;
 }
 
@@ -43,7 +43,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     });
 
     const complianceScore = kubescapeReport?.frameworks?.[0]?.complianceScore ?? null;
-    const failedControls = kubescapeReport?.summary?.critical + kubescapeReport?.summary?.high + kubescapeReport?.summary?.medium + kubescapeReport?.summary?.low || 0;
+    const summary = kubescapeReport?.summary || {};
+    const failedControls = (summary.critical || 0) + (summary.high || 0) + (summary.medium || 0) + (summary.low || 0);
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -118,17 +119,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const renderPodStatusDoughnut = (phases: { running: number, pending: number, succeeded: number, failed: number }) => {
-    const total = phases.running + phases.pending + phases.succeeded + phases.failed;
+    if (!phases) return null;
+    const total = (phases.running || 0) + (phases.pending || 0) + (phases.succeeded || 0) + (phases.failed || 0);
     if (total === 0) {
       return <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>No active Pods in namespace</div>;
     }
     const r = 40;
     const circ = 2 * Math.PI * r; // 251.3
     
-    const runPct = phases.running / total;
-    const penPct = phases.pending / total;
-    const failPct = phases.failed / total;
-    const succPct = phases.succeeded / total;
+    const runPct = (phases.running || 0) / total;
+    const penPct = (phases.pending || 0) / total;
+    const failPct = (phases.failed || 0) / total;
+    const succPct = (phases.succeeded || 0) / total;
     
     const runOffset = 0;
     const penOffset = runPct * circ;
@@ -149,7 +151,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </defs>
           <circle cx="60" cy="60" r={r} fill="transparent" stroke="var(--border-color)" strokeWidth="12" />
           
-          {phases.running > 0 && (
+          {(phases.running || 0) > 0 && (
             <circle cx="60" cy="60" r={r} fill="transparent" 
               stroke="var(--accent-green)" 
               strokeWidth="12" 
@@ -160,7 +162,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             />
           )}
           
-          {phases.pending > 0 && (
+          {(phases.pending || 0) > 0 && (
             <circle cx="60" cy="60" r={r} fill="transparent" 
               stroke="var(--accent-warning)" 
               strokeWidth="12" 
@@ -171,7 +173,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             />
           )}
           
-          {phases.failed > 0 && (
+          {(phases.failed || 0) > 0 && (
             <circle cx="60" cy="60" r={r} fill="transparent" 
               stroke="var(--accent-error)" 
               strokeWidth="12" 
@@ -182,7 +184,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             />
           )}
           
-          {phases.succeeded > 0 && (
+          {(phases.succeeded || 0) > 0 && (
             <circle cx="60" cy="60" r={r} fill="transparent" 
               stroke="var(--accent-blue)" 
               strokeWidth="12" 
@@ -204,22 +206,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-green)', display: 'inline-block' }}></span>
             <span style={{ color: 'var(--text-muted)', width: 65 }}>Running:</span>
-            <span style={{ fontWeight: 600 }}>{phases.running} ({Math.round(runPct * 100)}%)</span>
+            <span style={{ fontWeight: 600 }}>{phases.running || 0} ({Math.round(runPct * 100)}%)</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-warning)', display: 'inline-block' }}></span>
             <span style={{ color: 'var(--text-muted)', width: 65 }}>Pending:</span>
-            <span style={{ fontWeight: 600 }}>{phases.pending} ({Math.round(penPct * 100)}%)</span>
+            <span style={{ fontWeight: 600 }}>{phases.pending || 0} ({Math.round(penPct * 100)}%)</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-error)', display: 'inline-block' }}></span>
             <span style={{ color: 'var(--text-muted)', width: 65 }}>Failed:</span>
-            <span style={{ fontWeight: 600 }}>{phases.failed} ({Math.round(failPct * 100)}%)</span>
+            <span style={{ fontWeight: 600 }}>{phases.failed || 0} ({Math.round(failPct * 100)}%)</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-blue)', display: 'inline-block' }}></span>
             <span style={{ color: 'var(--text-muted)', width: 65 }}>Succeeded:</span>
-            <span style={{ fontWeight: 600 }}>{phases.succeeded} ({Math.round(succPct * 100)}%)</span>
+            <span style={{ fontWeight: 600 }}>{phases.succeeded || 0} ({Math.round(succPct * 100)}%)</span>
           </div>
         </div>
       </div>
@@ -338,7 +340,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   }
   
-  const { counts, podPhases, resources: dashboardRes } = dashboardData;
+  const counts = (dashboardData as any).counts || {};
+  const podPhases = (dashboardData as any).podPhases || { running: 0, pending: 0, succeeded: 0, failed: 0 };
+  const dashboardRes = (dashboardData as any).resources || {};
   
   const cpuPct = dashboardRes?.cpuPct || 0;
   const memPct = dashboardRes?.memPct || 0;

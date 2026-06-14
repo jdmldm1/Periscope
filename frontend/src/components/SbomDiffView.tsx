@@ -3,7 +3,7 @@ import { ArrowRight, Plus, Minus, AlertTriangle, CheckCircle, Search } from 'luc
 
 interface SbomDiffViewProps {
   runningImages: string[];
-  runningImagesScanResults: Record<string, { sbom: any; vulnerabilities: any; status: 'pending' | 'scanning' | 'success' | 'failed'; error?: string }>;
+  runningImagesScanResults: Record<string, { sbom: any; vulnerabilities: any; status: 'pending' | 'scanning' | 'success' | 'failed' | 'notScanned'; error?: string }>;
 }
 
 interface PackageDiff {

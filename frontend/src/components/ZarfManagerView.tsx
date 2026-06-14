@@ -8,8 +8,8 @@ interface ZarfManagerViewProps {
   activeTab: string;
   setActiveTab: (tab: any) => void;
   zarfStatus: { installed: boolean; version?: string };
-  zarfViewMode: 'packages' | 'local' | 'tools' | 'edit';
-  setZarfViewMode: (mode: 'packages' | 'local' | 'tools' | 'edit') => void;
+  zarfViewMode: 'packages' | 'local' | 'tools' | 'edit' | 'registry' | 'sbom';
+  setZarfViewMode: (mode: 'packages' | 'local' | 'tools' | 'edit' | 'registry' | 'sbom') => void;
   isClearingZarfCache: boolean;
   handleClearZarfCache: () => void;
   zarfLocalPackages: any[];
@@ -337,15 +337,13 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredResources.filter((pkg: any) => pkg && !pkg.metadata).map((pkg: any) => {
-                const name = pkg.name || pkg.Name || pkg.package || pkg.Package || 'Unknown';
+              {filteredResources.map((pkg: any) => {
+                const name = pkg.metadata?.name || pkg.name || pkg.Name || pkg.package || pkg.Package || 'Unknown';
                 const version = pkg.version || pkg.Version || 'N/A';
                 const arch = pkg.architecture || pkg.arch || pkg.Architecture || 'N/A';
-                const components = Array.isArray(pkg.components) 
-                  ? pkg.components.join(', ') 
-                  : (Array.isArray(pkg.deployedComponents) 
-                    ? pkg.deployedComponents.map((c: any) => c.name || c).join(', ') 
-                    : String(pkg.components || 'N/A'));
+                const components = Array.isArray(pkg.deployedComponents) 
+                  ? pkg.deployedComponents.map((c: any) => c.name || c).join(', ')
+                  : (Array.isArray(pkg.components) ? pkg.components.join(', ') : String(pkg.components || 'N/A'));
                 
                 return (
                   <div 

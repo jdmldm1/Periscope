@@ -27,7 +27,7 @@ export const KubescapeView: React.FC<KubescapeViewProps> = ({
   const report = kubescapeReport;
   const isScanning = isScanningKubescape;
 
-  const filteredControls = report ? report.failedControls.filter((c: any) => {
+  const filteredControls = report ? (report.failedControls || []).filter((c: any) => {
     const matchesSeverity = kubescapeSeverityFilter === 'all' || c.severity.toLowerCase() === kubescapeSeverityFilter.toLowerCase();
     const matchesSearch = !kubescapeSearchQuery || 
       c.name.toLowerCase().includes(kubescapeSearchQuery.toLowerCase()) || 
@@ -78,7 +78,7 @@ export const KubescapeView: React.FC<KubescapeViewProps> = ({
       {!isScanning && report && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-            {report.frameworks.map((fw: any) => {
+            {(report.frameworks || []).map((fw: any) => {
               const score = fw.complianceScore;
               const scoreColor = score > 80 ? '#10b981' : score > 60 ? '#f59e0b' : '#ef4444';
               return (
