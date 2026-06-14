@@ -56,7 +56,6 @@ export const CommandPalette = ({
     { name: 'PersistentVolumes (:persistentvolumes, :persistentvolume, :pv)', aliases: ['persistentvolumes', 'persistentvolume', 'pv'], category: 'Views', action: () => { setActiveTab('persistentvolumes'); setIsOpen(false); } },
     { name: 'Cluster Pruner (:prune, :pruner, :cluster-pruner)', aliases: ['prune', 'pruner', 'cluster-pruner'], category: 'Views', action: () => { setActiveTab('cluster-pruner'); setIsOpen(false); } },
     { name: 'Event Alerts Settings (:alerts, :settings)', aliases: ['alerts', 'alert-settings', 'settings'], category: 'Views', action: () => { setActiveTab('alert-settings'); setIsOpen(false); } },
-    { name: 'PVC Explorer (:pvc-explorer, :explorer)', aliases: ['pvc-explorer', 'explorer'], category: 'Views', action: () => { setActiveTab('pvc-explorer'); setIsOpen(false); } },
     { name: 'Cluster Terminal (:terminal, :term)', aliases: ['terminal', 'term', 'cluster-terminal'], category: 'Views', action: () => { setActiveTab('cluster-terminal'); setIsOpen(false); } },
     { name: 'Traffic Inspector (:traffic, :network)', aliases: ['traffic', 'network', 'traffic-inspector'], category: 'Views', action: () => { setActiveTab('traffic'); setIsOpen(false); } },
     { name: 'Helm Releases (:helm)', aliases: ['helm', 'helm-releases'], category: 'Views', action: () => { setActiveTab('helm'); setIsOpen(false); } },

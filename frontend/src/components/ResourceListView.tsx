@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, FileText, Terminal, Code, Power, SlidersHorizontal, Info, Settings, Trash2, Globe, ExternalLink, FolderOpen } from 'lucide-react';
+import { Box, FileText, Terminal, Code, Power, SlidersHorizontal, Info, Settings, Trash2, Globe, ExternalLink, FolderOpen, Key } from 'lucide-react';
 import { parseCpu, parseMem } from '../utils/helpers';
 
 interface ResourceListViewProps {
@@ -31,8 +31,6 @@ interface ResourceListViewProps {
   setIsEditingYaml: (editing: boolean) => void;
   renderStatusBadge: (res: any) => React.ReactNode;
   renderSmallSparkline: (points: number[], color: string) => React.ReactNode | null;
-  setPvcExplorerNs?: (ns: string) => void;
-  setPvcExplorerName?: (name: string) => void;
 }
 
 export const ResourceListView = ({
@@ -43,8 +41,7 @@ export const ResourceListView = ({
   associatedDeployments, associatedPods, matchesSelector,
   handleRestart, handleScale, handleDrillDownToPods, handleOpenServiceWebsite,
   establishingPortForward, handleOpenDiagnostics, handleDelete,
-  setIsEditingYaml, renderStatusBadge, renderSmallSparkline,
-  setPvcExplorerNs, setPvcExplorerName
+  setIsEditingYaml, renderStatusBadge, renderSmallSparkline
 }: ResourceListViewProps) => {
   if (filteredResources.length === 0) {
     return <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px' }}>No resources found.</div>;
@@ -126,6 +123,46 @@ export const ResourceListView = ({
                       {key}={String(val)}
                     </span>
                   ))}
+                </div>
+              )}
+              {activeTab === 'secrets' && res.data && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  {Object.keys(res.data).map(key => {
+                    const b64Val = res.data[key];
+                    let decodedVal = '';
+                    try {
+                      decodedVal = decodeURIComponent(escape(window.atob(b64Val)));
+                    } catch (e) {
+                      try {
+                        decodedVal = window.atob(b64Val);
+                      } catch {
+                        decodedVal = '[Binary / Undecodable]';
+                      }
+                    }
+                    return (
+                      <span 
+                        key={key} 
+                        className="badge secret-badge" 
+                        style={{ 
+                          background: 'rgba(16, 185, 129, 0.05)', 
+                          color: '#10b981', 
+                          border: '1px solid rgba(16, 185, 129, 0.15)',
+                          fontSize: '0.7rem',
+                          padding: '2px 8px',
+                          textTransform: 'none',
+                          letterSpacing: 'normal',
+                          position: 'relative',
+                          cursor: 'pointer'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {key}
+                        <span className="tooltip">
+                          {decodedVal}
+                        </span>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
               {activeTab === 'pods' && res.spec?.containers && (
@@ -340,12 +377,40 @@ export const ResourceListView = ({
                 className="btn btn-sm btn-primary" 
                 onClick={(e) => { 
                   e.stopPropagation();
-                  if (setPvcExplorerNs) setPvcExplorerNs(res.metadata.namespace || 'default');
-                  if (setPvcExplorerName) setPvcExplorerName(res.metadata.name);
-                  setActiveTab('pvc-explorer');
+                  setModal({ type: 'pvc-files', name: res.metadata.name, namespace: res.metadata.namespace || 'default', kind: activeTab, uid: res.metadata.uid });
                 }}
               >
                 <FolderOpen size={12} /> Browse Files
+              </button>
+            )}
+
+            {activeTab === 'persistentvolumes' && res.spec?.claimRef && (
+              <button 
+                className="btn btn-sm btn-primary" 
+                onClick={(e) => { 
+                  e.stopPropagation();
+                  setModal({ 
+                    type: 'pvc-files', 
+                    name: res.spec.claimRef.name, 
+                    namespace: res.spec.claimRef.namespace || 'default', 
+                    kind: activeTab, 
+                    uid: res.spec.claimRef.uid || res.metadata.uid 
+                  });
+                }}
+              >
+                <FolderOpen size={12} /> Browse Files
+              </button>
+            )}
+
+            {activeTab === 'secrets' && (
+              <button 
+                className="btn btn-sm btn-primary" 
+                onClick={(e) => { 
+                  e.stopPropagation();
+                  setModal({ type: 'decoded', name: res.metadata.name, namespace: res.metadata.namespace || 'default', kind: activeTab, uid: res.metadata.uid });
+                }}
+              >
+                <Key size={12} /> Decoded
               </button>
             )}
 

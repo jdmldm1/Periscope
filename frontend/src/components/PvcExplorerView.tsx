@@ -31,13 +31,15 @@ interface PvcExplorerViewProps {
   setInitialNamespace?: (ns: string) => void;
   initialPvcName?: string;
   setInitialPvcName?: (name: string) => void;
+  isModal?: boolean;
 }
 
 export const PvcExplorerView = ({
   initialNamespace = '',
   setInitialNamespace,
   initialPvcName = '',
-  setInitialPvcName
+  setInitialPvcName,
+  isModal = false
 }: PvcExplorerViewProps) => {
   const [namespace, setNamespace] = useState(initialNamespace);
   const [pvcName, setPvcName] = useState(initialPvcName);
@@ -87,11 +89,13 @@ export const PvcExplorerView = ({
       setPvcName(initialPvcName);
       browse('/', initialNamespace, initialPvcName);
 
-      // Clear the parent prefilled state
-      if (setInitialNamespace) setInitialNamespace('');
-      if (setInitialPvcName) setInitialPvcName('');
+      // Clear the parent prefilled state only if not in modal
+      if (!isModal) {
+        if (setInitialNamespace) setInitialNamespace('');
+        if (setInitialPvcName) setInitialPvcName('');
+      }
     }
-  }, [initialNamespace, initialPvcName, setInitialNamespace, setInitialPvcName, browse]);
+  }, [initialNamespace, initialPvcName, setInitialNamespace, setInitialPvcName, browse, isModal]);
 
   const navigateTo = useCallback((folderName: string) => {
     const newPath = currentPath === '/' ? `/${folderName}` : `${currentPath}/${folderName}`;
@@ -156,90 +160,104 @@ export const PvcExplorerView = ({
   return (
     <div style={{ padding: '0 4px' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
-        <HardDrive size={20} style={{ color: 'var(--accent-cyan)' }} />
-        <div>
-          <span style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>PVC File Explorer</span>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '4px 0 0' }}>
-            Browse PersistentVolumeClaim contents using a transient helper pod
-          </p>
+      {!isModal && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+          <HardDrive size={20} style={{ color: 'var(--accent-cyan)' }} />
+          <div>
+            <span style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>PVC File Explorer</span>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '4px 0 0' }}>
+              Browse PersistentVolumeClaim contents using a transient helper pod
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Connection Panel */}
-      <div style={{
-        background: 'var(--bg-card)', border: '1px solid var(--border-color)',
-        borderRadius: 12, padding: 20, marginBottom: 20,
-      }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 180 }}>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 500 }}>
-              Namespace
-            </label>
-            <input
-              type="text"
-              placeholder="e.g., default"
-              value={namespace}
-              onChange={e => setNamespace(e.target.value)}
-              style={{
-                width: '100%', padding: '10px 14px',
-                background: 'var(--bg-main)', border: '1px solid var(--border-color)',
-                borderRadius: 6, color: 'var(--text-primary)', fontSize: '0.85rem',
-                outline: 'none', boxSizing: 'border-box',
-              }}
-            />
-          </div>
-          <div style={{ flex: 1, minWidth: 180 }}>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 500 }}>
-              PVC Name
-            </label>
-            <input
-              type="text"
-              placeholder="e.g., data-postgres-0"
-              value={pvcName}
-              onChange={e => setPvcName(e.target.value)}
-              style={{
-                width: '100%', padding: '10px 14px',
-                background: 'var(--bg-main)', border: '1px solid var(--border-color)',
-                borderRadius: 6, color: 'var(--text-primary)', fontSize: '0.85rem',
-                outline: 'none', boxSizing: 'border-box',
-              }}
-            />
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              className="btn btn-primary"
-              onClick={() => browse('/')}
-              disabled={isLoading || !namespace || !pvcName}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}
-            >
-              {isLoading && !isBrowsing ? <RefreshCw size={14} className="spin" /> : <FolderOpen size={14} />}
-              Browse
-            </button>
-            {isBrowsing && (
+      {!isModal && (
+        <div style={{
+          background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+          borderRadius: 12, padding: 20, marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 500 }}>
+                Namespace
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., default"
+                value={namespace}
+                onChange={e => setNamespace(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 14px',
+                  background: 'var(--bg-main)', border: '1px solid var(--border-color)',
+                  borderRadius: 6, color: 'var(--text-primary)', fontSize: '0.85rem',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 500 }}>
+                PVC Name
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., data-postgres-0"
+                value={pvcName}
+                onChange={e => setPvcName(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 14px',
+                  background: 'var(--bg-main)', border: '1px solid var(--border-color)',
+                  borderRadius: 6, color: 'var(--text-primary)', fontSize: '0.85rem',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
               <button
-                className="btn"
-                onClick={handleCleanup}
-                disabled={isCleaning}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--accent-error)', whiteSpace: 'nowrap' }}
+                className="btn btn-primary"
+                onClick={() => browse('/')}
+                disabled={isLoading || !namespace || !pvcName}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}
               >
-                {isCleaning ? <RefreshCw size={14} className="spin" /> : <Trash2 size={14} />}
-                Cleanup Pod
+                {isLoading && !isBrowsing ? <RefreshCw size={14} className="spin" /> : <FolderOpen size={14} />}
+                Browse
               </button>
-            )}
+              {isBrowsing && (
+                <button
+                  className="btn"
+                  onClick={handleCleanup}
+                  disabled={isCleaning}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--accent-error)', whiteSpace: 'nowrap' }}
+                >
+                  {isCleaning ? <RefreshCw size={14} className="spin" /> : <Trash2 size={14} />}
+                  Cleanup Pod
+                </button>
+              )}
+            </div>
           </div>
-        </div>
 
-        {error && (
-          <div style={{
-            marginTop: 14, padding: '10px 14px', background: 'rgba(239,68,68,0.1)',
-            border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6,
-            color: '#ef4444', fontSize: '0.85rem',
-          }}>
-            {error}
-          </div>
-        )}
-      </div>
+          {error && (
+            <div style={{
+              marginTop: 14, padding: '10px 14px', background: 'rgba(239,68,68,0.1)',
+              border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6,
+              color: '#ef4444', fontSize: '0.85rem',
+            }}>
+              {error}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isModal && error && (
+        <div style={{
+          marginBottom: 16, padding: '10px 14px', background: 'rgba(239,68,68,0.1)',
+          border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6,
+          color: '#ef4444', fontSize: '0.85rem',
+        }}>
+          {error}
+        </div>
+      )}
 
       {/* File Browser */}
       {isBrowsing && (
@@ -249,15 +267,16 @@ export const PvcExplorerView = ({
         }}>
           {/* Breadcrumb */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 4, padding: '12px 18px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px',
             borderBottom: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)',
-            flexWrap: 'wrap',
+            flexWrap: 'wrap', gap: 8
           }}>
-            {currentPath !== '/' && (
-              <button className="btn btn-sm btn-icon" onClick={navigateUp} title="Go up" style={{ marginRight: 6 }}>
-                <ArrowLeft size={14} />
-              </button>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+              {currentPath !== '/' && (
+                <button className="btn btn-sm btn-icon" onClick={navigateUp} title="Go up" style={{ marginRight: 6 }}>
+                  <ArrowLeft size={14} />
+                </button>
+              )}
             <span
               style={{ color: 'var(--accent-blue)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500 }}
               onClick={() => browse('/')}
@@ -283,6 +302,18 @@ export const PvcExplorerView = ({
                 </span>
               </Fragment>
             ))}
+            </div>
+            {isModal && isBrowsing && (
+              <button
+                className="btn btn-sm"
+                onClick={handleCleanup}
+                disabled={isCleaning}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent-error)', padding: '4px 10px', height: 'auto' }}
+              >
+                {isCleaning ? <RefreshCw size={12} className="spin" /> : <Trash2 size={12} />}
+                Cleanup Pod
+              </button>
+            )}
           </div>
 
           {/* File Table */}
@@ -373,7 +404,7 @@ export const PvcExplorerView = ({
       )}
 
       {/* Not Browsing State */}
-      {!isBrowsing && !error && (
+      {!isBrowsing && !error && !isModal && (
         <div style={{
           textAlign: 'center', padding: '80px 20px',
           background: 'var(--bg-card)', border: '1px solid var(--border-color)',

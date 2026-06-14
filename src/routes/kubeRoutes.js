@@ -54,6 +54,18 @@ router.get('/:kind', (req, res, next) => {
 });
 
 // Resource Detail Endpoints
+router.get('/resource/:kind/:namespace/:name', async (req, res) => {
+    const { kind, namespace, name } = req.params;
+    try {
+        const items = await k8sService.getResources(kind, namespace);
+        const item = items.find(i => i.metadata?.name === name);
+        if (!item) return res.status(404).json({ error: 'Resource not found' });
+        res.json(item);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.get('/resource/:kind/:namespace/:name/yaml', async (req, res) => {
     const { kind, namespace, name } = req.params;
     try {

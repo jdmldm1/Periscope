@@ -1201,3 +1201,38 @@ div.vis-tooltip {
 .diff-line-unchanged {
   color: #888;
 }
+
+/* Secret badge tooltip styling */
+.secret-badge {
+  position: relative;
+}
+.secret-badge .tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(13, 20, 38, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+  width: max-content;
+  max-width: 320px;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  pointer-events: none;
+}
+.secret-badge:hover .tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
