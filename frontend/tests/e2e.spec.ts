@@ -235,8 +235,8 @@ test.describe('Periscope E2E QA', () => {
     await expect(page.locator('text=Compliance scan in progress...')).toBeVisible({ timeout: 10000 });
     
     // Expect scan to finish and display compliance score or controls
-    await expect(page.locator('text=NSA-CISA Compliance').or(page.locator('text=MITRE ATT&CK Compliance'))).toBeVisible({ timeout: 40000 });
-    await expect(page.locator('text=Privileged container').or(page.locator('text=HostPath mount'))).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=NSA Compliance').or(page.locator('text=NSA-CISA Compliance')).first()).toBeVisible({ timeout: 40000 });
+    await expect(page.locator('text=C-0012').or(page.locator('text=C-0016')).first()).toBeVisible({ timeout: 10000 });
   });
 
 });
