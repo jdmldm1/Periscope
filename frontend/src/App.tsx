@@ -19,6 +19,9 @@ import { KubescapeView } from './components/KubescapeView';
 import { HelmManagerView } from './components/HelmManagerView';
 import { ClusterTerminalView } from './components/ClusterTerminalView';
 import { TrafficInspectorView } from './components/TrafficInspectorView';
+import { ClusterPrunerView } from './components/ClusterPrunerView';
+import { AlertSettingsView } from './components/AlertSettingsView';
+import { PvcExplorerView } from './components/PvcExplorerView';
 import { DashboardView } from './components/DashboardView';
 import { parseCpu, parseMem, matchesSelector } from './utils/helpers';
 import axios from 'axios';
@@ -30,7 +33,8 @@ export type ResourceKind =
   'dashboard' | 'topology' | 'nodes' | 'events' | 'logs' | 'cluster-terminal' | 'crds' | 
   'pods' | 'deployments' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' |
   'services' | 'ingresses' | 'traffic' | 'configmaps' | 'secrets' | 'persistentvolumes' | 
-  'persistentvolumeclaims' | 'helm' | 'helm-repos' | 'zarf' | 'zarf-registry' | 'image-scanner' | 'kubescape' | 'gitea' | 'custom';
+  'persistentvolumeclaims' | 'helm' | 'helm-repos' | 'zarf' | 'zarf-registry' | 'image-scanner' | 'kubescape' | 'gitea' | 'custom' |
+  'cluster-pruner' | 'alert-settings' | 'pvc-explorer';
 
 function App() {
   const { data: namespacesData } = useNamespaces();
@@ -191,6 +195,40 @@ function App() {
       const readyCond = (res.status?.conditions || []).find((c: any) => c.type === 'Ready');
       status = readyCond?.status === 'True' ? 'Ready' : 'NotReady';
       type = status === 'Ready' ? 'success' : 'error';
+    } else if (activeTab === 'jobs') {
+      const succeeded = res.status?.succeeded || 0;
+      const failed = res.status?.failed || 0;
+      const active = res.status?.active || 0;
+      const conditions = res.status?.conditions || [];
+      const isComplete = conditions.some((c: any) => c.type === 'Complete' && c.status === 'True');
+      const isFailed = conditions.some((c: any) => c.type === 'Failed' && c.status === 'True');
+
+      if (isComplete || (succeeded > 0 && active === 0)) {
+        status = 'Succeeded';
+        type = 'success';
+      } else if (isFailed || failed > 0) {
+        status = 'Failed';
+        type = 'error';
+      } else if (active > 0) {
+        status = 'Running';
+        type = 'info';
+      } else {
+        status = 'Completed';
+        type = 'success';
+      }
+    } else if (activeTab === 'cronjobs') {
+      const active = res.status?.active || [];
+      const suspend = res.spec?.suspend || false;
+      if (suspend) {
+        status = 'Suspended';
+        type = 'warning';
+      } else if (active.length > 0) {
+        status = 'Running';
+        type = 'success';
+      } else {
+        status = 'Active';
+        type = 'success';
+      }
     } else if (['services', 'configmaps', 'secrets', 'ingresses', 'networkpolicies', 'persistentvolumes', 'persistentvolumeclaims', 'crds', 'custom', 'helm', 'zarf', 'zarf-registry'].includes(activeTab)) {
       status = res.status?.phase || 'Active';
       if (activeTab === 'zarf' || activeTab === 'helm' || activeTab === 'zarf-registry') status = res.status?.phase || 'deployed';
@@ -1191,6 +1229,12 @@ function App() {
               isSearchingHelm={isSearchingHelm}
               handleSearchHelmRepo={(e) => { e.preventDefault(); searchRepos(search); }}
             />
+          ) : activeTab === 'cluster-pruner' ? (
+            <ClusterPrunerView />
+          ) : activeTab === 'alert-settings' ? (
+            <AlertSettingsView />
+          ) : activeTab === 'pvc-explorer' ? (
+            <PvcExplorerView />
           ) : activeTab === 'cluster-terminal' ? (
             <ClusterTerminalView />
           ) : activeTab === 'traffic' ? (
