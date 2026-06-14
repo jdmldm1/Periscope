@@ -1,4 +1,4 @@
-import { SlidersHorizontal, Activity, Server, List, Terminal, Code, Box, Layers, HardDriveDownload, Database, Shield, Microscope, ShieldAlert, Package, Network, Radio, Key, FileText, GitCommit } from 'lucide-react';
+import { SlidersHorizontal, Activity, Server, List, Terminal, Code, Box, Layers, HardDriveDownload, Database, Shield, Microscope, ShieldAlert, Package, Network, Radio, Key, FileText, GitCommit, Trash2, Bell, HardDrive } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -165,6 +165,20 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
             <NavItem id="image-scanner" icon={Microscope} label="Image SBOM (Grype)" />
             <NavItem id="kubescape" icon={ShieldAlert} label="Kubescape Audit" />
             <NavItem id="networkpolicies" icon={Network} label="Network Policies" />
+          </nav>
+        )}
+      </div>
+
+      <div className="nav-section">
+        <div className="nav-section-title" onClick={() => toggleSection('operations')}>
+          <span>Operations</span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['operations'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
+        </div>
+        {!collapsedSections['operations'] && (
+          <nav className="nav-menu">
+            <NavItem id="cluster-pruner" icon={Trash2} label="Cluster Pruner" color="var(--accent-warning)" />
+            <NavItem id="alert-settings" icon={Bell} label="Event Alerts" color="var(--accent-cyan)" />
+            <NavItem id="pvc-explorer" icon={HardDrive} label="PVC Explorer" />
           </nav>
         )}
       </div>

@@ -18,6 +18,7 @@ const securityService = require('./src/services/securityService');
 
 // Routes
 const kubeRoutes = require('./src/routes/kubeRoutes');
+const kubeRoutesV2 = require('./src/routes/kubeRoutesV2');
 const helmRoutes = require('./src/routes/helmRoutes');
 const zarfRoutes = require('./src/routes/zarfRoutes');
 const taskRoutes = require('./src/routes/taskRoutes');
@@ -26,6 +27,10 @@ const securityRoutes = require('./src/routes/securityRoutes');
 const forwardRoutes = require('./src/routes/forwardRoutes');
 const metricRoutes = require('./src/routes/metricRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
+
+// Alerting Service Initializer
+const alertService = require('./src/services/alertService');
+alertService.startWatcher();
 
 const app = express();
 app.use(compression());
@@ -77,6 +82,7 @@ app.get('/readyz', (req, res) => res.json({ status: 'ready' }));
 
 // API Routes (Matching old paths for compatibility)
 app.use('/api/kube', kubeRoutes);
+app.use('/api', kubeRoutesV2);
 app.use('/api/resource', kubeRoutes); // Alias for LogsView/etc
 app.use('/api/helm', helmRoutes);
 app.use('/api/zarf', zarfRoutes);
