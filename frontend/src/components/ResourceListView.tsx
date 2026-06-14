@@ -31,6 +31,8 @@ interface ResourceListViewProps {
   setIsEditingYaml: (editing: boolean) => void;
   renderStatusBadge: (res: any) => React.ReactNode;
   renderSmallSparkline: (points: number[], color: string) => React.ReactNode | null;
+  setPvcExplorerNs?: (ns: string) => void;
+  setPvcExplorerName?: (name: string) => void;
 }
 
 export const ResourceListView = ({
@@ -41,7 +43,8 @@ export const ResourceListView = ({
   associatedDeployments, associatedPods, matchesSelector,
   handleRestart, handleScale, handleDrillDownToPods, handleOpenServiceWebsite,
   establishingPortForward, handleOpenDiagnostics, handleDelete,
-  setIsEditingYaml, renderStatusBadge, renderSmallSparkline
+  setIsEditingYaml, renderStatusBadge, renderSmallSparkline,
+  setPvcExplorerNs, setPvcExplorerName
 }: ResourceListViewProps) => {
   if (filteredResources.length === 0) {
     return <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px' }}>No resources found.</div>;
@@ -332,6 +335,20 @@ export const ResourceListView = ({
             </div>
           </div>
           <div className="row-actions">
+            {activeTab === 'persistentvolumeclaims' && (
+              <button 
+                className="btn btn-sm btn-primary" 
+                onClick={(e) => { 
+                  e.stopPropagation();
+                  if (setPvcExplorerNs) setPvcExplorerNs(res.metadata.namespace || 'default');
+                  if (setPvcExplorerName) setPvcExplorerName(res.metadata.name);
+                  setActiveTab('pvc-explorer');
+                }}
+              >
+                <FolderOpen size={12} /> Browse Files
+              </button>
+            )}
+
             {activeTab === 'deployments' && (
               <>
                 <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleRestart(res.metadata.name, res.metadata.namespace); }}>

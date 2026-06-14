@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const k8sService = require('./k8sService');
 const logger = require('../utils/logger');
-const axios = require('axios');
 
 class AlertService {
     constructor() {
@@ -55,7 +54,14 @@ class AlertService {
         }
 
         try {
-            await axios.post(this.settings.webhookUrl, payload);
+            const response = await fetch(this.settings.webhookUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error ${response.status}`);
+            }
             return true;
         } catch (err) {
             logger.error({ url: this.settings.webhookUrl, error: err.message }, 'Failed to send alert notification');

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, FileText, Terminal, Radio, Activity, SlidersHorizontal, Key, Copy, Save, ArrowDown, RefreshCw, Search } from 'lucide-react';
+import { X, FileText, Terminal, Radio, Activity, SlidersHorizontal, Key, Copy, Save, ArrowDown, RefreshCw, Search, Microscope } from 'lucide-react';
 import { SecretDecoderPanel } from './SecretDecoderPanel';
 import { PodFilesExplorer } from './PodFilesExplorer';
 import { InteractiveTerminal } from './InteractiveTerminal';
@@ -63,7 +63,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
 }) => {
   if (!modal) return null;
 
-  const tabs = modal.kind === 'pods' ? ['yaml', 'logs', 'events', 'files', 'terminal'] : 
+  const tabs = modal.kind === 'pods' ? ['diagnose', 'yaml', 'logs', 'events', 'files', 'terminal'] : 
                modal.kind === 'helm' ? ['values', 'history', 'events'] : ['yaml', 'events'];
   
   if (modal.type === 'decoded') tabs.push('decoded');
@@ -79,8 +79,14 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
       .replace(/:\s+(.*)$/gm, ': <span style="color: var(--accent-green)">$1</span>');
   };
 
-  const colorizeLogs = (logs: string, searchQ: string) => {
+  const colorizeLogs = (logs: any, searchQ: string) => {
     if (!logs) return <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: 20 }}>No logs available for this container.</div>;
+    if (typeof logs !== 'string') {
+      if (logs.error) {
+        return <div style={{ color: 'var(--accent-error)', padding: 20 }}>{logs.error}</div>;
+      }
+      return <pre style={{ color: 'var(--text-main)', padding: 20, whiteSpace: 'pre-wrap' }}>{JSON.stringify(logs, null, 2)}</pre>;
+    }
     const lines = logs.split('\n');
     return lines.map((line, i) => {
       let color = 'inherit';
@@ -125,6 +131,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                 }
               }}
             >
+              {t === 'diagnose' && <Microscope size={14}/>}
               {t === 'yaml' && <FileText size={14}/>}
               {t === 'logs' && <Activity size={14}/>}
               {t === 'events' && <Radio size={14}/>}
@@ -134,7 +141,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
               {t === 'values' && <SlidersHorizontal size={14}/>}
               {t === 'decoded' && <Key size={14}/>}
               <span>
-                {t === 'terminal' ? 'Console' : t === 'portforward' ? 'Port Forward' : t === 'events' && modal.kind === 'helm' ? 'Status' : t === 'values' ? 'Values' : t === 'decoded' ? 'Decoded Data' : t.charAt(0).toUpperCase() + t.slice(1)}
+                {t === 'terminal' ? 'Console' : t === 'portforward' ? 'Port Forward' : t === 'events' && modal.kind === 'helm' ? 'Status' : t === 'values' ? 'Values' : t === 'decoded' ? 'Decoded Data' : t === 'diagnose' ? 'Diagnose' : t.charAt(0).toUpperCase() + t.slice(1)}
               </span>
             </div>
           ))}
@@ -326,7 +333,146 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                  )}
                </div>
              )
-          ) : null}
+           ) : modal.type === 'diagnose' ? (
+            modalData === null ? (
+              <div className="loader-container"><div className="loader"></div></div>
+            ) : modalData.error ? (
+              <div style={{ color: 'var(--accent-error)', padding: 20 }}>{modalData.error}</div>
+            ) : (
+              <div className="diagnostics-panel" style={{ display: 'flex', flexDirection: 'column', gap: 20, height: '100%', overflowY: 'auto', paddingRight: 10 }}>
+                {/* Health Status Card */}
+                <div 
+                  style={{ 
+                    padding: 16, 
+                    borderRadius: 8, 
+                    background: modalData.status === 'Healthy' ? 'rgba(16, 185, 129, 0.05)' : modalData.status === 'Warning' ? 'rgba(245, 158, 11, 0.05)' : 'rgba(239, 68, 68, 0.05)',
+                    border: modalData.status === 'Healthy' ? '1px solid rgba(16, 185, 129, 0.2)' : modalData.status === 'Warning' ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span 
+                      style={{ 
+                        fontSize: '1.2rem', 
+                        color: modalData.status === 'Healthy' ? 'var(--accent-success)' : modalData.status === 'Warning' ? 'var(--accent-warning)' : 'var(--accent-error)' 
+                      }}
+                    >
+                      {modalData.status === 'Healthy' ? '🩺' : modalData.status === 'Warning' ? '⚠️' : '🚨'}
+                    </span>
+                    <strong 
+                      style={{ 
+                        color: modalData.status === 'Healthy' ? 'var(--accent-success)' : modalData.status === 'Warning' ? 'var(--accent-warning)' : 'var(--accent-error)',
+                        fontSize: '1.1rem' 
+                      }}
+                    >
+                      Smart Doctor: {modalData.status}
+                    </strong>
+                  </div>
+                  <div style={{ color: 'var(--text-main)', fontSize: '0.9rem', lineHeight: 1.4 }}>
+                    {modalData.summary}
+                  </div>
+                </div>
+
+                {/* Findings & Recommendations */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Findings & Recommendations
+                  </div>
+                  {modalData.details && modalData.details.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {modalData.details.map((detail: string, idx: number) => (
+                        <div 
+                          key={idx} 
+                          style={{ 
+                            padding: '10px 14px', 
+                            background: 'rgba(255, 255, 255, 0.02)', 
+                            borderLeft: '3px solid var(--accent-green)', 
+                            borderRadius: '0 4px 4px 0',
+                            fontSize: '0.85rem',
+                            color: 'var(--text-main)',
+                            lineHeight: 1.4
+                          }}
+                        >
+                          {detail}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                      No active anomalies detected. The system configuration and container states look good.
+                    </div>
+                  )}
+                </div>
+
+                {/* Related Events */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Recent Related Events
+                  </div>
+                  {!modalData.events || modalData.events.length === 0 ? (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                      No events registered for this pod recently.
+                    </div>
+                  ) : (
+                    <div style={{ background: 'rgba(255,255,255,0.01)', borderRadius: 6, border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                      <table className="crd-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
+                            <th style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>Type</th>
+                            <th style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>Reason</th>
+                            <th style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>Message</th>
+                            <th style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>Count</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {modalData.events.map((ev: any, idx: number) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                              <td style={{ padding: '8px 12px' }}>
+                                <span className={`badge ${ev.type === 'Warning' ? 'badge-error' : 'badge-running'}`} style={{ textTransform: 'uppercase', fontSize: '0.65rem' }}>
+                                  {ev.type}
+                                </span>
+                              </td>
+                              <td style={{ padding: '8px 12px', fontWeight: 600 }}>{ev.reason}</td>
+                              <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{ev.message}</td>
+                              <td style={{ padding: '8px 12px' }}>{ev.count}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Log Excerpt */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Troubleshooting Logs (Last 50 Lines)
+                  </div>
+                  <pre 
+                    className="terminal-container" 
+                    style={{ 
+                      flex: 'none', 
+                      maxHeight: '300px', 
+                      overflowY: 'auto', 
+                      background: 'rgba(0,0,0,0.3)', 
+                      padding: 12, 
+                      borderRadius: 6,
+                      fontSize: '0.8rem',
+                      fontFamily: 'var(--font-mono)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                      color: '#60a5fa',
+                      border: '1px solid rgba(255,255,255,0.05)'
+                    }}
+                  >
+                    {modalData.logTail || 'No troubleshooting logs available.'}
+                  </pre>
+                </div>
+              </div>
+            )
+           ) : null}
         </div>
       </div>
     </div>

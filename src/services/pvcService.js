@@ -59,8 +59,8 @@ class PvcService {
         logger.info({ podName, namespace, pvcName }, 'Creating transient helper pod for PVC browsing');
         await k8sService.core.createNamespacedPod({ namespace, body: podBody });
 
-        // Wait up to 15 seconds for pod to enter Running state
-        for (let i = 0; i < 30; i++) {
+        // Wait up to 30 seconds for pod to enter Running state
+        for (let i = 0; i < 60; i++) {
             await new Promise(resolve => setTimeout(resolve, 500));
             try {
                 const podCheck = await k8sService.core.readNamespacedPod({ name: podName, namespace });
