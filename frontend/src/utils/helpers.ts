@@ -2,18 +2,18 @@ import React from 'react';
 
 export const parseCpu = (cpuStr: string) => {
   if (!cpuStr) return 0;
-  if (cpuStr.endsWith('n')) return parseFloat(cpuStr) / 1000000;
-  if (cpuStr.endsWith('u')) return parseFloat(cpuStr) / 1000;
-  if (cpuStr.endsWith('m')) return parseFloat(cpuStr);
-  return parseFloat(cpuStr) * 1000;
+  if (cpuStr.endsWith('n')) return parseFloat(cpuStr) / 1000000000;
+  if (cpuStr.endsWith('u')) return parseFloat(cpuStr) / 1000000;
+  if (cpuStr.endsWith('m')) return parseFloat(cpuStr) / 1000;
+  return parseFloat(cpuStr);
 };
 
 export const parseMem = (memStr: string) => {
   if (!memStr) return 0;
-  if (memStr.endsWith('Ki')) return parseFloat(memStr);
-  if (memStr.endsWith('Mi')) return parseFloat(memStr) * 1024;
-  if (memStr.endsWith('Gi')) return parseFloat(memStr) * 1024 * 1024;
-  return parseFloat(memStr) / 1024;
+  if (memStr.endsWith('Ki')) return parseFloat(memStr) * 1024;
+  if (memStr.endsWith('Mi')) return parseFloat(memStr) * 1024 * 1024;
+  if (memStr.endsWith('Gi')) return parseFloat(memStr) * 1024 * 1024 * 1024;
+  return parseFloat(memStr);
 };
 
 export const formatBytes = (bytes: number, decimals = 2) => {
