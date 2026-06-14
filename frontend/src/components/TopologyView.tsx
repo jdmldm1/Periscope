@@ -95,7 +95,25 @@ export const TopologyView = ({
             const uid = id.replace('pod-', '');
             const pod = (topologyData.pods || []).find(p => p.metadata.uid === uid);
             if (pod) {
-              setModal({ type: 'yaml', name: pod.metadata.name, namespace: pod.metadata.namespace, kind: 'pods', uid: pod.metadata.uid });
+              setModal({ type: 'yaml', name: pod.metadata.name, namespace: pod.metadata.namespace || 'default', kind: 'pods', uid: pod.metadata.uid });
+            }
+          } else if (id.startsWith('svc-')) {
+            const uid = id.replace('svc-', '');
+            const svc = (topologyData.services || []).find(s => s.metadata.uid === uid);
+            if (svc) {
+              setModal({ type: 'yaml', name: svc.metadata.name, namespace: svc.metadata.namespace || 'default', kind: 'services', uid: svc.metadata.uid });
+            }
+          } else if (id.startsWith('deploy-')) {
+            const uid = id.replace('deploy-', '');
+            const deploy = (topologyData.deployments || []).find(d => d.metadata.uid === uid);
+            if (deploy) {
+              setModal({ type: 'yaml', name: deploy.metadata.name, namespace: deploy.metadata.namespace || 'default', kind: 'deployments', uid: deploy.metadata.uid });
+            }
+          } else {
+            // Node
+            const node = (topologyData.nodes || []).find(n => n.metadata.name === id);
+            if (node) {
+              setModal({ type: 'yaml', name: node.metadata.name, namespace: '', kind: 'nodes', uid: node.metadata.uid });
             }
           }
         }

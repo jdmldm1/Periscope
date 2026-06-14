@@ -21,7 +21,6 @@ import { ClusterTerminalView } from './components/ClusterTerminalView';
 import { TrafficInspectorView } from './components/TrafficInspectorView';
 import { ClusterPrunerView } from './components/ClusterPrunerView';
 import { AlertSettingsView } from './components/AlertSettingsView';
-import { PvcExplorerView } from './components/PvcExplorerView';
 import { DashboardView } from './components/DashboardView';
 import { parseCpu, parseMem, matchesSelector } from './utils/helpers';
 import axios from 'axios';
@@ -34,7 +33,7 @@ export type ResourceKind =
   'pods' | 'deployments' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' |
   'services' | 'ingresses' | 'traffic' | 'configmaps' | 'secrets' | 'persistentvolumes' | 
   'persistentvolumeclaims' | 'helm' | 'helm-repos' | 'zarf' | 'zarf-registry' | 'image-scanner' | 'kubescape' | 'gitea' | 'custom' |
-  'cluster-pruner' | 'alert-settings' | 'pvc-explorer';
+  'cluster-pruner' | 'alert-settings';
 
 function App() {
   const { data: namespacesData } = useNamespaces();
@@ -66,8 +65,13 @@ function App() {
     }
   }, [contextsData]);
 
-  const [pvcExplorerNs, setPvcExplorerNs] = useState<string>('');
-  const [pvcExplorerName, setPvcExplorerName] = useState<string>('');
+  const handleDrillDownToPods = (deploy: any) => {
+    if (deploy?.metadata?.namespace) {
+      setSelectedNs(deploy.metadata.namespace);
+    }
+    setActiveTab('pods');
+    setSearch(deploy?.metadata?.name || '');
+  };
 
   const { search, setSearch, filteredResources, loading } = useClusterResources(activeTab, selectedNs);
 
@@ -302,7 +306,7 @@ function App() {
       else if (type === 'history') endpoint = `/helm/${modal.namespace}/${modal.name}/history`;
       else if (type === 'values') endpoint = `/helm/${modal.namespace}/${modal.name}/values`;
       else if (type === 'decoded') endpoint = `/kube/resource/secrets/${modal.namespace}/${modal.name}`;
-      else if (type === 'portforward') {
+      else if (type === 'portforward' || type === 'pvc-files') {
           setModalData([]);
           return;
       } else if (type === 'files') {
@@ -1359,13 +1363,6 @@ function App() {
             <ClusterPrunerView />
           ) : activeTab === 'alert-settings' ? (
             <AlertSettingsView />
-          ) : activeTab === 'pvc-explorer' ? (
-            <PvcExplorerView 
-              initialNamespace={pvcExplorerNs}
-              setInitialNamespace={setPvcExplorerNs}
-              initialPvcName={pvcExplorerName}
-              setInitialPvcName={setPvcExplorerName}
-            />
           ) : activeTab === 'cluster-terminal' ? (
             <ClusterTerminalView />
           ) : activeTab === 'traffic' ? (
@@ -1404,7 +1401,7 @@ function App() {
               pluralizeKind={pluralizeKind}
               handleRestart={handleRestart}
               handleScale={handleScale}
-              handleDrillDownToPods={() => {}}
+              handleDrillDownToPods={handleDrillDownToPods}
               handleOpenServiceWebsite={handleOpenServiceWebsite}
               establishingPortForward={establishingPortForward}
               handleOpenDiagnostics={handleOpenDiagnostics}
@@ -1412,8 +1409,6 @@ function App() {
               setIsEditingYaml={setIsEditingYaml}
               renderStatusBadge={renderStatusBadge}
               renderSmallSparkline={renderSmallSparkline}
-              setPvcExplorerNs={setPvcExplorerNs}
-              setPvcExplorerName={setPvcExplorerName}
             />
           )}
         </div>

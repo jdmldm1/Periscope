@@ -1,4 +1,4 @@
-import { SlidersHorizontal, Activity, Server, List, Terminal, Code, Box, Layers, HardDriveDownload, Database, Shield, Microscope, ShieldAlert, Package, Network, Radio, Key, FileText, GitCommit, Trash2, Bell, HardDrive } from 'lucide-react';
+import { SlidersHorizontal, Activity, Server, List, Terminal, Code, Box, Layers, HardDriveDownload, Database, Shield, Microscope, ShieldAlert, Package, Network, Radio, Key, FileText, GitCommit, Trash2, Bell } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -116,7 +116,6 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
             <NavItem id="secrets" icon={Key} label="Secrets" />
             <NavItem id="persistentvolumes" icon={Database} label="PVs" />
             <NavItem id="persistentvolumeclaims" icon={HardDriveDownload} label="PVCs" />
-            <NavItem id="pvc-explorer" icon={HardDrive} label="PVC Explorer" />
           </nav>
         )}
       </div>

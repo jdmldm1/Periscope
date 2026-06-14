@@ -1,8 +1,9 @@
 import React from 'react';
-import { X, FileText, Terminal, Radio, Activity, SlidersHorizontal, Key, Copy, Save, ArrowDown, RefreshCw, Search, Microscope } from 'lucide-react';
+import { X, FileText, Terminal, Radio, Activity, SlidersHorizontal, Key, Copy, Save, ArrowDown, RefreshCw, Search, Microscope, FolderOpen } from 'lucide-react';
 import { SecretDecoderPanel } from './SecretDecoderPanel';
 import { PodFilesExplorer } from './PodFilesExplorer';
 import { InteractiveTerminal } from './InteractiveTerminal';
+import { PvcExplorerView } from './PvcExplorerView';
 
 interface ModalManagerProps {
   modal: any;
@@ -66,7 +67,12 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
   const tabs = modal.kind === 'pods' ? ['diagnose', 'yaml', 'logs', 'events', 'files', 'terminal'] : 
                modal.kind === 'helm' ? ['values', 'history', 'events'] : ['yaml', 'events'];
   
-  if (modal.type === 'decoded') tabs.push('decoded');
+  if (modal.kind === 'secrets' || modal.type === 'decoded') {
+    if (!tabs.includes('decoded')) tabs.push('decoded');
+  }
+  if (modal.type === 'pvc-files' || modal.kind === 'persistentvolumeclaims') {
+    if (!tabs.includes('pvc-files')) tabs.push('pvc-files');
+  }
   if (modal.type === 'portforward') tabs.push('portforward');
 
   const highlightYaml = (yaml: string) => {
@@ -107,7 +113,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
 
   return (
     <div className="modal-overlay" onClick={() => { setModal(null); setModalData(null); setSelectedRevisionValues(null); }}>
-      <div className={`modal-content animate-scale-in ${modal.type === 'logs' || modal.type === 'terminal' || modal.type === 'files' ? 'modal-lg' : ''}`} onClick={e => e.stopPropagation()}>
+      <div className={`modal-content animate-scale-in ${modal.type === 'logs' || modal.type === 'terminal' || modal.type === 'files' || modal.type === 'pvc-files' ? 'modal-lg' : ''}`} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div className="modal-title">
@@ -136,12 +142,13 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
               {t === 'logs' && <Activity size={14}/>}
               {t === 'events' && <Radio size={14}/>}
               {t === 'files' && <FileText size={14}/>}
+              {t === 'pvc-files' && <FolderOpen size={14}/>}
               {t === 'terminal' && <Terminal size={14}/>}
               {t === 'history' && <RefreshCw size={14}/>}
               {t === 'values' && <SlidersHorizontal size={14}/>}
               {t === 'decoded' && <Key size={14}/>}
               <span>
-                {t === 'terminal' ? 'Console' : t === 'portforward' ? 'Port Forward' : t === 'events' && modal.kind === 'helm' ? 'Status' : t === 'values' ? 'Values' : t === 'decoded' ? 'Decoded Data' : t === 'diagnose' ? 'Diagnose' : t.charAt(0).toUpperCase() + t.slice(1)}
+                {t === 'terminal' ? 'Console' : t === 'portforward' ? 'Port Forward' : t === 'events' && modal.kind === 'helm' ? 'Status' : t === 'values' ? 'Values' : t === 'decoded' ? 'Decoded Data' : t === 'pvc-files' ? 'Browse Volume' : t === 'diagnose' ? 'Diagnose' : t.charAt(0).toUpperCase() + t.slice(1)}
               </span>
             </div>
           ))}
@@ -154,6 +161,12 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
             ) : (
               <SecretDecoderPanel secretJson={modalData} />
             )
+          ) : modal.type === 'pvc-files' ? (
+            <PvcExplorerView
+              isModal={true}
+              initialNamespace={modal.namespace}
+              initialPvcName={modal.name}
+            />
           ) : modal.type === 'files' ? (
             <PodFilesExplorer
               modal={modal}
