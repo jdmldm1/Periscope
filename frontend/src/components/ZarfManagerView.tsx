@@ -120,6 +120,9 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
   setSbomSelectedFileUrl,
   isExtractingSbom,
   handleExtractSbom,
+  selectedZarfPackageDetail,
+  isPackageDetailModalOpen,
+  setIsPackageDetailModalOpen,
   isFetchingPackageDetail,
   handleInspectDeployedZarfPackage,
   handleRemoveZarfPackage,
@@ -646,6 +649,94 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
                     Upload & Deploy
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Inspect Deployed Package Modal */}
+        {isPackageDetailModalOpen && selectedZarfPackageDetail && (
+          <div 
+            className="modal-overlay" 
+            onClick={() => setIsPackageDetailModalOpen(false)}
+            style={{ zIndex: 1000 }}
+          >
+            <div 
+              className="modal-content animate-fade-in" 
+              onClick={e => e.stopPropagation()}
+              style={{ maxWidth: 800, width: '90%' }}
+            >
+              <div className="modal-header">
+                <h3 className="modal-title">
+                  🔍 Deployed Zarf Package: {selectedZarfPackageDetail.name || selectedZarfPackageDetail.metadata?.name || 'Details'}
+                </h3>
+                <button className="btn btn-icon" onClick={() => setIsPackageDetailModalOpen(false)}>
+                  <X size={16} />
+                </button>
+              </div>
+              
+              <div className="modal-body" style={{ padding: 24, minHeight: 'auto', gap: 16, maxHeight: '65vh', overflowY: 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, background: 'rgba(255,255,255,0.02)', padding: 16, borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                  <div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Package Name:</span>
+                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{selectedZarfPackageDetail.name || selectedZarfPackageDetail.metadata?.name || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Version:</span>
+                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{selectedZarfPackageDetail.version || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Architecture:</span>
+                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{selectedZarfPackageDetail.architecture || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Timestamp:</span>
+                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{selectedZarfPackageDetail.timestamp || 'N/A'}</div>
+                  </div>
+                </div>
+
+                {selectedZarfPackageDetail.components && (
+                  <div>
+                    <h4 style={{ fontSize: '0.9rem', marginBottom: 8, color: 'var(--text-main)' }}>Package Components ({selectedZarfPackageDetail.components.length})</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {selectedZarfPackageDetail.components.map((c: any, idx: number) => (
+                        <div key={idx} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '10px 14px' }}>
+                          <div style={{ fontWeight: 600, color: 'var(--accent-blue)', fontSize: '0.85rem' }}>
+                            {c.name} {c.required ? <span style={{ color: 'var(--accent-error)', fontSize: '0.75rem' }}>(Required)</span> : ''}
+                          </div>
+                          {c.description && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>{c.description}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <h4 style={{ fontSize: '0.9rem', marginBottom: 8, color: 'var(--text-main)' }}>Raw Manifest JSON</h4>
+                  <pre style={{ 
+                    background: 'var(--bg-main)', 
+                    border: '1px solid var(--border-color)', 
+                    borderRadius: 4, 
+                    padding: 12, 
+                    fontSize: '0.8rem', 
+                    fontFamily: 'var(--font-mono)', 
+                    maxHeight: 250, 
+                    overflowY: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    color: 'var(--text-main)'
+                  }}>
+                    {JSON.stringify(selectedZarfPackageDetail, null, 2)}
+                  </pre>
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button 
+                  className="btn" 
+                  onClick={() => setIsPackageDetailModalOpen(false)}
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>

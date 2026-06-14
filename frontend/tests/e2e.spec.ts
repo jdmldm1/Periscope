@@ -50,7 +50,14 @@ test.describe('Periscope E2E QA', () => {
     await expect(list.or(empty)).toBeVisible({ timeout: 20000 });
     
     if (await list.isVisible()) {
-      const firstRow = page.locator('.resource-row').first();
+      // Find a pod row that we can actually execute commands on (like local-path-provisioner or periscope)
+      let firstRow = page.locator('.resource-row:has-text("local-path-provisioner")').first();
+      if (!await firstRow.isVisible()) {
+        firstRow = page.locator('.resource-row:has-text("periscope")').first();
+      }
+      if (!await firstRow.isVisible()) {
+        firstRow = page.locator('.resource-row').first();
+      }
       
       // Events
       await firstRow.locator('button:has-text("Events")').click();
@@ -93,6 +100,27 @@ test.describe('Periscope E2E QA', () => {
       await expect(page.locator('.modal-content')).toBeVisible();
       await expect(page.locator('.modal-tab.active:has-text("Files")')).toBeVisible();
       await expect(page.locator('.crd-table')).toBeVisible();
+
+      // Test Folder Creation
+      page.once('dialog', async dialog => {
+        expect(dialog.message()).toContain('Enter folder name:');
+        await dialog.accept('playwright-test-dir');
+      });
+      await page.locator('button:has-text("New Folder")').click();
+
+      // Verify folder is listed
+      await expect(page.locator('tr:has-text("playwright-test-dir")')).toBeVisible({ timeout: 10000 });
+
+      // Test Folder Deletion
+      page.once('dialog', async dialog => {
+        expect(dialog.message()).toContain('Delete folder playwright-test-dir?');
+        await dialog.accept();
+      });
+      await page.locator('tr:has-text("playwright-test-dir") button:has-text("Del")').click();
+
+      // Verify folder is gone
+      await expect(page.locator('tr:has-text("playwright-test-dir")')).not.toBeVisible({ timeout: 10000 });
+
       await page.locator('.modal-header .btn-icon').click();
       await expect(page.locator('.modal-content')).not.toBeVisible();
 
@@ -170,6 +198,19 @@ test.describe('Periscope E2E QA', () => {
   test('Zarf Packages list', async ({ page }) => {
     await sidebarClick(page, 'Zarf Packages');
     await expect(page.locator('h3:has-text("Deployed Packages")')).toBeVisible();
+
+    // Verify Deploy New Package button is present and click it
+    const deployBtn = page.locator('button:has-text("Deploy New Package")');
+    await expect(deployBtn).toBeVisible();
+    await deployBtn.click();
+
+    // Verify Deploy Modal is visible
+    const modal = page.locator('.modal-content:has-text("Upload & Deploy Zarf Package")');
+    await expect(modal).toBeVisible();
+
+    // Dismiss the modal
+    await modal.locator('button:has-text("Close")').click();
+    await expect(modal).not.toBeVisible();
   });
 
   test('Image Scanner page and Scan functionality', async ({ page }) => {

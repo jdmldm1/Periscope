@@ -10,6 +10,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/periscope
   ZARF_VERSION: v0.75.1
+  APP_VERSION: 1.1.2
 
 jobs:
   test-and-lint:
@@ -81,7 +82,7 @@ jobs:
           build-args: CACHE_GRYPE_DB=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest
-            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.2
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}
 
       - name: Build and push Connected Docker image to OCI
@@ -92,7 +93,7 @@ jobs:
           build-args: CACHE_GRYPE_DB=false
           tags: |
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest-connected
-            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:1.0.2-connected
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}-connected
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}-connected
 
   helm-package-oci:
@@ -147,6 +148,18 @@ jobs:
           curl -sL "https://github.com/zarf-dev/zarf/releases/download/${{ env.ZARF_VERSION }}/zarf_${{ env.ZARF_VERSION }}_Linux_amd64" -o /usr/local/bin/zarf
           chmod +x /usr/local/bin/zarf
           zarf version
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Docker images to local daemon
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}-connected
+          docker pull ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}
 
       - name: Log in to GHCR for Zarf OCI
         run: |
@@ -215,7 +228,7 @@ jobs:
             echo "Error: No SBOM file to push!"
             exit 1
           fi
-          oras push ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages/periscope-sbom:1.0.2 \
+          oras push ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages/periscope-sbom:${{ env.APP_VERSION }} \
             $SBOM_FILE:application/vnd.syft+json \
             vulnerability-report.json:application/json
 
