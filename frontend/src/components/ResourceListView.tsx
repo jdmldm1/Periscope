@@ -195,10 +195,73 @@ export const ResourceListView = ({
                   ))}
                 </div>
               )}
-              {activeTab === 'services' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Ports:</span>
+              {activeTab === 'services' && (() => {
+                const privateIp = res.spec?.clusterIP;
+                const publicIps: string[] = [];
+                if (res.status?.loadBalancer?.ingress) {
+                  res.status.loadBalancer.ingress.forEach((ing: any) => {
+                    if (ing.ip) publicIps.push(ing.ip);
+                    if (ing.hostname) publicIps.push(ing.hostname);
+                  });
+                }
+                if (res.spec?.externalIPs) {
+                  res.spec.externalIPs.forEach((ip: string) => {
+                    if (ip) publicIps.push(ip);
+                  });
+                }
+                if (res.spec?.externalName) {
+                  publicIps.push(res.spec.externalName);
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                    {(privateIp || publicIps.length > 0) && (
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {privateIp && (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Private IP:</span>
+                            <span 
+                              className="badge" 
+                              style={{ 
+                                background: 'rgba(255, 255, 255, 0.03)', 
+                                color: 'var(--text-main)', 
+                                border: '1px solid var(--border-color)',
+                                fontSize: '0.7rem',
+                                textTransform: 'none',
+                                padding: '2px 6px',
+                                fontFamily: 'var(--font-mono)'
+                              }}
+                            >
+                              {privateIp}
+                            </span>
+                          </div>
+                        )}
+                        {publicIps.length > 0 && (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Public IP:</span>
+                            {publicIps.map((ip, idx) => (
+                              <span 
+                                key={idx}
+                                className="badge" 
+                                style={{ 
+                                  background: 'rgba(16, 185, 129, 0.05)', 
+                                  color: '#10b981', 
+                                  border: '1px solid rgba(16, 185, 129, 0.15)',
+                                  fontSize: '0.7rem',
+                                  textTransform: 'none',
+                                  padding: '2px 6px',
+                                  fontFamily: 'var(--font-mono)'
+                                }}
+                              >
+                                {ip}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Ports:</span>
                     {(res.spec?.ports || []).map((p: any) => (
                       <span 
                         key={`${p.port}-${p.protocol}`} 
@@ -300,7 +363,7 @@ export const ResourceListView = ({
                     </>
                   )}
                 </div>
-              )}
+              )})()}
             </div>
             {renderStatusBadge(res)}
             <div className="row-meta">
