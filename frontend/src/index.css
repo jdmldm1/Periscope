@@ -232,6 +232,11 @@ body {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.select-ns option {
+  background: #030712;
+  color: #f3f4f6;
+}
+
 .select-ns:focus, .select-ns:hover {
   border-color: var(--accent-primary);
   box-shadow: 0 0 12px rgba(59, 130, 246, 0.15);

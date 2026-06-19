@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   useTopologyData, 
   useNodeMetrics, 
@@ -87,6 +87,8 @@ function AppContent() {
   const [podMetricsHistory, setPodMetricsHistory] = useState<Record<string, any>>({});
   const [establishingPortForward, setEstablishingPortForward] = useState<string | null>(null);
   const [cmdPaletteSearch, setCmdPaletteSearch] = useState('');
+  const [navigationStack, setNavigationStack] = useState<Array<{tab: string; search: string; ns: string; focusedRow: number | null}>>([]);
+  const isDrillDownRef = useRef(false);
 
   // Zarf states
   const [zarfViewMode, setZarfViewMode] = useState<'packages' | 'local' | 'tools' | 'edit' | 'registry' | 'sbom'>('packages');
@@ -205,6 +207,15 @@ function AppContent() {
     }
   }, [activeTab]);
 
+  // Clear the navigation stack when the user explicitly switches tabs (not from our drill-down)
+  useEffect(() => {
+    if (isDrillDownRef.current) {
+      isDrillDownRef.current = false;
+    } else {
+      setNavigationStack([]);
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -228,6 +239,23 @@ function AppContent() {
         e.preventDefault();
         setCmdPaletteSearch(':');
         setIsCmdPaletteOpen(true);
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (modal) {
+          setModal(null);
+          setModalData(null);
+          setSelectedRevisionValues(null);
+        } else if (navigationStack.length > 0) {
+          const prev = navigationStack[navigationStack.length - 1];
+          setNavigationStack(s => s.slice(0, -1));
+          setActiveTab(prev.tab);
+          setSearch(prev.search);
+          setSelectedNs(prev.ns);
+          setFocusedRowIndex(prev.focusedRow);
+        }
         return;
       }
 
@@ -288,6 +316,11 @@ function AppContent() {
                 kind: activeTab,
                 uid: res.metadata.uid
               });
+            } else if (['deployments', 'statefulsets', 'daemonsets', 'jobs'].includes(activeTab)) {
+              isDrillDownRef.current = true;
+              setNavigationStack(s => [...s, { tab: activeTab, search, ns: selectedNs, focusedRow: focusedRowIndex }]);
+              handleDrillDownToPods(res);
+              setFocusedRowIndex(null);
             }
           }
         }
@@ -298,7 +331,7 @@ function AppContent() {
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [modal, isCmdPaletteOpen, filteredResources, focusedRowIndex, activeTab]);
+  }, [modal, isCmdPaletteOpen, filteredResources, focusedRowIndex, activeTab, navigationStack, search, selectedNs]);
 
   // Helpers
   const getNodeUsagePercent = (metric: any) => {

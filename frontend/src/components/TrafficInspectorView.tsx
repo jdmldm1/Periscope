@@ -1,10 +1,10 @@
 
 
 import React, { useEffect, useState, useRef } from 'react';
-import { 
-  Globe, Zap, Server, Network, 
+import {
+  Globe, Zap, Server, Network,
   Search, PlayCircle, StopCircle, Trash2, Eye, Cpu, Radio,
-  Info
+  Info, Download, AlertCircle
 } from 'lucide-react';
 
 interface TrafficInspectorViewProps {
@@ -64,11 +64,145 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [flyingPackets, setFlyingPackets] = useState<FlyingPacket[]>([]);
 
+  // Filter & detail view states
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const [detailView, setDetailView] = useState<'info' | 'hex'>('info');
+
   // Reference lists for coordinates lookup in the event listener
   const latestNodesRef = useRef<GraphNode[]>([]);
   const packetsRef = useRef<Packet[]>([]);
   const lastGraphUpdateRef = useRef<number>(0);
   const graphUpdatePendingRef = useRef<boolean>(false);
+
+  // Stable layout state — positions assigned once, never reshuffled
+  const stablePositionsRef = useRef<Map<string, { x: number; y: number; role: 'source' | 'destination' | 'external' }>>(new Map());
+  const columnCountsRef = useRef<Record<string, number>>({ source: 0, destination: 0, external: 0 });
+
+  const MAX_PER_COLUMN = 5;
+  const NODE_SPACING = 55;
+  const COLUMN_START_Y = 40;
+  const COLUMN_X: Record<string, number> = { source: 120, destination: 400, external: 680 };
+
+  // Split a BPF expression on a separator, respecting parentheses depth
+  const splitTopLevel = (expr: string, sep: string): string[] => {
+    const parts: string[] = [];
+    let depth = 0, current = '', i = 0;
+    while (i < expr.length) {
+      if (expr[i] === '(') { depth++; current += expr[i++]; }
+      else if (expr[i] === ')') { depth--; current += expr[i++]; }
+      else if (depth === 0 && expr.slice(i, i + sep.length) === sep) {
+        parts.push(current.trim()); current = ''; i += sep.length;
+      } else { current += expr[i++]; }
+    }
+    if (current.trim()) parts.push(current.trim());
+    return parts;
+  };
+
+  const evaluateFilter = (p: Packet, expr: string): boolean => {
+    const f = expr.trim();
+    if (!f) return true;
+
+    // Strip outer parens
+    if (f.startsWith('(') && f.endsWith(')')) return evaluateFilter(p, f.slice(1, -1));
+
+    // OR
+    const orParts = splitTopLevel(f, '||');
+    if (orParts.length > 1) return orParts.some(part => evaluateFilter(p, part));
+
+    // AND
+    const andParts = splitTopLevel(f, '&&');
+    if (andParts.length > 1) return andParts.every(part => evaluateFilter(p, part));
+
+    // NOT
+    if (f.startsWith('!')) return !evaluateFilter(p, f.slice(1));
+    const notMatch = f.match(/^not\s+(.+)$/i);
+    if (notMatch) return !evaluateFilter(p, notMatch[1]);
+
+    // Bare protocol keyword
+    if (/^(http|https|dns|tcp|udp|icmp)$/i.test(f)) return p.protocol.toLowerCase() === f.toLowerCase();
+
+    // Field comparisons: field op value
+    const compMatch = f.match(/^([\w.]+)\s*(==|!=|>=|<=|>|<|contains)\s*(.+)$/i);
+    if (compMatch) {
+      const [, field, op, rawVal] = compMatch;
+      const val = rawVal.trim().replace(/^["']|["']$/g, '');
+      const fl = field.toLowerCase();
+
+      // port shortcuts that check both ends
+      if (fl === 'port' || fl === 'tcp.port' || fl === 'udp.port') {
+        const n = parseInt(val, 10);
+        return op === '==' ? (p.srcPort === n || p.destPort === n)
+             : op === '!=' ? (p.srcPort !== n && p.destPort !== n)
+             : false;
+      }
+
+      const fieldValue = (): string | number | null => {
+        switch (fl) {
+          case 'ip.src': case 'src': return p.srcIp;
+          case 'ip.dst': case 'dst': return p.destIp;
+          case 'ip.addr': return null; // checked below
+          case 'tcp.srcport': case 'udp.srcport': case 'src port': return p.srcPort;
+          case 'tcp.dstport': case 'udp.dstport': case 'dst port': return p.destPort;
+          case 'frame.len': case 'len': case 'length': return p.length;
+          case 'ip.proto': case 'protocol': return p.protocol;
+          case 'info': return p.info;
+          default: return null;
+        }
+      };
+
+      if (fl === 'ip.addr') {
+        const matches = (v: string) => op === '==' ? v === val : op === '!=' ? v !== val : op === 'contains' ? v.includes(val) : false;
+        return matches(p.srcIp) || matches(p.destIp);
+      }
+
+      const fv = fieldValue();
+      if (fv === null) return JSON.stringify(p).toLowerCase().includes(val.toLowerCase());
+
+      if (op === 'contains') return String(fv).toLowerCase().includes(val.toLowerCase());
+      const numVal = parseFloat(val), numFv = Number(fv);
+      switch (op) {
+        case '==': return String(fv) === val || numFv === numVal;
+        case '!=': return String(fv) !== val && numFv !== numVal;
+        case '>': return numFv > numVal;
+        case '<': return numFv < numVal;
+        case '>=': return numFv >= numVal;
+        case '<=': return numFv <= numVal;
+        default: return false;
+      }
+    }
+
+    // Fallback: plain text search across all fields
+    const lf = f.toLowerCase();
+    return [p.srcIp, p.destIp, p.srcRes.name, p.destRes.name, p.protocol, p.info]
+      .some(v => v.toLowerCase().includes(lf));
+  };
+
+  const toHexDump = (str: string): string => {
+    const lines: string[] = [];
+    for (let i = 0; i < str.length; i += 16) {
+      const chunk = str.slice(i, i + 16);
+      const hex = Array.from(chunk).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
+      const ascii = Array.from(chunk).map(c => { const code = c.charCodeAt(0); return code >= 32 && code < 127 ? c : '.'; }).join('');
+      lines.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(47)}  ${ascii}`);
+    }
+    return lines.join('\n') || '(empty)';
+  };
+
+  const saveCapture = () => {
+    const header = 'No.\tTime\tSource\tSrcPort\tDestination\tDstPort\tProtocol\tLength\tInfo\n';
+    const rows = packets.map((p, i) =>
+      `${packets.length - i}\t${p.timestamp}\t${p.srcIp}\t${p.srcPort}\t${p.destIp}\t${p.destPort}\t${p.protocol}\t${p.length}\t${p.info}`
+    ).join('\n');
+    const blob = new Blob([header + rows], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `periscope-capture-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const requestGraphUpdate = () => {
     const now = Date.now();
@@ -103,102 +237,71 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
     }
   };
 
-  // Re-calculate node positions based on active packets
+  // Re-calculate node activities and edges; positions are assigned once and never moved
   const updateGraphLayout = (packetsList: Packet[]) => {
-    const nodeMap = new Map<string, GraphNode>();
+    // 1. Rebuild activity counts from all packets
+    const nodeMap = new Map<string, { res: Packet['srcRes']; ip: string; role: 'source' | 'destination' | 'external'; activity: number }>();
 
-    // 1. Extract nodes and count activities
     packetsList.forEach(p => {
       const srcId = p.srcRes.name;
       const destId = p.destRes.name;
 
       if (!nodeMap.has(srcId)) {
-        nodeMap.set(srcId, { 
-          id: srcId, 
-          res: p.srcRes, 
-          ip: p.srcIp, 
-          role: 'source', 
-          activity: 1, 
-          x: 0, 
-          y: 0 
-        });
+        nodeMap.set(srcId, { res: p.srcRes, ip: p.srcIp, role: 'source', activity: 1 });
       } else {
-        const node = nodeMap.get(srcId)!;
-        node.activity += 1;
+        nodeMap.get(srcId)!.activity += 1;
       }
 
+      const destRole = p.destRes.type === 'external' ? 'external' : 'destination';
       if (!nodeMap.has(destId)) {
-        nodeMap.set(destId, { 
-          id: destId, 
-          res: p.destRes, 
-          ip: p.destIp, 
-          role: p.destRes.type === 'external' ? 'external' : 'destination', 
-          activity: 1, 
-          x: 0, 
-          y: 0 
-        });
+        nodeMap.set(destId, { res: p.destRes, ip: p.destIp, role: destRole, activity: 1 });
       } else {
-        const node = nodeMap.get(destId)!;
-        node.activity += 1;
-        // If it was marked as source but acts as target Service/Pod, give middle column priority
-        if (node.role === 'source' && p.destRes.type !== 'external') {
-          node.role = 'destination';
+        nodeMap.get(destId)!.activity += 1;
+      }
+    });
+
+    // 2. Assign stable positions to any nodes we haven't seen before
+    nodeMap.forEach((info, id) => {
+      if (!stablePositionsRef.current.has(id)) {
+        const role = info.role;
+        const col = columnCountsRef.current[role];
+        if (col < MAX_PER_COLUMN) {
+          columnCountsRef.current[role]++;
+          stablePositionsRef.current.set(id, {
+            x: COLUMN_X[role],
+            y: COLUMN_START_Y + col * NODE_SPACING,
+            role
+          });
         }
       }
     });
 
-    const allNodes = Array.from(nodeMap.values());
-
-    // Filter to top active nodes to prevent overlap clutter
-    const sources = allNodes.filter(n => n.role === 'source').sort((a,b) => b.activity - a.activity).slice(0, 5);
-    const destinations = allNodes.filter(n => n.role === 'destination').sort((a,b) => b.activity - a.activity).slice(0, 5);
-    const externals = allNodes.filter(n => n.role === 'external').sort((a,b) => b.activity - a.activity).slice(0, 5);
-
-    const layoutNodesList: GraphNode[] = [];
-    const height = 280;
-
-    sources.forEach((n, i) => {
-      n.x = 120;
-      n.y = ((i + 0.5) / sources.length) * (height - 60) + 30;
-      layoutNodesList.push(n);
+    // 3. Build layout nodes using stable positions (roles and coords never change)
+    const layoutNodes: GraphNode[] = [];
+    nodeMap.forEach((info, id) => {
+      const pos = stablePositionsRef.current.get(id);
+      if (pos) {
+        layoutNodes.push({ id, res: info.res, ip: info.ip, role: pos.role, activity: info.activity, x: pos.x, y: pos.y });
+      }
     });
 
-    destinations.forEach((n, i) => {
-      n.x = 400;
-      n.y = ((i + 0.5) / destinations.length) * (height - 60) + 30;
-      layoutNodesList.push(n);
-    });
-
-    externals.forEach((n, i) => {
-      n.x = 680;
-      n.y = ((i + 0.5) / externals.length) * (height - 60) + 30;
-      layoutNodesList.push(n);
-    });
-
-    // 2. Extract active edges
+    // 4. Build all accumulated edges
     const edgeMap = new Map<string, GraphEdge>();
     packetsList.forEach(p => {
-      const srcNode = layoutNodesList.find(n => n.id === p.srcRes.name);
-      const destNode = layoutNodesList.find(n => n.id === p.destRes.name);
-
+      const srcNode = layoutNodes.find(n => n.id === p.srcRes.name);
+      const destNode = layoutNodes.find(n => n.id === p.destRes.name);
       if (srcNode && destNode) {
         const edgeId = `${srcNode.id}->${destNode.id}`;
         if (!edgeMap.has(edgeId)) {
-          edgeMap.set(edgeId, {
-            id: edgeId,
-            source: srcNode,
-            target: destNode,
-            protocol: p.protocol,
-            weight: 1
-          });
+          edgeMap.set(edgeId, { id: edgeId, source: srcNode, target: destNode, protocol: p.protocol, weight: 1 });
         } else {
           edgeMap.get(edgeId)!.weight += 1;
         }
       }
     });
 
-    setNodes(layoutNodesList);
-    latestNodesRef.current = layoutNodesList;
+    setNodes(layoutNodes);
+    latestNodesRef.current = layoutNodes;
     setEdges(Array.from(edgeMap.values()));
   };
 
@@ -275,6 +378,8 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
     packetsRef.current = [];
     lastGraphUpdateRef.current = 0;
     graphUpdatePendingRef.current = false;
+    stablePositionsRef.current = new Map();
+    columnCountsRef.current = { source: 0, destination: 0, external: 0 };
     setPackets([]);
     setNodes([]);
     setEdges([]);
@@ -313,15 +418,13 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
 
   const filteredPackets = packets.filter(p => {
     if (!searchFilter) return true;
-    const filter = searchFilter.toLowerCase();
-    return (
-      p.srcIp.toLowerCase().includes(filter) ||
-      p.destIp.toLowerCase().includes(filter) ||
-      p.srcRes.name.toLowerCase().includes(filter) ||
-      p.destRes.name.toLowerCase().includes(filter) ||
-      p.protocol.toLowerCase().includes(filter) ||
-      p.info.toLowerCase().includes(filter)
-    );
+    try {
+      const result = evaluateFilter(p, searchFilter);
+      if (filterError) setFilterError(null);
+      return result;
+    } catch {
+      return true;
+    }
   });
 
   return (
@@ -359,6 +462,9 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
                 <PlayCircle size={14} /> Start Capture
               </button>
             )}
+            <button className="btn" onClick={saveCapture} disabled={packets.length === 0} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem' }}>
+              <Download size={12} /> Save
+            </button>
             <button className="btn" onClick={clearPackets} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem' }}>
               <Trash2 size={12} /> Clear
             </button>
@@ -388,11 +494,11 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
         </div>
 
         {/* SVG Live Node Graph */}
-        <div 
-          style={{ 
-            height: '280px', 
-            background: 'rgba(0,0,0,0.25)', 
-            border: '1px solid var(--border-color)', 
+        <div
+          style={{
+            height: '320px',
+            background: 'rgba(0,0,0,0.25)',
+            border: '1px solid var(--border-color)',
             borderRadius: 6,
             position: 'relative',
             overflow: 'hidden'
@@ -404,7 +510,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
               {capturing ? 'Sniffing cluster channels... Send some requests to plot the topography!' : 'Start the sniffer to generate the live network graph.'}
             </div>
           ) : (
-            <svg width="100%" height="100%" viewBox="0 0 800 280" style={{ overflow: 'visible' }}>
+            <svg width="100%" height="100%" viewBox="0 0 800 320" style={{ overflow: 'visible' }}>
               <defs>
                 <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
                   <feGaussianBlur stdDeviation="4" result="blur" />
@@ -412,16 +518,16 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
                 </filter>
               </defs>
 
-              {/* Draw Static Connection Edges */}
+              {/* Draw accumulated dataflow edges — weight is total packets on this path */}
               {edges.map(edge => {
                 const styleInfo = getProtocolColor(edge.protocol);
                 return (
-                  <path 
+                  <path
                     key={edge.id}
-                    d={`M ${edge.source.x} ${edge.source.y} L ${edge.target.x} ${edge.target.y}`} 
-                    stroke={styleInfo.text} 
-                    strokeWidth={Math.min(5, 1 + edge.weight * 0.15)} 
-                    strokeOpacity="0.25"
+                    d={`M ${edge.source.x} ${edge.source.y} L ${edge.target.x} ${edge.target.y}`}
+                    stroke={styleInfo.text}
+                    strokeWidth={Math.max(1, Math.min(5, 1 + Math.log2(edge.weight + 1) * 1.2))}
+                    strokeOpacity="0.4"
                     fill="none"
                   />
                 );
@@ -518,18 +624,26 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
           >
             <div style={{ display: 'flex', gap: 12, width: '100%' }}>
               <div style={{ position: 'relative', flex: 1 }}>
-                <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input 
-                  type="text" 
-                  placeholder="Filter packets by IP, Pod/Service name, protocol, info..." 
+                <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: filterError ? '#ef4444' : searchFilter ? '#10b981' : 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  placeholder='Display filter  e.g.  http  |  ip.src == 10.0.0.1  |  tcp.port == 443  |  len > 100  |  !dns'
                   className="form-control"
                   value={searchFilter}
-                  onChange={e => setSearchFilter(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px 8px 32px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-main)', borderRadius: 4, fontSize: '0.85rem' }}
+                  onChange={e => {
+                    setSearchFilter(e.target.value);
+                    try { if (e.target.value) evaluateFilter(packets[0] || {} as Packet, e.target.value); setFilterError(null); } catch (err: any) { setFilterError(String(err)); }
+                  }}
+                  style={{ width: '100%', padding: '8px 12px 8px 32px', background: 'var(--bg-main)', border: `1px solid ${filterError ? '#ef4444' : searchFilter ? '#10b981' : 'var(--border-color)'}`, color: 'var(--text-main)', borderRadius: 4, fontSize: '0.82rem', fontFamily: 'var(--font-mono)' }}
                 />
+                {filterError && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0 0 4px 4px', padding: '4px 10px', fontSize: '0.72rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4, zIndex: 5 }}>
+                    <AlertCircle size={11} /> {filterError}
+                  </div>
+                )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Captured: <strong>{packets.length}</strong> (showing {filteredPackets.length})
+              <div style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                <strong style={{ color: 'var(--text-main)' }}>{filteredPackets.length}</strong>&nbsp;/ {packets.length}
               </div>
             </div>
 
@@ -646,27 +760,55 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
                   </div>
                 </div>
 
-                {/* Packet payload body info */}
+                {/* Payload tabs: Raw Info | Hex Dump */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Raw tcpdump Payload Info:</span>
-                  <div 
-                    style={{ 
-                      flex: 1, 
-                      background: '#040711', 
-                      border: '1px solid var(--border-color)', 
-                      borderRadius: 6, 
-                      padding: 10, 
-                      fontFamily: 'var(--font-mono)', 
-                      fontSize: '0.75rem', 
-                      color: 'var(--text-main)', 
+                  <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-color)' }}>
+                    {(['info', 'hex'] as const).map(tab => (
+                      <button
+                        key={tab}
+                        onClick={() => setDetailView(tab)}
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          background: detailView === tab ? 'rgba(6,182,212,0.1)' : 'transparent',
+                          color: detailView === tab ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                          border: 'none',
+                          borderBottom: detailView === tab ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+                          cursor: 'pointer',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
+                        }}
+                      >
+                        {tab === 'info' ? 'Payload Info' : 'Hex Dump'}
+                      </button>
+                    ))}
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      background: '#040711',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 6,
+                      padding: 10,
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.72rem',
+                      color: 'var(--text-main)',
                       overflowY: 'auto',
                       wordBreak: 'break-all',
                       boxShadow: 'inset 0 0 10px rgba(0,0,0,0.8)',
-                      maxHeight: '200px'
+                      maxHeight: '220px',
+                      whiteSpace: detailView === 'hex' ? 'pre' : 'pre-wrap',
+                      lineHeight: detailView === 'hex' ? 1.6 : undefined
                     }}
                   >
-                    {selectedPacket.info}
+                    {detailView === 'info' ? selectedPacket.info : toHexDump(selectedPacket.info)}
                   </div>
+                  {detailView === 'hex' && (
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                      Hex encoding of the tcpdump payload string (ASCII bytes). Raw packet bytes require pcap capture.
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
