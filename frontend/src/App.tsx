@@ -34,6 +34,7 @@ import { parseCpu, parseMem, matchesSelector } from './utils/helpers';
 import axios from 'axios';
 import { ChevronRight, Columns, Network as NetworkIcon, X } from 'lucide-react';
 import { AppProvider, useAppContext } from './contexts/AppContext';
+import type { ResourceKind } from './contexts/AppContext';
 import { ScannerProvider, useScannerContext } from './contexts/ScannerContext';
 import { ModalProvider, useModalContext } from './contexts/ModalContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -87,7 +88,7 @@ function AppContent() {
   const [podMetricsHistory, setPodMetricsHistory] = useState<Record<string, any>>({});
   const [establishingPortForward, setEstablishingPortForward] = useState<string | null>(null);
   const [cmdPaletteSearch, setCmdPaletteSearch] = useState('');
-  const [navigationStack, setNavigationStack] = useState<Array<{tab: string; search: string; ns: string; focusedRow: number | null}>>([]);
+  const [navigationStack, setNavigationStack] = useState<Array<{tab: ResourceKind; search: string; ns: string; focusedRow: number | null}>>([]);
   const isDrillDownRef = useRef(false);
 
   // Zarf states
