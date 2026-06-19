@@ -107,7 +107,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
 
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('config')}>
-          <span>Config & Storage</span>
+          <span>Configuration</span>
           <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['config'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['config'] && (
@@ -122,7 +122,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
 
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('helm')}>
-          <span>Helm & Zarf</span>
+          <span>Packaging</span>
           <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['helm'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['helm'] && (
@@ -157,7 +157,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
 
       <div className="nav-section">
         <div className="nav-section-title" onClick={() => toggleSection('security')}>
-          <span>Security & Compliance</span>
+          <span>Security</span>
           <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['security'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['security'] && (
