@@ -10,7 +10,7 @@ components:
     required: true
 
     images:
-      - ghcr.io/jdmldm1/periscope-kubernetes:1.1.3
+      - ghcr.io/jdmldm1/periscope:1.1.3
       - alpine:latest
 
     charts:

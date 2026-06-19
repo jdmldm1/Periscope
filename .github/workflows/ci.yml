@@ -183,8 +183,8 @@ jobs:
           mkdir -p sbom-output
           # Use sed to replace the default repository with the lowercase repo name
           # Zarf's image parser is strict and doesn't like template syntax in the images list
-          sed -i "s|jdmldm1/periscope-kubernetes|${{ env.REPO_LOWER }}|g" zarf.yaml
-          sed -i "s|jdmldm1/periscope-kubernetes|${{ env.REPO_LOWER }}|g" zarf-airgap.yaml
+          sed -i "s|jdmldm1/periscope|${{ env.REPO_LOWER }}|g" zarf.yaml
+          sed -i "s|jdmldm1/periscope|${{ env.REPO_LOWER }}|g" zarf-airgap.yaml
           
           # 1. Build Connected Zarf Package (Default)
           zarf package create --confirm --sbom-out ./sbom-output

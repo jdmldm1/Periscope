@@ -101,7 +101,7 @@ helm pull oci://ghcr.io/jdmldm1/charts/periscope --version 0.1.0
 ### 3. Container Image
 Pull the production container image:
 ```bash
-docker pull ghcr.io/jdmldm1/periscope-kubernetes:latest
+docker pull ghcr.io/jdmldm1/periscope:latest
 ```
 
 ---
