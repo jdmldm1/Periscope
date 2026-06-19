@@ -15,6 +15,9 @@ const helmService = require('./src/services/helmService');
 const zarfService = require('./src/services/zarfService');
 const scannerService = require('./src/services/scannerService');
 const securityService = require('./src/services/securityService');
+const watchService = require('./src/services/watchService');
+const { authMiddleware, wsAuthCheck } = require('./src/middleware/auth');
+const { createRateLimiter } = require('./src/middleware/rateLimiter');
 
 // Routes
 const kubeRoutes = require('./src/routes/kubeRoutes');
@@ -27,6 +30,9 @@ const securityRoutes = require('./src/routes/securityRoutes');
 const forwardRoutes = require('./src/routes/forwardRoutes');
 const metricRoutes = require('./src/routes/metricRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
+const autoscaleRoutes = require('./src/routes/autoscaleRoutes');
+const backupRoutes = require('./src/routes/backupRoutes');
+const cronJobRoutes = require('./src/routes/cronJobRoutes');
 
 // Alerting Service Initializer
 const alertService = require('./src/services/alertService');
@@ -36,6 +42,11 @@ const app = express();
 app.use(compression());
 app.use(cors());
 app.use(express.json());
+
+// Authentication middleware for all API routes
+app.use('/api', authMiddleware);
+
+const destructiveLimiter = createRateLimiter({ windowMs: 60000, maxRequests: 30 });
 
 (function decompressGrypeDb() {
     const dbBaseDir = '/app/.cache/grype';
@@ -94,6 +105,9 @@ app.use('/api/security', securityRoutes);
 app.use('/api/portforward', forwardRoutes);
 app.use('/api/metrics', metricRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/autoscale', autoscaleRoutes);
+app.use('/api/backup', backupRoutes);
+app.use('/api/cronjob', cronJobRoutes);
 
 // Static frontend
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
@@ -130,7 +144,12 @@ server.on('upgrade', (request, socket, head) => {
     const urlObj = new URL(request.url, `http://${request.headers.host}`);
     const pathname = urlObj.pathname;
     
-    if (['/api/terminal/ws', '/api/logs/ws', '/api/cluster-terminal/ws', '/api/network/sniff/ws'].includes(pathname)) {
+    if (['/api/terminal/ws', '/api/logs/ws', '/api/cluster-terminal/ws', '/api/network/sniff/ws', '/api/resources/ws'].includes(pathname)) {
+        if (!wsAuthCheck(request)) {
+            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+            socket.destroy();
+            return;
+        }
         wss.handleUpgrade(request, socket, head, (ws) => {
             wss.emit('connection', ws, request);
         });
@@ -147,6 +166,11 @@ wss.on('connection', (ws, request) => {
     const namespace = params.get('namespace') || 'default';
     const pod = params.get('pod');
     const container = params.get('container');
+
+    if (pathname === '/api/resources/ws') {
+        watchService.addClient(ws);
+        return;
+    }
     
     if (pathname === '/api/cluster-terminal/ws') {
         logger.info('Establishing cluster-level terminal session');

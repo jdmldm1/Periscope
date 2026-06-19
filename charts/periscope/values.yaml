@@ -35,3 +35,7 @@ persistence:
   accessMode: ReadWriteOnce
   size: 5Gi
 
+auth:
+  # Set an API key to require authentication for all API requests.
+  # When empty, authentication is disabled (default for backward compatibility).
+  apiKey: ""

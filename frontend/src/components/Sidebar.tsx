@@ -1,4 +1,4 @@
-import { SlidersHorizontal, Activity, Server, List, Terminal, Code, Box, Layers, HardDriveDownload, Database, Shield, Microscope, ShieldAlert, Package, Network, Radio, Key, FileText, GitCommit, Trash2, Bell } from 'lucide-react';
+import { SlidersHorizontal, Activity, Server, List, Terminal, Code, Box, Layers, HardDriveDownload, Database, Shield, Microscope, ShieldAlert, Package, Network, Radio, Key, FileText, GitCommit, Trash2, Bell, TrendingUp, HardDrive, Clock } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -178,6 +178,9 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
           <nav className="nav-menu">
             <NavItem id="cluster-pruner" icon={Trash2} label="Cluster Pruner" color="var(--accent-warning)" />
             <NavItem id="alert-settings" icon={Bell} label="Event Alerts" color="var(--accent-cyan)" />
+            <NavItem id="autoscale-manager" icon={TrendingUp} label="Autoscale Manager" color="var(--accent-blue)" />
+            <NavItem id="backup-restore" icon={HardDrive} label="Backup & Restore" color="var(--accent-success)" />
+            <NavItem id="cronjob-manager" icon={Clock} label="CronJob Manager" color="var(--accent-cyan)" />
           </nav>
         )}
       </div>

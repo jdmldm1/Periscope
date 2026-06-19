@@ -1,4 +1,5 @@
 import React from 'react';
+import Editor from '@monaco-editor/react';
 import { X, FileText, Terminal, Radio, Activity, SlidersHorizontal, Key, Copy, Save, ArrowDown, RefreshCw, Search, Microscope, FolderOpen } from 'lucide-react';
 import { SecretDecoderPanel } from './SecretDecoderPanel';
 import { PodFilesExplorer } from './PodFilesExplorer';
@@ -74,16 +75,6 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
     if (!tabs.includes('pvc-files')) tabs.push('pvc-files');
   }
   if (modal.type === 'portforward') tabs.push('portforward');
-
-  const highlightYaml = (yaml: string) => {
-    if (!yaml) return '';
-    return yaml
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/^(\s*)([\w-]+):/gm, '$1<span style="color: var(--accent-blue)">$2</span>:')
-      .replace(/:\s+(.*)$/gm, ': <span style="color: var(--accent-green)">$1</span>');
-  };
 
   const colorizeLogs = (logs: any, searchQ: string) => {
     if (!logs) return <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: 20 }}>No logs available for this container.</div>;
@@ -222,20 +213,25 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                   </>
                 )}
               </div>
-              {!isEditingYaml ? (
-                <pre 
-                  className="editor-textarea" 
-                  style={{ overflowY: 'auto', userSelect: 'text', whiteSpace: 'pre-wrap' }}
-                  dangerouslySetInnerHTML={{ __html: highlightYaml(yamlEdit) }}
-                />
-              ) : (
-                <textarea
-                  className="editor-textarea"
+              <div style={{ flex: 1, minHeight: 400, border: '1px solid var(--border-color)', borderRadius: 4, overflow: 'hidden' }}>
+                <Editor
+                  height="100%"
+                  language="yaml"
+                  theme="vs-dark"
                   value={yamlEdit}
-                  onChange={e => setYamlEdit(e.target.value)}
-                  spellCheck={false}
+                  onChange={(val) => setYamlEdit(val || '')}
+                  options={{
+                    readOnly: !isEditingYaml,
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                    automaticLayout: true,
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false,
+                    tabSize: 2,
+                  }}
                 />
-              )}
+              </div>
               {isEditingYaml && (
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
                   <button className="btn btn-primary" onClick={saveYaml}><Save size={16}/> Save & Apply</button>

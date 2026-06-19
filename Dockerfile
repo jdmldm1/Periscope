@@ -1,12 +1,3 @@
-FROM node:22-alpine AS builder
-
-WORKDIR /app
-COPY frontend/package*.json ./frontend/
-RUN cd frontend && npm install
-
-COPY frontend ./frontend
-RUN cd frontend && npm run build
-
 FROM node:22-alpine
 
 ARG CACHE_GRYPE_DB=true
@@ -33,7 +24,7 @@ RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump && \
 
 COPY server.js ./
 COPY src/ ./src/
-COPY --from=builder /app/frontend/dist ./frontend/dist
+COPY frontend/dist ./frontend/dist
 
 EXPOSE 3001
 CMD ["node", "server.js"]

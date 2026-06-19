@@ -78,6 +78,106 @@ router.get('/resource/:kind/:namespace/:name/yaml', async (req, res) => {
     }
 });
 
+router.post('/resource/:kind/:namespace/:name/save', async (req, res) => {
+    const { kind, namespace } = req.params;
+    const { yaml: yamlContent } = req.body;
+    if (!yamlContent) return res.status(400).json({ error: 'yaml content is required' });
+
+    try {
+        const { spawn } = require('child_process');
+        const args = ['apply', '-f', '-'];
+        if (namespace && namespace !== 'all' && namespace !== 'undefined') {
+            args.push('-n', namespace);
+        }
+        
+        const cp = spawn('kubectl', args);
+        cp.stdin.write(yamlContent);
+        cp.stdin.end();
+
+        let stdout = '';
+        let stderr = '';
+        cp.stdout.on('data', chunk => stdout += chunk.toString());
+        cp.stderr.on('data', chunk => stderr += chunk.toString());
+
+        cp.on('close', (code) => {
+            if (code === 0) {
+                if (typeof k8sService.clearCache === 'function') {
+                    k8sService.clearCache(kind, namespace);
+                }
+                res.json({ success: true, message: stdout.trim() || 'Resource saved successfully' });
+            } else {
+                res.status(500).json({ error: stderr.trim() || `Failed to apply resource with exit code ${code}` });
+            }
+        });
+        
+        cp.on('error', (err) => {
+            if (!res.headersSent) {
+                res.status(500).json({ error: err.message });
+            }
+        });
+    } catch (err) {
+        if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+        }
+    }
+});
+
+router.put('/resource/deployments/:namespace/:name/restart', async (req, res) => {
+    const { namespace, name } = req.params;
+    try {
+        const { exec } = require('child_process');
+        const cmd = `kubectl rollout restart deployment/${name} -n ${namespace}`;
+        exec(cmd, (error, stdout, stderr) => {
+            if (error) return res.status(500).json({ error: error.message || stderr });
+            if (typeof k8sService.clearCache === 'function') {
+                k8sService.clearCache('deployments', namespace);
+                k8sService.clearCache('pods', namespace);
+            }
+            res.json({ success: true, message: stdout.trim() });
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.put('/resource/deployments/:namespace/:name/scale', async (req, res) => {
+    const { namespace, name } = req.params;
+    const { replicas } = req.body;
+    if (replicas === undefined || isNaN(Number(replicas))) {
+        return res.status(400).json({ error: 'Valid replicas count is required' });
+    }
+    try {
+        const { exec } = require('child_process');
+        const cmd = `kubectl scale deployment/${name} --replicas=${replicas} -n ${namespace}`;
+        exec(cmd, (error, stdout, stderr) => {
+            if (error) return res.status(500).json({ error: error.message || stderr });
+            if (typeof k8sService.clearCache === 'function') {
+                k8sService.clearCache('deployments', namespace);
+            }
+            res.json({ success: true, message: stdout.trim() });
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.delete('/resource/:kind/:namespace/:name', async (req, res) => {
+    const { kind, namespace, name } = req.params;
+    try {
+        const { exec } = require('child_process');
+        const cmd = `kubectl delete ${kind} ${name} -n ${namespace}`;
+        exec(cmd, (error, stdout, stderr) => {
+            if (error) return res.status(500).json({ error: error.message || stderr });
+            if (typeof k8sService.clearCache === 'function') {
+                k8sService.clearCache(kind, namespace);
+            }
+            res.json({ success: true, message: stdout.trim() });
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.get('/resource/:kind/:namespace/:name/events', async (req, res) => {
     const { namespace, name, kind } = req.params;
     try {

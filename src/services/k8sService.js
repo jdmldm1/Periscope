@@ -6,6 +6,7 @@ class K8sService {
         this.kc = new k8s.KubeConfig();
         this.kc.loadFromDefault();
         this.initializeClients();
+        this.cache = new Map();
     }
 
     initializeClients() {
@@ -63,6 +64,13 @@ class K8sService {
 
     async getResources(kind, ns) {
         const k = kind.toLowerCase();
+        const cacheKey = `${k}-${ns || 'all'}`;
+        const cached = this.cache.get(cacheKey);
+        const now = Date.now();
+        if (cached && now - cached.timestamp < 5000) {
+            return cached.data;
+        }
+
         try {
             let res;
             if (ns === 'all' || k === 'namespaces' || k === 'crds' || k === 'customresourcedefinitions' || k === 'nodes' || k === 'persistentvolumes') {
@@ -81,11 +89,29 @@ class K8sService {
                 res = await this.fetchers[k](nsName);
             }
             if (!res) return [];
-            return res.items || res.body?.items || [];
+            const result = res.items || res.body?.items || [];
+            this.cache.set(cacheKey, { data: result, timestamp: now });
+            return result;
         } catch (err) {
             logger.error({ kind, ns, error: err.message }, 'Error in getResources');
             throw err;
         }
+    }
+
+    clearCache(kind, ns) {
+        if (!kind) {
+            this.cache.clear();
+            logger.info('K8s cache cleared entirely');
+            return;
+        }
+        const k = kind.toLowerCase();
+        const keysToRemove = [`${k}-${ns || 'all'}`, `${k}-all`].concat(ns ? [`${k}-undefined`, `${k}-default`] : []);
+        keysToRemove.forEach(key => {
+            if (this.cache.has(key)) {
+                this.cache.delete(key);
+                logger.debug({ key }, 'K8s cache key invalidated');
+            }
+        });
     }
 
     async getContexts() {
@@ -140,6 +166,10 @@ class K8sService {
             logger.error({ ns, error: err.message }, 'Error getting topology data');
             throw err;
         }
+    }
+
+    getItems(raw) {
+        return raw?.items || raw?.body?.items || [];
     }
 
     async getNamespaces() {
