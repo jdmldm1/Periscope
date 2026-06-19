@@ -4,6 +4,7 @@ const k8sService = require('../services/k8sService');
 const helmService = require('../services/helmService');
 const zarfService = require('../services/zarfService');
 const logger = require('../utils/logger');
+const { parseCpu, parseMem, getItems } = require('../utils/k8sHelpers');
 
 router.get('/stats', async (req, res) => {
     const ns = req.query.namespace;
@@ -24,7 +25,7 @@ router.get('/stats', async (req, res) => {
             }).catch(() => ({ items: [] }))
         ]);
 
-        const getItems = (raw) => raw.items || raw.body?.items || [];
+
         
         const nodes = getItems(nodesRaw);
         const pods = getItems(podsRaw);
@@ -47,21 +48,7 @@ router.get('/stats', async (req, res) => {
         let memUse = 0;
         let memCap = 0;
 
-        const parseCpu = (cpuStr) => {
-            if (!cpuStr) return 0;
-            if (cpuStr.endsWith('n')) return parseFloat(cpuStr) / 1000000;
-            if (cpuStr.endsWith('u')) return parseFloat(cpuStr) / 1000;
-            if (cpuStr.endsWith('m')) return parseFloat(cpuStr);
-            return parseFloat(cpuStr) * 1000;
-        };
 
-        const parseMem = (memStr) => {
-            if (!memStr) return 0;
-            if (memStr.endsWith('Ki')) return parseFloat(memStr);
-            if (memStr.endsWith('Mi')) return parseFloat(memStr) * 1024;
-            if (memStr.endsWith('Gi')) return parseFloat(memStr) * 1024 * 1024;
-            return parseFloat(memStr) / 1024;
-        };
 
         nodes.forEach(node => {
             cpuCap += parseCpu(node.status?.capacity?.cpu);

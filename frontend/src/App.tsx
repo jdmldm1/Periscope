@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { useNamespaces, useKubeContexts, useTopologyData, useNodeMetrics, usePodMetrics, useDashboardStats, useKubescapeStatus, useZarfStatus, useGrypeDbStatus, useSbomScans, useK8sResources } from './utils/kubeHooks';
-import { useClusterResources } from './hooks/useClusterResources';
+import { 
+  useTopologyData, 
+  useNodeMetrics, 
+  usePodMetrics, 
+  useDashboardStats, 
+  useZarfStatus, 
+  useK8sResources 
+} from './utils/kubeHooks';
 import { useClusterActions } from './hooks/useClusterActions';
 import { useZarfManager } from './hooks/useZarfManager';
 import { useHelmManager } from './hooks/useHelmManager';
@@ -22,101 +27,129 @@ import { TrafficInspectorView } from './components/TrafficInspectorView';
 import { ClusterPrunerView } from './components/ClusterPrunerView';
 import { AlertSettingsView } from './components/AlertSettingsView';
 import { DashboardView } from './components/DashboardView';
+import { AutoscaleManagerView } from './components/AutoscaleManagerView';
+import { BackupRestoreView } from './components/BackupRestoreView';
+import { CronJobManagerView } from './components/CronJobManagerView';
 import { parseCpu, parseMem, matchesSelector } from './utils/helpers';
 import axios from 'axios';
 import { ChevronRight, Columns, Network as NetworkIcon, X } from 'lucide-react';
+import { AppProvider, useAppContext } from './contexts/AppContext';
+import { ScannerProvider, useScannerContext } from './contexts/ScannerContext';
+import { ModalProvider, useModalContext } from './contexts/ModalContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { useResourceWatcher } from './hooks/useResourceWatcher';
 
-const api = axios.create({ baseURL: '/api' });
+function AppContent() {
+  useResourceWatcher();
+  const {
+    activeTab, setActiveTab,
+    namespaces, selectedNs, setSelectedNs,
+    contexts, currentContext, handleContextChange,
+    search, setSearch, filteredResources, loading,
+    isCmdPaletteOpen, setIsCmdPaletteOpen,
+    customCrd, setCustomCrd,
+    collapsedSections, toggleSection,
+    handleDrillDownToPods,
+    isDeployZarfModalOpen, setIsDeployZarfModalOpen,
+    isDeployHelmModalOpen, setIsDeployHelmModalOpen,
+    focusedRowIndex, setFocusedRowIndex,
+    api,
+    queryClient,
+  } = useAppContext();
 
-export type ResourceKind = 
-  'dashboard' | 'topology' | 'nodes' | 'events' | 'logs' | 'cluster-terminal' | 'crds' | 
-  'pods' | 'deployments' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' |
-  'services' | 'ingresses' | 'traffic' | 'configmaps' | 'secrets' | 'persistentvolumes' | 
-  'persistentvolumeclaims' | 'helm' | 'helm-repos' | 'zarf' | 'zarf-registry' | 'image-scanner' | 'kubescape' | 'gitea' | 'custom' |
-  'cluster-pruner' | 'alert-settings';
+  const {
+    enableAutoScan, handleToggleAutoScan,
+    scanSingleImage, fetchRunningImagesAndScan,
+    isScanningAllRunningImages, runningImagesScanResults,
+    sbomScansData, grypeDbStatus,
+    kubescapeStatusData, triggerKubescapeScan,
+  } = useScannerContext();
 
-function App() {
-  const { data: namespacesData } = useNamespaces();
-  const { data: contextsData } = useKubeContexts();
-  
-  const [activeTab, setActiveTab] = useState<ResourceKind>(() => {
-    const saved = localStorage.getItem('activeTab');
-    return (saved as ResourceKind) || 'dashboard';
-  });
+  const {
+    modal, setModal, modalData, setModalData, fetchModalData,
+    yamlEdit, setYamlEdit, isEditingYaml, setIsEditingYaml,
+    saveYaml, copyToClipboard, downloadYaml, downloadLogs,
+    selectedContainer, setSelectedContainer, getPodContainers,
+    isStreamingLogs, setIsStreamingLogs, scrollToBottomLogs,
+    currentDirPath, setCurrentDirPath, isListingFiles, podFiles,
+    podFileUploadProgress, podFileUploadName,
+    handleUploadPodFile, handleCreatePodFolder, fetchPodFilesList,
+    handleEditPodFile, handleDownloadPodFile, handleDeletePodFile,
+    handleRollback, handleInspectRevisionValues,
+    selectedRevisionValues, setSelectedRevisionValues,
+    isLoadingRevisionValues, handleHelmUpgradeFromModal,
+    renderDiffView,
+  } = useModalContext();
 
-  useEffect(() => {
-    localStorage.setItem('activeTab', activeTab);
-  }, [activeTab]);
-
-  const [namespaces, setNamespaces] = useState<string[]>(['all']);
-  const [selectedNs, setSelectedNs] = useState<string>('all');
-  
-  useEffect(() => {
-    if (namespacesData) setNamespaces(['all', ...namespacesData]);
-  }, [namespacesData]);
-
-  const [contexts, setContexts] = useState<any[]>([]);
-  const [currentContext, setCurrentContext] = useState<string>('');
-
-  useEffect(() => {
-    if (contextsData) {
-      setContexts(contextsData.contexts || []);
-      setCurrentContext(contextsData.currentContext || '');
-    }
-  }, [contextsData]);
-
-  const handleDrillDownToPods = (deploy: any) => {
-    if (deploy?.metadata?.namespace) {
-      setSelectedNs(deploy.metadata.namespace);
-    }
-    setActiveTab('pods');
-    setSearch(deploy?.metadata?.name || '');
-  };
-
-  const { search, setSearch, filteredResources, loading } = useClusterResources(activeTab, selectedNs);
-
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
-    try {
-      const saved = localStorage.getItem('sidebar_collapsed');
-      return saved ? JSON.parse(saved) : { cluster: false, workloads: true, network: true, config: true, security: true, tools: true };
-    } catch (e) { return { cluster: false, workloads: true, network: true, config: true, security: true, tools: true }; }
-  });
-
-  const toggleSection = (section: string) => {
-    setCollapsedSections(prev => {
-      const updated = { ...prev, [section]: !prev[section] };
-      localStorage.setItem('sidebar_collapsed', JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const queryClient = useQueryClient();
-  const [customCrd, setCustomCrd] = useState<any>(null);
-  const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false);
+  // Local/UI states in AppContent
+  const [topologyMode, setTopologyMode] = useState<'columns' | 'graph'>('graph');
+  const [hoveredTopologyItem, setHoveredTopologyItem] = useState<any>(null);
+  const [podMetricsHistory, setPodMetricsHistory] = useState<Record<string, any>>({});
+  const [establishingPortForward, setEstablishingPortForward] = useState<string | null>(null);
   const [cmdPaletteSearch, setCmdPaletteSearch] = useState('');
-  const [modal, setModal] = useState<any>(null);
-  const [modalData, setModalData] = useState<any>(null);
-  const [yamlEdit, setYamlEdit] = useState('');
-  const [isEditingYaml, setIsEditingYaml] = useState(false);
-  const [selectedContainer, setSelectedContainer] = useState('');
-  const [isStreamingLogs, setIsStreamingLogs] = useState(false);
-  const [enableAutoScan, setEnableAutoScan] = useState(true);
-  const [localScanningImages, setLocalScanningImages] = useState<Set<string>>(new Set());
-  
-  const [isDeployZarfModalOpen, setIsDeployZarfModalOpen] = useState(false);
+
+  // Zarf states
+  const [zarfViewMode, setZarfViewMode] = useState<'packages' | 'local' | 'tools' | 'edit' | 'registry' | 'sbom'>('packages');
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [zarfUploadFile, setZarfUploadFile] = useState<File | null>(null);
+  const [zarfConfigFile, setZarfConfigFile] = useState<File | null>(null);
+  const [zarfUploadProgress, setZarfUploadProgress] = useState(-1);
+  const [selectedZarfConfigPath, setSelectedZarfConfigPath] = useState('');
+  const [zarfLocalPackages, setZarfLocalPackages] = useState<any[]>([]);
+  const [isUnpackingZarf, setIsUnpackingZarf] = useState(false);
+  const [selectedZarfPackagePath, setSelectedZarfPackagePath] = useState('');
+  const [zarfConfigText, setZarfConfigText] = useState('');
+  const [zarfUnpackTempDir, setZarfUnpackTempDir] = useState('');
+  const [isSavingZarfConfig, setIsSavingZarfConfig] = useState(false);
+  const [isClearingZarfCache, setIsClearingZarfCache] = useState(false);
+  const [selectedZarfGraphPkg, setSelectedZarfGraphPkg] = useState<string | null>(null);
+  const [isPackageDetailModalOpen, setIsPackageDetailModalOpen] = useState(false);
+  const [selectedZarfPackageDetail, setSelectedZarfPackageDetail] = useState<any>(null);
+  const [isFetchingPackageDetail, setIsFetchingPackageDetail] = useState(false);
+
+  // Zarf SBOMS
+  const [sbomPackageName, setSbomPackageName] = useState('');
+  const [sbomExtractedFiles, setSbomExtractedFiles] = useState<any[]>([]);
+  const [sbomSelectedFileUrl, setSbomSelectedFileUrl] = useState('');
+  const [isExtractingSbom, setIsExtractingSbom] = useState(false);
+
+  // Zarf Registry
+  const [registryPullSource, setRegistryPullSource] = useState('');
+  const [registryPullTarget, setRegistryPullTarget] = useState('');
+  const [isPullingRegistry, setIsPullingRegistry] = useState(false);
+  const [registryPushTarget, setRegistryPushTarget] = useState('');
+  const [isPushingRegistry, setIsPushingRegistry] = useState(false);
+  const [isFetchingRegistry, setIsFetchingRegistry] = useState(false);
+  const [registryImages, setRegistryImages] = useState<any[]>([]);
+
+  // Helm forms
   const [zarfDeployForm, setZarfDeployForm] = useState({ packagePath: '' });
   const [isSubmittingZarfDeploy, setIsSubmittingZarfDeploy] = useState(false);
-
-  const [isDeployHelmModalOpen, setIsDeployHelmModalOpen] = useState(false);
   const [helmDeployForm, setHelmDeployForm] = useState({ releaseName: '', repo: '', chartName: '', version: '', namespace: 'default', valuesYaml: '' });
 
-  const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null);
-
+  // Data fetching hooks for child views
   const { data: topologyData } = useTopologyData(selectedNs);
   const { data: nodeMetrics } = useNodeMetrics();
   const { data: podMetrics } = usePodMetrics();
-  const [podMetricsHistory, setPodMetricsHistory] = useState<Record<string, any>>({});
+  const { data: dashboardData } = useDashboardStats(selectedNs);
+  const { data: zarfStatusData } = useZarfStatus();
+  const { zarfPackages, removePackage } = useZarfManager();
+  const { 
+    helmRepos, 
+    searchRepos, 
+    isSearchingHelm, 
+    helmSearchResults, 
+    addRepo, 
+    removeRepo, 
+    updateRepos, 
+    newHelmRepo, 
+    setNewHelmRepo 
+  } = useHelmManager();
 
+  const { data: allPods } = useK8sResources('pods', selectedNs);
+  const { data: allDeployments } = useK8sResources('deployments', selectedNs);
+
+  // Effects
   useEffect(() => {
     if (podMetrics) {
       setPodMetricsHistory(prev => {
@@ -136,13 +169,138 @@ function App() {
     }
   }, [podMetrics]);
 
-  const handleContextChange = async (ctx: string) => {
+  const fetchZarfLocalPackages = async () => {
     try {
-      await api.post('/kube/contexts', { context: ctx });
-      window.location.reload();
-    } catch (err) { console.error(err); }
+      const { data } = await api.get('/zarf/local-packages');
+      setZarfLocalPackages(data);
+    } catch (err: any) {
+      console.error('Failed to fetch local packages:', err);
+    }
   };
 
+  const fetchZarfRegistryImages = async () => {
+    setIsFetchingRegistry(true);
+    try {
+      const { data } = await api.get('/zarf/registry/all-images');
+      setRegistryImages(data);
+    } catch (err: any) {
+      console.error('Failed to fetch registry images:', err);
+    } finally {
+      setIsFetchingRegistry(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'zarf' || activeTab === 'zarf-registry') {
+      fetchZarfLocalPackages();
+      fetchZarfRegistryImages();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'zarf-registry') {
+      setZarfViewMode('registry');
+    } else if (activeTab === 'zarf') {
+      setZarfViewMode('packages');
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdPaletteSearch('');
+        setIsCmdPaletteOpen(true);
+        return;
+      }
+
+      const target = e.target as HTMLElement;
+      if (
+        target && 
+        (target.tagName === 'INPUT' || 
+         target.tagName === 'TEXTAREA' || 
+         target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === ':') {
+        e.preventDefault();
+        setCmdPaletteSearch(':');
+        setIsCmdPaletteOpen(true);
+        return;
+      }
+
+      if (!modal && !isCmdPaletteOpen && filteredResources.length > 0) {
+        const numResources = filteredResources.length;
+
+        if (e.key === 'ArrowDown' || e.key === 'j') {
+          e.preventDefault();
+          setFocusedRowIndex(prev => {
+            if (prev === null) return 0;
+            const nextIdx = Math.min(prev + 1, numResources - 1);
+            const el = document.querySelector(`[data-row-index="${nextIdx}"]`);
+            el?.scrollIntoView({ block: 'nearest' });
+            return nextIdx;
+          });
+        } else if (e.key === 'ArrowUp' || e.key === 'k') {
+          e.preventDefault();
+          setFocusedRowIndex(prev => {
+            if (prev === null) return 0;
+            const nextIdx = Math.max(prev - 1, 0);
+            const el = document.querySelector(`[data-row-index="${nextIdx}"]`);
+            el?.scrollIntoView({ block: 'nearest' });
+            return nextIdx;
+          });
+        } else if (e.key === 'd') {
+          if (focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
+            const res = filteredResources[focusedRowIndex];
+            setIsEditingYaml(false);
+            setModal({
+              type: 'yaml',
+              name: res.metadata.name,
+              namespace: res.metadata.namespace,
+              kind: activeTab,
+              uid: res.metadata.uid
+            });
+          }
+        } else if (e.key === 'e') {
+          if (focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
+            const res = filteredResources[focusedRowIndex];
+            setIsEditingYaml(true);
+            setModal({
+              type: 'yaml',
+              name: res.metadata.name,
+              namespace: res.metadata.namespace,
+              kind: activeTab,
+              uid: res.metadata.uid
+            });
+          }
+        } else if (e.key === 'Enter') {
+          if (focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
+            const res = filteredResources[focusedRowIndex];
+            if (activeTab === 'pods') {
+              setSelectedContainer(res.spec?.containers?.[0]?.name || '');
+              setModal({
+                type: 'logs',
+                name: res.metadata.name,
+                namespace: res.metadata.namespace,
+                kind: activeTab,
+                uid: res.metadata.uid
+              });
+            }
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [modal, isCmdPaletteOpen, filteredResources, focusedRowIndex, activeTab]);
+
+  // Helpers
   const getNodeUsagePercent = (metric: any) => {
     const node = (filteredResources || []).find(n => n.metadata.name === metric.metadata.name);
     if (!node) return { cpuPercent: 0, memPercent: 0 };
@@ -170,7 +328,6 @@ function App() {
     let status = 'Unknown';
     let type: 'success' | 'warning' | 'error' | 'info' = 'warning';
 
-    // Infer kind from unique fields to be extremely robust
     let inferredKind = '';
     if (res.spec?.backoffLimit !== undefined || res.status?.succeeded !== undefined || res.status?.failed !== undefined) {
       inferredKind = 'jobs';
@@ -181,7 +338,7 @@ function App() {
     } else if (res.status?.nodeInfo !== undefined) {
       inferredKind = 'nodes';
     } else if (res.spec?.template !== undefined) {
-      inferredKind = 'workloads'; // deployments, statefulsets, daemonsets
+      inferredKind = 'workloads';
     }
 
     const isJob = activeTab === 'jobs' || inferredKind === 'jobs';
@@ -294,274 +451,33 @@ function App() {
     );
   };
 
-  const fetchModalData = async (type: string) => {
-    if (!modal) return;
-    setModalData(null);
-    try {
-      let endpoint = '';
-      if (type === 'yaml') endpoint = `/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/yaml`;
-      else if (type === 'events') endpoint = `/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/events`;
-      else if (type === 'logs') endpoint = `/kube/resource/pods/${modal.namespace}/${modal.name}/logs?container=${selectedContainer}`;
-      else if (type === 'diagnose') endpoint = `/kube/diagnose/${modal.namespace}/${modal.name}`;
-      else if (type === 'history') endpoint = `/helm/${modal.namespace}/${modal.name}/history`;
-      else if (type === 'values') endpoint = `/helm/${modal.namespace}/${modal.name}/values`;
-      else if (type === 'decoded') endpoint = `/kube/resource/secrets/${modal.namespace}/${modal.name}`;
-      else if (type === 'portforward' || type === 'pvc-files') {
-          setModalData([]);
-          return;
-      } else if (type === 'files') {
-          fetchPodFilesList(currentDirPath);
-          return;
-      }
+  const pluralizeKind = (k: string) => {
+    if (k.endsWith('s')) return k.toLowerCase();
+    return k.toLowerCase() + 's';
+  };
 
-      const { data } = await api.get(endpoint);
-      setModalData(data);
-      if (type === 'yaml' || type === 'values') setYamlEdit(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
+  const { handleRestart, handleScale, handleDelete } = useClusterActions(() => {});
+
+  const handleOpenDiagnostics = (name: string, namespace: string) => {
+    setModal({ type: 'diagnose', kind: 'pods', name, namespace });
+  };
+
+  const fetchHelmInspect = async (name: string, namespace: string) => {
+    setModal({ type: 'values', kind: 'helm', name, namespace });
+  };
+
+  const handleCustomHelmInstall = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await api.post('/helm/deploy', helmDeployForm);
+      alert('Helm chart deployment started');
+      setIsDeployHelmModalOpen(false);
     } catch (err) {
       console.error(err);
-      setModalData({ error: 'Failed to fetch data' });
+      alert('Failed to deploy Helm chart');
     }
   };
 
-  useEffect(() => {
-    if (modal) fetchModalData(modal.type);
-  }, [modal?.type, modal?.name, selectedContainer]);
-
-  useEffect(() => {
-    setFocusedRowIndex(null);
-  }, [activeTab, selectedNs]);
-
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setCmdPaletteSearch('');
-        setIsCmdPaletteOpen(true);
-        return;
-      }
-
-      const target = e.target as HTMLElement;
-      if (
-        target && 
-        (target.tagName === 'INPUT' || 
-         target.tagName === 'TEXTAREA' || 
-         target.isContentEditable)
-      ) {
-        return;
-      }
-
-      if (e.key === ':') {
-        e.preventDefault();
-        setCmdPaletteSearch(':');
-        setIsCmdPaletteOpen(true);
-        return;
-      }
-
-      if (!modal && !isCmdPaletteOpen && filteredResources.length > 0) {
-        const numResources = filteredResources.length;
-
-        if (e.key === 'ArrowDown' || e.key === 'j') {
-          e.preventDefault();
-          setFocusedRowIndex(prev => {
-            if (prev === null) return 0;
-            const nextIdx = Math.min(prev + 1, numResources - 1);
-            const el = document.querySelector(`[data-row-index="${nextIdx}"]`);
-            el?.scrollIntoView({ block: 'nearest' });
-            return nextIdx;
-          });
-        } else if (e.key === 'ArrowUp' || e.key === 'k') {
-          e.preventDefault();
-          setFocusedRowIndex(prev => {
-            if (prev === null) return 0;
-            const nextIdx = Math.max(prev - 1, 0);
-            const el = document.querySelector(`[data-row-index="${nextIdx}"]`);
-            el?.scrollIntoView({ block: 'nearest' });
-            return nextIdx;
-          });
-        } else if (e.key === 'd') {
-          if (focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
-            const res = filteredResources[focusedRowIndex];
-            setIsEditingYaml(false);
-            setModal({
-              type: 'yaml',
-              name: res.metadata.name,
-              namespace: res.metadata.namespace,
-              kind: activeTab,
-              uid: res.metadata.uid
-            });
-          }
-        } else if (e.key === 'e') {
-          if (focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
-            const res = filteredResources[focusedRowIndex];
-            setIsEditingYaml(true);
-            setModal({
-              type: 'yaml',
-              name: res.metadata.name,
-              namespace: res.metadata.namespace,
-              kind: activeTab,
-              uid: res.metadata.uid
-            });
-          }
-        } else if (e.key === 'Enter') {
-          if (focusedRowIndex !== null && filteredResources[focusedRowIndex]) {
-            const res = filteredResources[focusedRowIndex];
-            if (activeTab === 'pods') {
-              setSelectedContainer(res.spec?.containers?.[0]?.name || '');
-              setModal({
-                type: 'logs',
-                name: res.metadata.name,
-                namespace: res.metadata.namespace,
-                kind: activeTab,
-                uid: res.metadata.uid
-              });
-            }
-          }
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleGlobalKeyDown);
-    };
-  }, [modal, isCmdPaletteOpen, filteredResources, focusedRowIndex, activeTab]);
-
-  useEffect(() => {
-    const fetchScannerConfig = async () => {
-      try {
-        const { data } = await api.get('/zarf/scanner/config');
-        setEnableAutoScan(data.enableAutoScan);
-      } catch (err) {
-        console.error('Failed to fetch scanner config', err);
-      }
-    };
-    fetchScannerConfig();
-  }, []);
-
-  const handleToggleAutoScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVal = e.target.checked;
-    setEnableAutoScan(newVal);
-    try {
-      await api.post('/zarf/scanner/config', { enableAutoScan: newVal });
-    } catch (err) {
-      console.error('Failed to toggle auto scan', err);
-      setEnableAutoScan(!newVal);
-    }
-  };
-
-  const scanSingleImage = async (img: string) => {
-    setLocalScanningImages(prev => {
-      const next = new Set(prev);
-      next.add(img);
-      return next;
-    });
-    try {
-      await api.post('/zarf/scanner/sbom/scan', { imageRef: img, rescan: true });
-      await api.post('/zarf/scanner/sbom/vulnerabilities', { imageRef: img });
-      queryClient.invalidateQueries({ queryKey: ['sbom-scans'] });
-    } catch (err: any) {
-      console.error(err);
-      alert('Failed to scan image: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setLocalScanningImages(prev => {
-        const next = new Set(prev);
-        next.delete(img);
-        return next;
-      });
-    }
-  };
-
-  const { data: dashboardData } = useDashboardStats(selectedNs);
-  const { data: kubescapeStatusData } = useKubescapeStatus();
-  const { data: zarfStatusData } = useZarfStatus();
-  const { data: grypeDbStatusData } = useGrypeDbStatus();
-  const { data: sbomScansData } = useSbomScans();
-  
-  const runningImagesScanResultsMerged = React.useMemo(() => {
-    if (!sbomScansData) return {};
-    const merged = { ...sbomScansData };
-    localScanningImages.forEach(img => {
-      if (merged[img]) {
-        merged[img] = { ...merged[img], status: 'scanning' };
-      } else {
-        merged[img] = { status: 'scanning' };
-      }
-    });
-    return merged;
-  }, [sbomScansData, localScanningImages]);
-  
-  const { zarfPackages, removePackage } = useZarfManager();
-
-  // Zarf states
-  const [zarfViewMode, setZarfViewMode] = useState<'packages' | 'local' | 'tools' | 'edit' | 'registry' | 'sbom'>('packages');
-  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
-  const [zarfUploadFile, setZarfUploadFile] = useState<File | null>(null);
-  const [zarfConfigFile, setZarfConfigFile] = useState<File | null>(null);
-  const [zarfUploadProgress, setZarfUploadProgress] = useState(-1);
-  const [selectedZarfConfigPath, setSelectedZarfConfigPath] = useState('');
-  const [zarfLocalPackages, setZarfLocalPackages] = useState<any[]>([]);
-  const [isUnpackingZarf, setIsUnpackingZarf] = useState(false);
-  const [selectedZarfPackagePath, setSelectedZarfPackagePath] = useState('');
-  const [zarfConfigText, setZarfConfigText] = useState('');
-  const [zarfUnpackTempDir, setZarfUnpackTempDir] = useState('');
-  const [isSavingZarfConfig, setIsSavingZarfConfig] = useState(false);
-  const [selectedZarfGraphPkg, setSelectedZarfGraphPkg] = useState<string | null>(null);
-  const [isPackageDetailModalOpen, setIsPackageDetailModalOpen] = useState(false);
-  const [selectedZarfPackageDetail, setSelectedZarfPackageDetail] = useState<any>(null);
-  const [isFetchingPackageDetail, setIsFetchingPackageDetail] = useState(false);
-
-  // Zarf SBOMS
-  const [sbomPackageName, setSbomPackageName] = useState('');
-  const [sbomExtractedFiles, setSbomExtractedFiles] = useState<any[]>([]);
-  const [sbomSelectedFileUrl, setSbomSelectedFileUrl] = useState('');
-  const [isExtractingSbom, setIsExtractingSbom] = useState(false);
-
-  // Zarf Registry
-  const [registryPullSource, setRegistryPullSource] = useState('');
-  const [registryPullTarget, setRegistryPullTarget] = useState('');
-  const [isPullingRegistry, setIsPullingRegistry] = useState(false);
-  const [registryPushTarget, setRegistryPushTarget] = useState('');
-  const [isPushingRegistry, setIsPushingRegistry] = useState(false);
-  const [isFetchingRegistry, setIsFetchingRegistry] = useState(false);
-  const [registryImages, setRegistryImages] = useState<any[]>([]);
-
-  const fetchZarfLocalPackages = async () => {
-    try {
-      const { data } = await api.get('/zarf/local-packages');
-      setZarfLocalPackages(data);
-    } catch (err: any) {
-      console.error('Failed to fetch local packages:', err);
-    }
-  };
-
-  const fetchZarfRegistryImages = async () => {
-    setIsFetchingRegistry(true);
-    try {
-      const { data } = await api.get('/zarf/registry/all-images');
-      setRegistryImages(data);
-    } catch (err: any) {
-      console.error('Failed to fetch registry images:', err);
-    } finally {
-      setIsFetchingRegistry(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'zarf' || activeTab === 'zarf-registry') {
-      fetchZarfLocalPackages();
-      fetchZarfRegistryImages();
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (activeTab === 'zarf-registry') {
-      setZarfViewMode('registry');
-    } else if (activeTab === 'zarf') {
-      setZarfViewMode('packages');
-    }
-  }, [activeTab]);
-
-  const [isClearingZarfCache, setIsClearingZarfCache] = useState(false);
   const handleClearZarfCache = async () => {
     if (!confirm('Are you sure you want to clear the Zarf cache?')) return;
     setIsClearingZarfCache(true);
@@ -792,98 +708,6 @@ function App() {
     }
   };
 
-  const { helmRepos, searchRepos, isSearchingHelm, helmSearchResults, addRepo, removeRepo, updateRepos, newHelmRepo, setNewHelmRepo } = useHelmManager();
-
-  const { data: allPods } = useK8sResources('pods', selectedNs);
-  const { data: allDeployments } = useK8sResources('deployments', selectedNs);
-
-  const getPodContainers = () => {
-    if (!modal || modal.kind !== 'pods') return [];
-    const pod = (allPods || []).find((p: any) => p.metadata.name === modal.name);
-    return pod?.spec?.containers?.map((c: any) => c.name) || [];
-  };
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(yamlEdit);
-    alert('Copied to clipboard');
-  };
-
-  const downloadYaml = () => {
-    const blob = new Blob([yamlEdit], { type: 'text/yaml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${modal.name}.yaml`;
-    a.click();
-  };
-
-  const scrollToBottomLogs = () => {
-    const el = document.querySelector('.terminal-container');
-    if (el) el.scrollTop = el.scrollHeight;
-  };
-
-  const pluralizeKind = (k: string) => {
-    if (k.endsWith('s')) return k.toLowerCase();
-    return k.toLowerCase() + 's';
-  };
-
-  const fetchRunningImagesAndScan = async () => {
-    try {
-      setIsScanningAllRunningImages(true);
-      const { data: images } = await api.get('/zarf/scanner/running-images');
-      for (const img of images) {
-        await api.post('/zarf/scanner/sbom/scan', { imageRef: img });
-        await api.post('/zarf/scanner/sbom/vulnerabilities', { imageRef: img });
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsScanningAllRunningImages(false);
-    }
-  };
-
-  const triggerKubescapeScan = async () => {
-    try {
-      await api.post('/security/kubescape/scan');
-      queryClient.invalidateQueries({ queryKey: ['kubescape-status'] });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleCustomHelmInstall = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await api.post('/helm/deploy', helmDeployForm);
-      alert('Helm chart deployment started');
-      setIsDeployHelmModalOpen(false);
-    } catch (err) {
-      console.error(err);
-      alert('Failed to deploy Helm chart');
-    }
-  };
-
-  const { handleRestart, handleScale, handleDelete } = useClusterActions(() => {});
-  const handleOpenDiagnostics = (name: string, namespace: string) => {
-    setModal({ type: 'diagnose', kind: 'pods', name, namespace });
-  };
-
-  const [topologyMode, setTopologyMode] = useState<'columns' | 'graph'>('graph');
-  const [hoveredTopologyItem, setHoveredTopologyItem] = useState<any>(null);
-
-  const stats = {
-    nodes: (nodeMetrics || []).length,
-    pods: (podMetrics || []).length,
-    deployments: (allDeployments || []).length
-  };
-
-  const [establishingPortForward, setEstablishingPortForward] = useState<string | null>(null);
-  const [isScanningAllRunningImages, setIsScanningAllRunningImages] = useState(false);
-
-  const fetchHelmInspect = async (name: string, namespace: string) => {
-    setModal({ type: 'values', kind: 'helm', name, namespace });
-  };
-
   const handleOpenServiceWebsite = async (service: any) => {
     const ports = service.spec?.ports || [];
     if (ports.length === 0) return alert('Service has no configured ports.');
@@ -943,191 +767,11 @@ function App() {
     }
   };
 
-  // Pod File Explorer implementation
-  const [currentDirPath, setCurrentDirPath] = useState('/');
-  const [isListingFiles, setIsListingFiles] = useState(false);
-
-  useEffect(() => {
-    if (!modal) {
-      setCurrentDirPath('/');
-    }
-  }, [modal]);
-  const [podFiles, setPodFiles] = useState<any[]>([]);
-  const [podFileUploadProgress, setPodFileUploadProgress] = useState(-1);
-  const [podFileUploadName, setPodFileUploadName] = useState('');
-
-  const fetchPodFilesList = async (path: string) => {
-    if (!modal) return;
-    setIsListingFiles(true);
-    setCurrentDirPath(path);
-    const cleanPath = path.endsWith('/') ? path : path + '/';
-    try {
-      const { data } = await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/exec`, {
-        command: `ls -la "${cleanPath}"`,
-        container: selectedContainer
-      });
-      if (data.error) throw new Error(data.error);
-      const lines = (data.stdout || '').split('\n');
-      const filesList: any[] = [];
-      lines.forEach((line: string) => {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length < 9) return;
-        const permissions = parts[0];
-        const isDir = permissions.startsWith('d');
-        const isLink = permissions.startsWith('l');
-        const size = parseInt(parts[4], 10);
-        const date = `${parts[5]} ${parts[6]} ${parts[7]}`;
-        const name = parts.slice(8).join(' ');
-        if (name === '.' || name === '..') return;
-        filesList.push({ name, isDir, isLink, size, date, permissions });
-      });
-      filesList.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
-      setPodFiles(filesList);
-    } catch (err: any) {
-      console.error(err);
-      alert('Error listing files: ' + err.message);
-    } finally {
-      setIsListingFiles(false);
-    }
+  const stats = {
+    nodes: (nodeMetrics || []).length,
+    pods: (podMetrics || []).length,
+    deployments: (allDeployments || []).length
   };
-
-  const handleUploadPodFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!modal || !e.target.files?.[0]) return;
-    const file = e.target.files[0];
-    setPodFileUploadName(file.name);
-    setPodFileUploadProgress(0);
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      await axios.post(`/api/kube/resource/pods/${modal.namespace}/${modal.name}/files/upload?destDir=${currentDirPath}&container=${selectedContainer}`, file, {
-        headers: { 'Content-Type': 'application/octet-stream', 'x-file-name': file.name },
-        onUploadProgress: (progressEvent) => {
-          const percent = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
-          setPodFileUploadProgress(percent);
-        }
-      });
-      fetchPodFilesList(currentDirPath);
-    } catch (err: any) {
-      alert('Upload failed: ' + err.message);
-    } finally {
-      setPodFileUploadProgress(-1);
-    }
-  };
-
-  const handleCreatePodFolder = async () => {
-    const folderName = prompt('Enter folder name:');
-    if (!folderName || !modal) return;
-    try {
-      await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/exec`, {
-        command: `mkdir -p "${currentDirPath}${folderName}"`,
-        container: selectedContainer
-      });
-      fetchPodFilesList(currentDirPath);
-    } catch (err: any) { alert(err.message); }
-  };
-
-  const handleEditPodFile = async (fileName: string) => {
-    if (!modal) return;
-    const filePath = currentDirPath + fileName;
-    try {
-      const { data } = await api.get(`/kube/resource/pods/${modal.namespace}/${modal.name}/files/view`, {
-        params: { path: filePath, container: selectedContainer }
-      });
-      const newContent = prompt(`Edit content for ${fileName}:`, data.content);
-      if (newContent !== null) {
-        await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/files/save`, {
-          path: filePath, content: newContent, container: selectedContainer
-        });
-        fetchPodFilesList(currentDirPath);
-      }
-    } catch (err: any) { alert(err.message); }
-  };
-
-  const handleDownloadPodFile = (fileName: string, isDir?: boolean) => {
-    if (!modal) return;
-    const filePath = currentDirPath + fileName;
-    const url = `/api/kube/resource/pods/${modal.namespace}/${modal.name}/files/download?path=${encodeURIComponent(filePath)}&isDir=${!!isDir}&container=${selectedContainer}`;
-    window.open(url, '_blank');
-  };
-
-  const handleDeletePodFile = async (fileName: string, isDir: boolean) => {
-    if (!modal || !confirm(`Delete ${isDir ? 'folder' : 'file'} ${fileName}?`)) return;
-    try {
-      await api.delete(`/kube/resource/pods/${modal.namespace}/${modal.name}/files`, {
-        params: { path: currentDirPath + fileName, container: selectedContainer }
-      });
-      fetchPodFilesList(currentDirPath);
-    } catch (err: any) { alert(err.message); }
-  };
-
-  const saveYaml = async () => {
-    if (!modal) return;
-    try {
-      await api.post(`/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/save`, { yaml: yamlEdit });
-      alert('Resource updated successfully');
-      setIsEditingYaml(false);
-      fetchModalData('yaml');
-    } catch (err: any) {
-      alert('Failed to save: ' + err.message);
-    }
-  };
-
-  const downloadLogs = () => {
-    if (!modal) return;
-    const blob = new Blob([modalData], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${modal.name}-logs.txt`;
-    a.click();
-  };
-
-  const handleRollback = async (ns: string, name: string, rev: number) => {
-    try {
-      await api.post(`/helm/${ns}/${name}/rollback`, { revision: rev });
-      alert(`Rolled back to revision ${rev}`);
-      fetchModalData('history');
-    } catch (err: any) { alert(err.message); }
-  };
-
-  const [selectedRevisionValues, setSelectedRevisionValues] = useState<any>(null);
-  const [isLoadingRevisionValues, setIsLoadingRevisionValues] = useState(false);
-
-  const handleInspectRevisionValues = async (ns: string, name: string, rev: number) => {
-    setIsLoadingRevisionValues(true);
-    try {
-      const { data } = await api.get(`/helm/${ns}/${name}/values/revision/${rev}`);
-      setSelectedRevisionValues({ revision: rev, values: data });
-    } catch (err: any) { alert(err.message); }
-    finally { setIsLoadingRevisionValues(false); }
-  };
-
-  const handleHelmUpgradeFromModal = async () => {
-    if (!modal) return;
-    try {
-      await api.post(`/helm/${modal.namespace}/${modal.name}/upgrade`, { values: yamlEdit });
-      alert('Helm release upgraded');
-      fetchModalData('values');
-    } catch (err) { alert('Upgrade failed'); }
-  };
-
-  const renderDiffView = () => {
-    if (!selectedRevisionValues) return null;
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, flex: 1, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Revision #{selectedRevisionValues.revision}</div>
-          <pre className="editor-textarea" style={{ flex: 1, overflow: 'auto' }}>{selectedRevisionValues.values}</pre>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Current Deployed</div>
-          <pre className="editor-textarea" style={{ flex: 1, overflow: 'auto' }}>{modalData}</pre>
-        </div>
-      </div>
-    );
-  };
-
-  console.debug(grypeDbStatusData);
 
   return (
     <div className="layout-container">
@@ -1160,12 +804,14 @@ function App() {
 
         <div className="content-area">
           {activeTab === 'dashboard' && (
-            <StatsGrid 
-              stats={stats} 
-              nodeMetrics={nodeMetrics || []} 
-              getNodeCapacity={getNodeCapacity} 
-              setActiveTab={setActiveTab} 
-            />
+            <ErrorBoundary fallbackTitle="Stats Grid">
+              <StatsGrid 
+                stats={stats} 
+                nodeMetrics={nodeMetrics || []} 
+                getNodeCapacity={getNodeCapacity} 
+                setActiveTab={setActiveTab} 
+              />
+            </ErrorBoundary>
           )}
 
           <div className="header animate-fade-in" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1210,207 +856,215 @@ function App() {
             )}
           </div>
 
-          {activeTab === 'topology' ? (
-            <TopologyView 
-              topologyMode={topologyMode}
-              topologyData={topologyData || { nodes: [], services: [], deployments: [], pods: [] }} 
-              selectedNs={selectedNs}
-              hoveredTopologyItem={hoveredTopologyItem}
-              setHoveredTopologyItem={setHoveredTopologyItem}
-              podMetrics={podMetrics || []}
-              setModal={setModal}
-              handleOpenDiagnostics={handleOpenDiagnostics}
-              nodeMetrics={nodeMetrics || []}
-              getNodeUsagePercent={getNodeUsagePercent}
-            />
-          ) : activeTab === 'zarf' || activeTab === 'zarf-registry' ? (
-            <ZarfManagerView
-              resources={zarfPackages || []}
-              search={search}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              zarfStatus={zarfStatusData || { installed: true }}
-              zarfViewMode={zarfViewMode}
-              setZarfViewMode={setZarfViewMode}
-              isClearingZarfCache={isClearingZarfCache}
-              handleClearZarfCache={handleClearZarfCache}
-              zarfLocalPackages={zarfLocalPackages}
-              fetchZarfLocalPackages={fetchZarfLocalPackages}
-              handleDeleteWorkspaceItem={handleDeleteWorkspaceItem}
-              handleCompressFolder={handleCompressFolder}
-              handleDecompressPackage={handleDecompressPackage}
-              handleUnpackZarfPackage={handleUnpackZarfPackage}
-              isUnpackingZarf={isUnpackingZarf}
-              selectedZarfPackagePath={selectedZarfPackagePath}
-              zarfConfigText={zarfConfigText}
-              setZarfConfigText={setZarfConfigText}
-              isSavingZarfConfig={isSavingZarfConfig}
-              handleRebuildAndDeployZarf={handleRebuildAndDeployZarf}
-              setZarfUnpackTempDir={setZarfUnpackTempDir}
-              isDeployModalOpen={isDeployModalOpen}
-              setIsDeployModalOpen={setIsDeployModalOpen}
-              zarfUploadFile={zarfUploadFile}
-              setZarfUploadFile={setZarfUploadFile}
-              zarfConfigFile={zarfConfigFile}
-              setZarfConfigFile={setZarfConfigFile}
-              zarfUploadProgress={zarfUploadProgress}
-              setZarfUploadProgress={setZarfUploadProgress}
-              handleUploadZarfPackage={handleUploadZarfPackage}
-              selectedZarfConfigPath={selectedZarfConfigPath}
-              setSelectedZarfConfigPath={setSelectedZarfConfigPath}
-              handleDeployLocalPackage={handleDeployLocalPackage}
-              sbomPackageName={sbomPackageName}
-              setSbomPackageName={setSbomPackageName}
-              sbomExtractedFiles={sbomExtractedFiles}
-              setSbomExtractedFiles={setSbomExtractedFiles}
-              sbomSelectedFileUrl={sbomSelectedFileUrl}
-              setSbomSelectedFileUrl={setSbomSelectedFileUrl}
-              isExtractingSbom={isExtractingSbom}
-              handleExtractSbom={handleExtractSbom}
-              selectedZarfPackageDetail={selectedZarfPackageDetail}
-              setSelectedZarfPackageDetail={setSelectedZarfPackageDetail}
-              isPackageDetailModalOpen={isPackageDetailModalOpen}
-              setIsPackageDetailModalOpen={setIsPackageDetailModalOpen}
-              isFetchingPackageDetail={isFetchingPackageDetail}
-              handleInspectDeployedZarfPackage={handleInspectDeployedZarfPackage}
-              handleRemoveZarfPackage={handleRemoveZarfPackage}
-              selectedZarfGraphPkg={selectedZarfGraphPkg}
-              setSelectedZarfGraphPkg={setSelectedZarfGraphPkg}
-              registryPullSource={registryPullSource}
-              setRegistryPullSource={setRegistryPullSource}
-              registryPullTarget={registryPullTarget}
-              setRegistryPullTarget={setRegistryPullTarget}
-              handlePullRegistryImage={handlePullRegistryImage}
-              isPullingRegistry={isPullingRegistry}
-              registryPushTarget={registryPushTarget}
-              setRegistryPushTarget={setRegistryPushTarget}
-              handlePushRegistryImage={handlePushRegistryImage}
-              isPushingRegistry={isPushingRegistry}
-              zarfRegistryImages={registryImages}
-              isFetchingRegistry={isFetchingRegistry}
-              fetchZarfRegistryImages={fetchZarfRegistryImages}
-              handleDownloadRegistryImage={handleDownloadRegistryImage}
-              handleDeleteRegistryImage={handleDeleteRegistryImage}
-              handlePruneRegistry={handlePruneRegistry}
-            />
-          ) : activeTab === 'logs' ? (
-            <LogsView namespaces={namespaces} initialNamespace={selectedNs} />
-          ) : activeTab === 'image-scanner' ? (
-            <ImageScannerView
-              runningImages={Object.keys(sbomScansData || {})}
-              runningImagesScanResults={runningImagesScanResultsMerged}
-              isScanningAllRunningImages={isScanningAllRunningImages}
-              scanSingleImage={scanSingleImage}
-              fetchRunningImagesAndScan={fetchRunningImagesAndScan}
-              enableAutoScan={enableAutoScan}
-              handleToggleAutoScan={handleToggleAutoScan}
-              grypeDbStatus={grypeDbStatusData}
-            />
-          ) : activeTab === 'kubescape' ? (
-            <KubescapeView
-              kubescapeReport={kubescapeStatusData?.report}
-              isScanningKubescape={kubescapeStatusData?.scanning}
-              triggerKubescapeScan={triggerKubescapeScan}
-              kubescapeSearchQuery=""
-              setKubescapeSearchQuery={() => {}}
-              kubescapeSeverityFilter="all"
-              setKubescapeSeverityFilter={() => {}}
-              expandedControlId={null}
-              setExpandedControlId={() => {}}
-            />
-          ) : activeTab === 'helm' || activeTab === 'helm-repos' ? (
-            <HelmManagerView
-              resources={filteredResources}
-              selectedNs={selectedNs}
-              search={search}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              setModal={setModal}
-              handleDelete={(res) => handleDelete('helm', res.metadata.name, res.metadata.namespace)}
-              isInstallModalOpen={false}
-              setIsInstallModalOpen={() => {}}
-              selectedHelmRelease={null}
-              setSelectedHelmRelease={() => {}}
-              fetchHelmInspect={fetchHelmInspect}
-              helmInspectTab="values"
-              setHelmInspectTab={() => {}}
-              isFetchingHelmInspect={false}
-              helmInspectData=""
-              helmUpgradeChartRef=""
-              setHelmUpgradeChartRef={() => {}}
-              isUpgradingHelm={false}
-              handleHelmUpgrade={() => {}}
-              helmUpgradeValues=""
-              setHelmUpgradeValues={() => {}}
-              helmCustomInstall={{ ...helmDeployForm, repo: '', version: '' }}
-              setHelmCustomInstall={(v: any) => setHelmDeployForm(v)}
-              handleCustomHelmInstall={handleCustomHelmInstall}
-              isSubmittingHelmDeploy={false}
-              helmRepos={helmRepos || []}
-              newHelmRepo={newHelmRepo}
-              setNewHelmRepo={setNewHelmRepo}
-              isSubmittingHelmRepo={false}
-              handleAddHelmRepo={() => addRepo(newHelmRepo)}
-              handleRemoveHelmRepo={removeRepo}
-              handleUpdateHelmRepos={updateRepos}
-              helmSearchQuery={search}
-              setHelmSearchQuery={setSearch}
-              helmSearchResults={helmSearchResults}
-              isSearchingHelm={isSearchingHelm}
-              handleSearchHelmRepo={(e) => { e.preventDefault(); searchRepos(search); }}
-            />
-          ) : activeTab === 'cluster-pruner' ? (
-            <ClusterPrunerView />
-          ) : activeTab === 'alert-settings' ? (
-            <AlertSettingsView />
-          ) : activeTab === 'cluster-terminal' ? (
-            <ClusterTerminalView />
-          ) : activeTab === 'traffic' ? (
-            <TrafficInspectorView selectedNs={selectedNs} />
-          ) : activeTab === 'dashboard' ? (
-             <DashboardView 
-              dashboardData={dashboardData || {}} 
-              cpuHistory={[]} 
-              memHistory={[]} 
-              setActiveTab={setActiveTab} 
-              setSearch={setSearch} 
-              setIsCmdPaletteOpen={setIsCmdPaletteOpen} 
-              zarfStatus={zarfStatusData || { installed: true }} 
-              runningImagesScanResults={sbomScansData || {}} 
-              kubescapeReport={kubescapeStatusData?.report} 
-            />
-          ) : (
-            <ResourceListView 
-              activeTab={activeTab}
-              filteredResources={filteredResources}
-              focusedRowIndex={focusedRowIndex}
-              setFocusedRowIndex={setFocusedRowIndex}
-              setSearch={setSearch}
-              setSelectedContainer={setSelectedContainer}
-              setModal={setModal}
-              podMetrics={podMetrics || []}
-              podMetricsHistory={podMetricsHistory}
-              nodeMetrics={nodeMetrics || []}
-              getNodeUsagePercent={getNodeUsagePercent}
-              customCrd={customCrd}
-              setCustomCrd={setCustomCrd}
-              setActiveTab={setActiveTab}
-              associatedDeployments={allDeployments || []}
-              associatedPods={allPods || []}
-              matchesSelector={matchesSelector}
-              pluralizeKind={pluralizeKind}
-              handleRestart={handleRestart}
-              handleScale={handleScale}
-              handleDrillDownToPods={handleDrillDownToPods}
-              handleOpenServiceWebsite={handleOpenServiceWebsite}
-              establishingPortForward={establishingPortForward}
-              handleOpenDiagnostics={handleOpenDiagnostics}
-              handleDelete={(res) => handleDelete(activeTab, res.metadata.name, res.metadata.namespace)}
-              setIsEditingYaml={setIsEditingYaml}
-              renderStatusBadge={renderStatusBadge}
-              renderSmallSparkline={renderSmallSparkline}
-            />
-          )}
+          <ErrorBoundary fallbackTitle={`${activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')} View`}>
+            {activeTab === 'topology' ? (
+              <TopologyView 
+                topologyMode={topologyMode}
+                topologyData={topologyData || { nodes: [], services: [], deployments: [], pods: [] }} 
+                selectedNs={selectedNs}
+                hoveredTopologyItem={hoveredTopologyItem}
+                setHoveredTopologyItem={setHoveredTopologyItem}
+                podMetrics={podMetrics || []}
+                setModal={setModal}
+                handleOpenDiagnostics={handleOpenDiagnostics}
+                nodeMetrics={nodeMetrics || []}
+                getNodeUsagePercent={getNodeUsagePercent}
+              />
+            ) : activeTab === 'zarf' || activeTab === 'zarf-registry' ? (
+              <ZarfManagerView
+                resources={zarfPackages || []}
+                search={search}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                zarfStatus={zarfStatusData || { installed: true }}
+                zarfViewMode={zarfViewMode}
+                setZarfViewMode={setZarfViewMode}
+                isClearingZarfCache={isClearingZarfCache}
+                handleClearZarfCache={handleClearZarfCache}
+                zarfLocalPackages={zarfLocalPackages}
+                fetchZarfLocalPackages={fetchZarfLocalPackages}
+                handleDeleteWorkspaceItem={handleDeleteWorkspaceItem}
+                handleCompressFolder={handleCompressFolder}
+                handleDecompressPackage={handleDecompressPackage}
+                handleUnpackZarfPackage={handleUnpackZarfPackage}
+                isUnpackingZarf={isUnpackingZarf}
+                selectedZarfPackagePath={selectedZarfPackagePath}
+                zarfConfigText={zarfConfigText}
+                setZarfConfigText={setZarfConfigText}
+                isSavingZarfConfig={isSavingZarfConfig}
+                handleRebuildAndDeployZarf={handleRebuildAndDeployZarf}
+                setZarfUnpackTempDir={setZarfUnpackTempDir}
+                isDeployModalOpen={isDeployModalOpen}
+                setIsDeployModalOpen={setIsDeployModalOpen}
+                zarfUploadFile={zarfUploadFile}
+                setZarfUploadFile={setZarfUploadFile}
+                zarfConfigFile={zarfConfigFile}
+                setZarfConfigFile={setZarfConfigFile}
+                zarfUploadProgress={zarfUploadProgress}
+                setZarfUploadProgress={setZarfUploadProgress}
+                handleUploadZarfPackage={handleUploadZarfPackage}
+                selectedZarfConfigPath={selectedZarfConfigPath}
+                setSelectedZarfConfigPath={setSelectedZarfConfigPath}
+                handleDeployLocalPackage={handleDeployLocalPackage}
+                sbomPackageName={sbomPackageName}
+                setSbomPackageName={setSbomPackageName}
+                sbomExtractedFiles={sbomExtractedFiles}
+                setSbomExtractedFiles={setSbomExtractedFiles}
+                sbomSelectedFileUrl={sbomSelectedFileUrl}
+                setSbomSelectedFileUrl={setSbomSelectedFileUrl}
+                isExtractingSbom={isExtractingSbom}
+                handleExtractSbom={handleExtractSbom}
+                selectedZarfPackageDetail={selectedZarfPackageDetail}
+                setSelectedZarfPackageDetail={setSelectedZarfPackageDetail}
+                isPackageDetailModalOpen={isPackageDetailModalOpen}
+                setIsPackageDetailModalOpen={setIsPackageDetailModalOpen}
+                isFetchingPackageDetail={isFetchingPackageDetail}
+                handleInspectDeployedZarfPackage={handleInspectDeployedZarfPackage}
+                handleRemoveZarfPackage={handleRemoveZarfPackage}
+                selectedZarfGraphPkg={selectedZarfGraphPkg}
+                setSelectedZarfGraphPkg={setSelectedZarfGraphPkg}
+                registryPullSource={registryPullSource}
+                setRegistryPullSource={setRegistryPullSource}
+                registryPullTarget={registryPullTarget}
+                setRegistryPullTarget={setRegistryPullTarget}
+                handlePullRegistryImage={handlePullRegistryImage}
+                isPullingRegistry={isPullingRegistry}
+                registryPushTarget={registryPushTarget}
+                setRegistryPushTarget={setRegistryPushTarget}
+                handlePushRegistryImage={handlePushRegistryImage}
+                isPushingRegistry={isPushingRegistry}
+                zarfRegistryImages={registryImages}
+                isFetchingRegistry={isFetchingRegistry}
+                fetchZarfRegistryImages={fetchZarfRegistryImages}
+                handleDownloadRegistryImage={handleDownloadRegistryImage}
+                handleDeleteRegistryImage={handleDeleteRegistryImage}
+                handlePruneRegistry={handlePruneRegistry}
+              />
+            ) : activeTab === 'logs' ? (
+              <LogsView namespaces={namespaces} initialNamespace={selectedNs} />
+            ) : activeTab === 'image-scanner' ? (
+              <ImageScannerView
+                runningImages={Object.keys(sbomScansData || {})}
+                runningImagesScanResults={runningImagesScanResults}
+                isScanningAllRunningImages={isScanningAllRunningImages}
+                scanSingleImage={scanSingleImage}
+                fetchRunningImagesAndScan={fetchRunningImagesAndScan}
+                enableAutoScan={enableAutoScan}
+                handleToggleAutoScan={handleToggleAutoScan}
+                grypeDbStatus={grypeDbStatus}
+              />
+            ) : activeTab === 'kubescape' ? (
+              <KubescapeView
+                kubescapeReport={kubescapeStatusData?.report}
+                isScanningKubescape={kubescapeStatusData?.scanning}
+                triggerKubescapeScan={triggerKubescapeScan}
+                kubescapeSearchQuery=""
+                setKubescapeSearchQuery={() => {}}
+                kubescapeSeverityFilter="all"
+                setKubescapeSeverityFilter={() => {}}
+                expandedControlId={null}
+                setExpandedControlId={() => {}}
+              />
+            ) : activeTab === 'helm' || activeTab === 'helm-repos' ? (
+              <HelmManagerView
+                resources={filteredResources}
+                selectedNs={selectedNs}
+                search={search}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                setModal={setModal}
+                handleDelete={(res) => handleDelete('helm', res.metadata.name, res.metadata.namespace)}
+                isInstallModalOpen={false}
+                setIsInstallModalOpen={() => {}}
+                selectedHelmRelease={null}
+                setSelectedHelmRelease={() => {}}
+                fetchHelmInspect={fetchHelmInspect}
+                helmInspectTab="values"
+                setHelmInspectTab={() => {}}
+                isFetchingHelmInspect={false}
+                helmInspectData=""
+                helmUpgradeChartRef=""
+                setHelmUpgradeChartRef={() => {}}
+                isUpgradingHelm={false}
+                handleHelmUpgrade={() => {}}
+                helmUpgradeValues=""
+                setHelmUpgradeValues={() => {}}
+                helmCustomInstall={{ ...helmDeployForm, repo: '', version: '' }}
+                setHelmCustomInstall={(v: any) => setHelmDeployForm(v)}
+                handleCustomHelmInstall={handleCustomHelmInstall}
+                isSubmittingHelmDeploy={false}
+                helmRepos={helmRepos || []}
+                newHelmRepo={newHelmRepo}
+                setNewHelmRepo={setNewHelmRepo}
+                isSubmittingHelmRepo={false}
+                handleAddHelmRepo={() => addRepo(newHelmRepo)}
+                handleRemoveHelmRepo={removeRepo}
+                handleUpdateHelmRepos={updateRepos}
+                helmSearchQuery={search}
+                setHelmSearchQuery={setSearch}
+                helmSearchResults={helmSearchResults}
+                isSearchingHelm={isSearchingHelm}
+                handleSearchHelmRepo={(e) => { e.preventDefault(); searchRepos(search); }}
+              />
+            ) : activeTab === 'autoscale-manager' ? (
+              <AutoscaleManagerView selectedNs={selectedNs} />
+            ) : activeTab === 'backup-restore' ? (
+              <BackupRestoreView selectedNs={selectedNs} />
+            ) : activeTab === 'cronjob-manager' ? (
+              <CronJobManagerView selectedNs={selectedNs} />
+            ) : activeTab === 'cluster-pruner' ? (
+              <ClusterPrunerView />
+            ) : activeTab === 'alert-settings' ? (
+              <AlertSettingsView />
+            ) : activeTab === 'cluster-terminal' ? (
+              <ClusterTerminalView />
+            ) : activeTab === 'traffic' ? (
+              <TrafficInspectorView selectedNs={selectedNs} />
+            ) : activeTab === 'dashboard' ? (
+              <DashboardView 
+                dashboardData={dashboardData || {}} 
+                cpuHistory={[]} 
+                memHistory={[]} 
+                setActiveTab={setActiveTab} 
+                setSearch={setSearch} 
+                setIsCmdPaletteOpen={setIsCmdPaletteOpen} 
+                zarfStatus={zarfStatusData || { installed: true }} 
+                runningImagesScanResults={sbomScansData || {}} 
+                kubescapeReport={kubescapeStatusData?.report} 
+              />
+            ) : (
+              <ResourceListView 
+                activeTab={activeTab}
+                filteredResources={filteredResources}
+                focusedRowIndex={focusedRowIndex}
+                setFocusedRowIndex={setFocusedRowIndex}
+                setSearch={setSearch}
+                setSelectedContainer={setSelectedContainer}
+                setModal={setModal}
+                podMetrics={podMetrics || []}
+                podMetricsHistory={podMetricsHistory}
+                nodeMetrics={nodeMetrics || []}
+                getNodeUsagePercent={getNodeUsagePercent}
+                customCrd={customCrd}
+                setCustomCrd={setCustomCrd}
+                setActiveTab={setActiveTab}
+                associatedDeployments={allDeployments || []}
+                associatedPods={allPods || []}
+                matchesSelector={matchesSelector}
+                pluralizeKind={pluralizeKind}
+                handleRestart={handleRestart}
+                handleScale={handleScale}
+                handleDrillDownToPods={handleDrillDownToPods}
+                handleOpenServiceWebsite={handleOpenServiceWebsite}
+                establishingPortForward={establishingPortForward}
+                handleOpenDiagnostics={handleOpenDiagnostics}
+                handleDelete={(res) => handleDelete(activeTab, res.metadata.name, res.metadata.namespace)}
+                setIsEditingYaml={setIsEditingYaml}
+                renderStatusBadge={renderStatusBadge}
+                renderSmallSparkline={renderSmallSparkline}
+              />
+            )}
+          </ErrorBoundary>
         </div>
       </main>
 
@@ -1605,6 +1259,25 @@ function App() {
         </div>
       )}
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AppProvider>
+      <AppProvidersInner />
+    </AppProvider>
+  );
+}
+
+function AppProvidersInner() {
+  const { selectedNs } = useAppContext();
+  return (
+    <ScannerProvider>
+      <ModalProvider selectedNs={selectedNs}>
+        <AppContent />
+      </ModalProvider>
+    </ScannerProvider>
   );
 }
 

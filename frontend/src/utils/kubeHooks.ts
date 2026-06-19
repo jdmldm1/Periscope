@@ -34,7 +34,7 @@ export const useK8sResources = (kind: string, namespace: string) => {
       const { data } = await api.get(endpoint);
       return data;
     },
-    enabled: !!kind && !['dashboard', 'topology', 'logs', 'image-scanner', 'kubescape', 'gitea', 'pvc-explorer', 'cluster-pruner', 'alert-settings', 'cluster-terminal', 'traffic', 'helm-repos', 'zarf-registry'].includes(kind),
+    enabled: !!kind && !['dashboard', 'topology', 'logs', 'image-scanner', 'kubescape', 'gitea', 'pvc-explorer', 'cluster-pruner', 'alert-settings', 'cluster-terminal', 'traffic', 'helm-repos', 'zarf-registry', 'autoscale-manager', 'backup-restore', 'cronjob-manager'].includes(kind),
     refetchInterval: 10000,
   });
 };
