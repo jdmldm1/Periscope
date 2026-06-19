@@ -105,14 +105,14 @@ node server.js
 
 ---
 
-## Other Artifacts
+## Install from Zarf
 
 ```bash
-# container image
-docker pull ghcr.io/jdmldm1/periscope:latest
+# Zarf connected package
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.1.3
 
 # Zarf air-gap package
-zarf package pull oci://ghcr.io/jdmldm1/packages/periscope:1.0.0
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.1.3
 ```
 
 ---
