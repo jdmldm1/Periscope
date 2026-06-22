@@ -161,6 +161,59 @@ router.put('/resource/deployments/:namespace/:name/scale', async (req, res) => {
     }
 });
 
+// Stop a deployment by scaling it to 0 replicas. The current replica count is
+// stashed in an annotation so that "start" can restore it later.
+router.put('/resource/deployments/:namespace/:name/stop', async (req, res) => {
+    const { namespace, name } = req.params;
+    try {
+        const { exec } = require('child_process');
+        const getCmd = `kubectl get deployment/${name} -n ${namespace} -o jsonpath="{.spec.replicas}"`;
+        exec(getCmd, (getErr, getOut) => {
+            const current = parseInt((getOut || '').trim(), 10);
+            const previous = (!getErr && !isNaN(current) && current > 0) ? current : 1;
+            const cmd = `kubectl annotate deployment/${name} -n ${namespace} periscope-previous-replicas=${previous} --overwrite && kubectl scale deployment/${name} --replicas=0 -n ${namespace}`;
+            exec(cmd, (error, stdout, stderr) => {
+                if (error) return res.status(500).json({ error: error.message || stderr });
+                if (typeof k8sService.clearCache === 'function') {
+                    k8sService.clearCache('deployments', namespace);
+                    k8sService.clearCache('pods', namespace);
+                }
+                res.json({ success: true, message: `Deployment ${name} stopped (scaled to 0)`, previousReplicas: previous });
+            });
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Start a previously-stopped deployment by restoring the replica count saved
+// when it was stopped (falling back to 1 if none was recorded).
+router.put('/resource/deployments/:namespace/:name/start', async (req, res) => {
+    const { namespace, name } = req.params;
+    try {
+        const { exec } = require('child_process');
+        const getCmd = `kubectl get deployment/${name} -n ${namespace} -o jsonpath="{.metadata.annotations.periscope-previous-replicas}"`;
+        exec(getCmd, (getErr, getOut) => {
+            const saved = parseInt((getOut || '').trim(), 10);
+            const bodyReplicas = Number(req.body && req.body.replicas);
+            const target = (!getErr && !isNaN(saved) && saved > 0)
+                ? saved
+                : (!isNaN(bodyReplicas) && bodyReplicas > 0 ? bodyReplicas : 1);
+            const cmd = `kubectl scale deployment/${name} --replicas=${target} -n ${namespace}`;
+            exec(cmd, (error, stdout, stderr) => {
+                if (error) return res.status(500).json({ error: error.message || stderr });
+                if (typeof k8sService.clearCache === 'function') {
+                    k8sService.clearCache('deployments', namespace);
+                    k8sService.clearCache('pods', namespace);
+                }
+                res.json({ success: true, message: `Deployment ${name} started (scaled to ${target})`, replicas: target });
+            });
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.delete('/resource/:kind/:namespace/:name', async (req, res) => {
     const { kind, namespace, name } = req.params;
     try {
