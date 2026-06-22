@@ -47,13 +47,18 @@ export const useResourceWatcher = () => {
 
           const queryKey = KIND_TO_QUERY_KEY_MAP[kind];
           if (queryKey) {
-            // Invalidate the query key so React Query refetches automatically
-            queryClient.invalidateQueries({ queryKey: [queryKey] });
-            
-            // Also invalidate topology and stats if nodes/pods/deployments change
+            // Resource lists are cached under ['resources', kind, namespace], so a
+            // plain ['pods'] key never matches. Match the cached key by predicate
+            // so the list refetches automatically when the cluster changes.
+            queryClient.invalidateQueries({
+              predicate: (query) =>
+                query.queryKey[0] === 'resources' && query.queryKey[1] === queryKey,
+            });
+
+            // Also refresh topology and dashboard stats if nodes/pods/deployments change.
             if (['pods', 'services', 'deployments'].includes(queryKey)) {
               queryClient.invalidateQueries({ queryKey: ['topology'] });
-              queryClient.invalidateQueries({ queryKey: ['stats'] });
+              queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
             }
           }
         } catch (err) {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, FileText, Terminal, Code, Power, SlidersHorizontal, Info, Settings, Trash2, Globe, ExternalLink, FolderOpen, Key } from 'lucide-react';
+import { Box, FileText, Terminal, Code, Power, SlidersHorizontal, Info, Settings, Trash2, Globe, ExternalLink, FolderOpen, Key, Square, Play } from 'lucide-react';
 import { parseCpu, parseMem } from '../utils/helpers';
 
 interface ResourceListViewProps {
@@ -23,6 +23,8 @@ interface ResourceListViewProps {
   pluralizeKind: (k: string) => string;
   handleRestart: (name: string, ns: string) => void;
   handleScale: (name: string, ns: string, current: number) => void;
+  handleStop: (name: string, ns: string) => void;
+  handleStart: (name: string, ns: string) => void;
   handleDrillDownToPods: (res: any) => void;
   handleOpenServiceWebsite: (res: any) => void;
   establishingPortForward: string | null;
@@ -39,7 +41,7 @@ export const ResourceListView = ({
   podMetrics, podMetricsHistory, nodeMetrics, getNodeUsagePercent,
   customCrd, setCustomCrd, setActiveTab,
   associatedDeployments, associatedPods, matchesSelector,
-  handleRestart, handleScale, handleDrillDownToPods, handleOpenServiceWebsite,
+  handleRestart, handleScale, handleStop, handleStart, handleDrillDownToPods, handleOpenServiceWebsite,
   establishingPortForward, handleOpenDiagnostics, handleDelete,
   setIsEditingYaml, renderStatusBadge, renderSmallSparkline
 }: ResourceListViewProps) => {
@@ -479,6 +481,15 @@ export const ResourceListView = ({
 
             {activeTab === 'deployments' && (
               <>
+                {(res.spec?.replicas ?? 0) === 0 ? (
+                  <button className="btn btn-sm" style={{ color: 'var(--accent-success)' }} onClick={(e) => { e.stopPropagation(); handleStart(res.metadata.name, res.metadata.namespace); }}>
+                    <Play size={12} /> Start
+                  </button>
+                ) : (
+                  <button className="btn btn-sm" style={{ color: 'var(--accent-warning)' }} onClick={(e) => { e.stopPropagation(); handleStop(res.metadata.name, res.metadata.namespace); }}>
+                    <Square size={12} /> Stop
+                  </button>
+                )}
                 <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleRestart(res.metadata.name, res.metadata.namespace); }}>
                   <Power size={12} /> Restart
                 </button>
@@ -506,6 +517,15 @@ export const ResourceListView = ({
 
             {activeTab === 'pods' && (
               <>
+                {res.metadata?.deletionTimestamp ? (
+                  <button className="btn btn-sm" disabled style={{ color: 'var(--accent-warning)' }}>
+                    <Square size={12} /> Terminating…
+                  </button>
+                ) : (
+                  <button className="btn btn-sm" style={{ color: 'var(--accent-warning)' }} onClick={(e) => { e.stopPropagation(); handleDelete(res); }}>
+                    <Square size={12} /> Stop
+                  </button>
+                )}
                 <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleOpenDiagnostics(res.metadata.name, res.metadata.namespace); }}>🩺 Diagnose</button>
                 <button className="btn btn-sm" onClick={(e) => { 
                   e.stopPropagation();

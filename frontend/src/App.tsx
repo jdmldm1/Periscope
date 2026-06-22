@@ -382,6 +382,16 @@ function AppContent() {
     const isWorkload = ['deployments', 'statefulsets', 'daemonsets'].includes(activeTab) || inferredKind === 'workloads';
 
     if (isPod) {
+      // A pod with a deletionTimestamp is on its way out — show that clearly
+      // instead of leaving it as "Running" until it disappears.
+      if (res.metadata?.deletionTimestamp) {
+        return (
+          <span className="badge" style={{ background: 'var(--accent-warning)10', color: 'var(--accent-warning)', borderColor: 'var(--accent-warning)30' }}>
+            Terminating
+          </span>
+        );
+      }
+
       status = res.status?.phase || 'Unknown';
       if (status === 'Running') type = 'success';
       else if (status === 'Succeeded') type = 'info';
@@ -405,10 +415,17 @@ function AppContent() {
       }
     } else if (isWorkload) {
       const ready = res.status?.readyReplicas || res.status?.numberReady || 0;
-      const desired = res.status?.replicas || res.status?.desiredNumberScheduled || 0;
-      status = `${ready}/${desired} Ready`;
-      type = (ready === desired && desired > 0) ? 'success' : 'warning';
-      if (desired === 0) type = 'info';
+      const specReplicas = res.spec?.replicas;
+      const desired = res.status?.replicas ?? res.status?.desiredNumberScheduled ?? specReplicas ?? 0;
+      // A deployment scaled to 0 is "Stopped" — make that explicit rather than
+      // showing a bare "0/0 Ready" that reads like a problem.
+      if (specReplicas === 0 || desired === 0) {
+        status = 'Stopped';
+        type = 'warning';
+      } else {
+        status = `${ready}/${desired} Ready`;
+        type = (ready === desired && desired > 0) ? 'success' : 'warning';
+      }
     } else if (isNode) {
       const readyCond = (res.status?.conditions || []).find((c: any) => c.type === 'Ready');
       status = readyCond?.status === 'True' ? 'Ready' : 'NotReady';
@@ -490,7 +507,17 @@ function AppContent() {
     return k.toLowerCase() + 's';
   };
 
-  const { handleRestart, handleScale, handleDelete } = useClusterActions(() => {});
+  const refreshResources = () => {
+    // Resource lists are cached under ['resources', kind, namespace]; the topology
+    // and dashboard widgets under their own keys. Invalidate them all so the UI
+    // reflects stop/start/restart/scale/delete actions immediately instead of
+    // waiting for the next poll.
+    queryClient.invalidateQueries({ queryKey: ['resources'] });
+    queryClient.invalidateQueries({ queryKey: ['topology'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+  };
+
+  const { handleRestart, handleScale, handleStop, handleStart, handleDelete } = useClusterActions(refreshResources);
 
   const handleOpenDiagnostics = (name: string, namespace: string) => {
     setModal({ type: 'diagnose', kind: 'pods', name, namespace });
@@ -1088,6 +1115,8 @@ function AppContent() {
                 pluralizeKind={pluralizeKind}
                 handleRestart={handleRestart}
                 handleScale={handleScale}
+                handleStop={handleStop}
+                handleStart={handleStart}
                 handleDrillDownToPods={handleDrillDownToPods}
                 handleOpenServiceWebsite={handleOpenServiceWebsite}
                 establishingPortForward={establishingPortForward}
