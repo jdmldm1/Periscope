@@ -7,18 +7,22 @@ interface SidebarProps {
   collapsedSections: Record<string, boolean>;
   toggleSection: (section: string) => void;
   setCustomCrd: (crd: any) => void;
+  isOpen?: boolean;
+  onNavigate?: () => void;
 }
 
-export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections, toggleSection, setCustomCrd }: SidebarProps) => {
+export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections, toggleSection, setCustomCrd, isOpen, onNavigate }: SidebarProps) => {
   const NavItem = ({ id, icon: Icon, label, color, onClick }: { id: string, icon: any, label: string, color?: string, onClick?: () => void }) => (
-    <a 
-      className={`nav-item ${activeTab === id ? 'active' : ''}`} 
-      onClick={() => { 
+    <a
+      className={`nav-item ${activeTab === id ? 'active' : ''}`}
+      onClick={() => {
         if (onClick) onClick();
         else {
-          setActiveTab(id); 
-          setSearch(''); 
+          setActiveTab(id);
+          setSearch('');
         }
+        // Collapse the drawer after a selection on mobile.
+        onNavigate?.();
       }}
     >
       <Icon size={16} style={color ? { color } : {}} /> {label}
@@ -26,7 +30,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
   );
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
       <div className="brand">
         <img src="/logo.png" className="brand-logo" alt="logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
         <div style={{ display: 'flex', flexDirection: 'column' }}>
