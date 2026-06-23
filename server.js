@@ -178,9 +178,30 @@ wss.on('connection', (ws, request) => {
         const shell = spawn('script', ['-q', '-c', '/bin/sh', '/dev/null'], {
             env: { ...process.env, TERM: 'xterm-256color' }
         });
+        let sized = false;
         shell.stdout.on('data', (data) => ws.readyState === WebSocket.OPEN && ws.send(data));
         shell.stderr.on('data', (data) => ws.readyState === WebSocket.OPEN && ws.send(data));
-        ws.on('message', (msg) => shell.stdin.writable && shell.stdin.write(msg));
+        ws.on('message', (msg) => {
+            // Resize messages are JSON control frames, not shell input — they
+            // must not be written into the shell as literal text.
+            try {
+                const p = JSON.parse(msg.toString());
+                if (p && p.type === 'resize') {
+                    // The pty created by `script` can't be resized via ioctl
+                    // without a native module, so set the size once via stty at
+                    // the initial (empty) prompt. This is what lets TUIs like
+                    // k9s draw at the right dimensions instead of flickering.
+                    const cols = parseInt(p.cols, 10);
+                    const rows = parseInt(p.rows, 10);
+                    if (!sized && shell.stdin.writable && cols > 0 && rows > 0) {
+                        sized = true;
+                        shell.stdin.write(`stty rows ${rows} cols ${cols} 2>/dev/null; clear\r`);
+                    }
+                    return;
+                }
+            } catch (e) { /* not JSON — fall through and treat as shell input */ }
+            if (shell.stdin.writable) shell.stdin.write(msg);
+        });
         shell.on('exit', () => ws.readyState === WebSocket.OPEN && ws.close());
         ws.on('close', () => { shell.kill('SIGKILL'); });
         return;
@@ -229,7 +250,11 @@ wss.on('connection', (ws, request) => {
         const stdinStream = new stream.PassThrough();
         const stdoutStream = new stream.Writable({ write(chunk, enc, cb) { ws.readyState === WebSocket.OPEN && ws.send(chunk); cb(); } });
         const execInstance = new k8s.Exec(k8sService.kc);
-        execInstance.exec(namespace, pod, container || undefined, ['/bin/sh'], stdoutStream, stdoutStream, stdinStream, true, (status) => {
+        // Prefer bash for proper line editing and command history (up-arrow
+        // recall), but fall back to sh on minimal images that lack it. TERM is
+        // exported so curses-based TUIs and progress bars render correctly.
+        const shellCmd = ['/bin/sh', '-c', 'export TERM=xterm-256color; if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi'];
+        execInstance.exec(namespace, pod, container || undefined, shellCmd, stdoutStream, stdoutStream, stdinStream, true, (status) => {
             ws.readyState === WebSocket.OPEN && ws.close();
         }).then((conn) => {
             ws.on('message', (msg) => {
