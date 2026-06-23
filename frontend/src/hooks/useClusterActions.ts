@@ -11,7 +11,7 @@ export const useClusterActions = (refresh: () => void) => {
   const handleRestart = async (name: string, namespace: string) => {
     if (!window.confirm(`Restart deployment ${name}?`)) return;
     try {
-      await api.put(`/resource/deployments/${namespace}/${name}/restart`);
+      await api.put(`/kube/resource/deployments/${namespace}/${name}/restart`);
       refresh();
     } catch (err) {
       console.error(err);
@@ -23,7 +23,7 @@ export const useClusterActions = (refresh: () => void) => {
     const scaleTo = window.prompt(`Scale deployment ${name} to:`, current.toString());
     if (scaleTo === null || isNaN(Number(scaleTo))) return;
     try {
-      await api.put(`/resource/deployments/${namespace}/${name}/scale`, { replicas: Number(scaleTo) });
+      await api.put(`/kube/resource/deployments/${namespace}/${name}/scale`, { replicas: Number(scaleTo) });
       refresh();
     } catch (err) {
       console.error(err);
@@ -39,7 +39,7 @@ export const useClusterActions = (refresh: () => void) => {
       `You can Start it again later to restore the previous replica count.`
     )) return;
     try {
-      await api.put(`/resource/deployments/${namespace}/${name}/stop`);
+      await api.put(`/kube/resource/deployments/${namespace}/${name}/stop`);
       refresh();
     } catch (err) {
       console.error(err);
@@ -49,7 +49,7 @@ export const useClusterActions = (refresh: () => void) => {
 
   const handleStart = async (name: string, namespace: string) => {
     try {
-      await api.put(`/resource/deployments/${namespace}/${name}/start`);
+      await api.put(`/kube/resource/deployments/${namespace}/${name}/start`);
       refresh();
     } catch (err) {
       console.error(err);
@@ -69,7 +69,7 @@ export const useClusterActions = (refresh: () => void) => {
         ? `/helm/${namespace}/${name}`
         : kind === 'custom' && customCrd
         ? `/custom/${customCrd.group}/${customCrd.version}/${customCrd.plural}/${namespace}/${name}`
-        : `/resource/${kind}/${namespace}/${name}`;
+        : `/kube/resource/${kind}/${namespace}/${name}`;
       await api.delete(endpoint);
       refresh();
     } catch (err) {
