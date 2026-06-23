@@ -26,6 +26,8 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Consolas, "Courier New", monospace',
+      scrollback: 5000,
+      allowProposedApi: true,
       theme: {
         background: '#040711',
         foreground: '#ededed',
@@ -55,31 +57,39 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
     const wsUrl = `${protocol}//${host}/api/terminal/ws?namespace=${encodeURIComponent(namespace)}&pod=${encodeURIComponent(podName)}&container=${encodeURIComponent(containerName)}`;
 
     const socket = new WebSocket(wsUrl);
+    // Receive output as ArrayBuffers and decode synchronously below. Reading
+    // Blobs with FileReader resolves asynchronously and can reorder chunks,
+    // which scrambles the escape sequences used by progress bars and TUIs.
+    socket.binaryType = 'arraybuffer';
     socketRef.current = socket;
+
+    // A single streaming decoder keeps multi-byte UTF-8 characters intact even
+    // when they are split across two WebSocket frames.
+    const decoder = new TextDecoder();
+
+    // Fit the terminal and tell the backend the new dimensions so PTY programs
+    // (k9s, ollama pull, etc.) render at the correct size instead of flickering.
+    const sendResize = () => {
+      try {
+        fitAddon.fit();
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
+      } catch (err) {
+        console.warn('Resize error:', err);
+      }
+    };
 
     socket.onopen = () => {
       term.write('\r\n# Connected to pod shell container. Starting session...\r\n');
-      // Send initial size resize command to backend
-      socket.send(
-        JSON.stringify({
-          type: 'resize',
-          cols: term.cols,
-          rows: term.rows,
-        })
-      );
+      sendResize();
     };
 
     socket.onmessage = (event) => {
       if (typeof event.data === 'string') {
         term.write(event.data);
-      } else {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === 'string') {
-            term.write(reader.result);
-          }
-        };
-        reader.readAsText(event.data);
+      } else if (event.data instanceof ArrayBuffer) {
+        term.write(decoder.decode(event.data, { stream: true }));
       }
     };
 
@@ -108,28 +118,23 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
     };
     terminalRef.current?.addEventListener('paste', handlePaste);
 
-    // Resize listener
-    const handleResize = () => {
-      try {
-        fitAddon.fit();
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(
-            JSON.stringify({
-              type: 'resize',
-              cols: term.cols,
-              rows: term.rows,
-            })
-          );
-        }
-      } catch (err) {
-        console.warn('Resize error:', err);
-      }
+    // Re-fit whenever the container changes size (the modal opening/animating
+    // in, the window resizing). Debounced so a burst of layout changes results
+    // in a single resize message.
+    let resizeTimer: ReturnType<typeof setTimeout>;
+    const scheduleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(sendResize, 80);
     };
-    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(scheduleResize);
+    if (terminalRef.current) resizeObserver.observe(terminalRef.current);
+    window.addEventListener('resize', scheduleResize);
 
     // Cleanup on unmount
     return () => {
-      window.removeEventListener('resize', handleResize);
+      clearTimeout(resizeTimer);
+      window.removeEventListener('resize', scheduleResize);
+      resizeObserver.disconnect();
       terminalRef.current?.removeEventListener('paste', handlePaste);
       dataDisposable.dispose();
       term.dispose();
