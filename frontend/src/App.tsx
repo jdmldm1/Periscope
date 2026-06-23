@@ -86,6 +86,9 @@ function AppContent() {
   const [podMetricsHistory, setPodMetricsHistory] = useState<Record<string, any>>({});
   const [establishingPortForward, setEstablishingPortForward] = useState<string | null>(null);
   const [cmdPaletteSearch, setCmdPaletteSearch] = useState('');
+  const [kubescapeSearchQuery, setKubescapeSearchQuery] = useState('');
+  const [kubescapeSeverityFilter, setKubescapeSeverityFilter] = useState('all');
+  const [expandedControlId, setExpandedControlId] = useState<string | null>(null);
   const [navigationStack, setNavigationStack] = useState<Array<{tab: ResourceKind; search: string; ns: string; focusedRow: number | null}>>([]);
   const isDrillDownRef = useRef(false);
 
@@ -1024,12 +1027,12 @@ function AppContent() {
                 kubescapeReport={kubescapeStatusData?.report}
                 isScanningKubescape={kubescapeStatusData?.scanning}
                 triggerKubescapeScan={triggerKubescapeScan}
-                kubescapeSearchQuery=""
-                setKubescapeSearchQuery={() => {}}
-                kubescapeSeverityFilter="all"
-                setKubescapeSeverityFilter={() => {}}
-                expandedControlId={null}
-                setExpandedControlId={() => {}}
+                kubescapeSearchQuery={kubescapeSearchQuery}
+                setKubescapeSearchQuery={setKubescapeSearchQuery}
+                kubescapeSeverityFilter={kubescapeSeverityFilter}
+                setKubescapeSeverityFilter={setKubescapeSeverityFilter}
+                expandedControlId={expandedControlId}
+                setExpandedControlId={setExpandedControlId}
               />
             ) : activeTab === 'helm' || activeTab === 'helm-repos' ? (
               <HelmManagerView
