@@ -24,8 +24,6 @@ import { KubescapeView } from './components/KubescapeView';
 import { HelmManagerView } from './components/HelmManagerView';
 import { ClusterTerminalView } from './components/ClusterTerminalView';
 import { TrafficInspectorView } from './components/TrafficInspectorView';
-import { ClusterPrunerView } from './components/ClusterPrunerView';
-import { AlertSettingsView } from './components/AlertSettingsView';
 import { DashboardView } from './components/DashboardView';
 import { AutoscaleManagerView } from './components/AutoscaleManagerView';
 import { BackupRestoreView } from './components/BackupRestoreView';
@@ -1078,12 +1076,8 @@ function AppContent() {
               <AutoscaleManagerView selectedNs={selectedNs} />
             ) : activeTab === 'backup-restore' ? (
               <BackupRestoreView selectedNs={selectedNs} />
-            ) : activeTab === 'cronjob-manager' ? (
+            ) : activeTab === 'cronjobs' ? (
               <CronJobManagerView selectedNs={selectedNs} />
-            ) : activeTab === 'cluster-pruner' ? (
-              <ClusterPrunerView />
-            ) : activeTab === 'alert-settings' ? (
-              <AlertSettingsView />
             ) : activeTab === 'cluster-terminal' ? (
               <ClusterTerminalView />
             ) : activeTab === 'traffic' ? (

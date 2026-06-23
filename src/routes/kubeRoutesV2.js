@@ -3,8 +3,6 @@ const router = express.Router();
 const k8s = require('@kubernetes/client-node');
 const k8sService = require('../services/k8sService');
 const pvcService = require('../services/pvcService');
-const alertService = require('../services/alertService');
-const pruneService = require('../services/pruneService');
 const logger = require('../utils/logger');
 
 // Context Comparisons
@@ -103,56 +101,6 @@ router.post('/volumes/:namespace/:pvcName/cleanup', async (req, res) => {
     try {
         await pvcService.deleteHelperPod(namespace, pvcName);
         res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Event Notification / Webhooks
-router.get('/alerts/settings', (req, res) => {
-    res.json(alertService.getSettings());
-});
-
-router.post('/alerts/settings', (req, res) => {
-    try {
-        alertService.saveSettings(req.body);
-        res.json({ success: true, settings: alertService.getSettings() });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-router.post('/alerts/test', async (req, res) => {
-    try {
-        const success = await alertService.sendNotification('🔔 *Periscope Notification Test*: Alert system is successfully connected!');
-        if (success) {
-            res.json({ success: true });
-        } else {
-            res.status(400).json({ error: 'Failed to send test alert. Verify your Webhook URL.' });
-        }
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Cluster Cleanup Pruner
-router.get('/prune/scan', async (req, res) => {
-    try {
-        const scanResults = await pruneService.scanOrphaned();
-        res.json(scanResults);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-router.post('/prune/cleanup', async (req, res) => {
-    const { resources } = req.body;
-    if (!resources || !Array.isArray(resources)) {
-        return res.status(400).json({ error: 'resources array is required' });
-    }
-    try {
-        const results = await pruneService.pruneResources(resources);
-        res.json(results);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
