@@ -165,6 +165,54 @@ class SecurityService {
             ];
         }
 
+        // Kubescape's v2 JSON reports results per-resource: each entry in
+        // `results` has a `resourceID` and a `controls` array describing how
+        // that resource fared against each control. To list the resources that
+        // violate a given control we have to invert that mapping. (The previous
+        // implementation looked for `results[].controlID`, which never exists,
+        // so every control reported zero violating resources.)
+        const resourceNameById = {};
+        if (Array.isArray(data.resources)) {
+            data.resources.forEach(r => {
+                const obj = r.object || {};
+                const kind = obj.kind || obj.groupVersionKind?.kind || 'Resource';
+                const meta = obj.metadata || {};
+                const name = meta.name || obj.name || r.resourceID;
+                const ns = meta.namespace || obj.namespace;
+                resourceNameById[r.resourceID] = `${kind}: ${ns ? ns + '/' : ''}${name}`;
+            });
+        }
+
+        const failedResourcesByControl = {};
+        if (Array.isArray(data.results)) {
+            data.results.forEach(result => {
+                (result.controls || []).forEach(c => {
+                    const status = typeof c.status === 'string' ? c.status : c.status?.status;
+                    if (status === 'failed' && c.controlID) {
+                        if (!failedResourcesByControl[c.controlID]) failedResourcesByControl[c.controlID] = new Set();
+                        failedResourcesByControl[c.controlID].add(result.resourceID);
+                    }
+                });
+            });
+        }
+
+        // Kubescape's control summary doesn't always carry an explicit severity
+        // string; when it's missing, derive it from the control's base score
+        // using Kubescape's own severity bands.
+        const deriveSeverity = (control) => {
+            const raw = typeof control.severity === 'string' ? control.severity.toLowerCase() : '';
+            if (raw.startsWith('crit')) return 'Critical';
+            if (raw.startsWith('high')) return 'High';
+            if (raw.startsWith('med')) return 'Medium';
+            if (raw.startsWith('low')) return 'Low';
+            const sf = Number(control.scoreFactor ?? control.baseScore ?? 0);
+            if (sf >= 9) return 'Critical';
+            if (sf >= 7) return 'High';
+            if (sf >= 4) return 'Medium';
+            if (sf > 0) return 'Low';
+            return 'Medium';
+        };
+
         const failedControls = [];
         let criticalCount = 0;
         let highCount = 0;
@@ -172,22 +220,18 @@ class SecurityService {
         let lowCount = 0;
 
         Object.entries(controls).forEach(([id, control]) => {
-            if (control.status === 'failed') {
-                const severity = control.severity || 'Medium';
+            const controlStatus = typeof control.status === 'string' ? control.status : control.status?.status;
+            if (controlStatus === 'failed') {
+                const severity = deriveSeverity(control);
                 if (severity === 'Critical') criticalCount++;
                 else if (severity === 'High') highCount++;
                 else if (severity === 'Medium') mediumCount++;
                 else if (severity === 'Low') lowCount++;
 
-                let violatingResources = [];
-                if (data.results && Array.isArray(data.results)) {
-                    const controlResult = data.results.find(r => r.controlID === id);
-                    if (controlResult && controlResult.resources) {
-                        violatingResources = controlResult.resources.map(res => {
-                            return `${res.kind || 'Resource'}: ${res.namespace ? res.namespace + '/' : ''}${res.name}`;
-                        });
-                    }
-                }
+                const ridSet = failedResourcesByControl[id];
+                const violatingResources = ridSet
+                    ? Array.from(ridSet).map(rid => resourceNameById[rid] || rid)
+                    : [];
 
                 failedControls.push({
                     id,
