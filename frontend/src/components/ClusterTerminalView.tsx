@@ -36,6 +36,7 @@ export const ClusterTerminalView: React.FC = () => {
         white: '#f8f8f2',
       },
       allowProposedApi: true,
+      scrollback: 5000,
     });
 
     const fitAddon = new FitAddon();
@@ -60,24 +61,38 @@ export const ClusterTerminalView: React.FC = () => {
     const wsUrl = `${protocol}//${host}/api/cluster-terminal/ws`;
 
     const socket = new WebSocket(wsUrl);
+    // Decode output synchronously and in order (see InteractiveTerminal): a
+    // FileReader resolves asynchronously and reorders chunks, which scrambles
+    // the escape sequences emitted by progress bars and TUIs.
+    socket.binaryType = 'arraybuffer';
     socketRef.current = socket;
+
+    const decoder = new TextDecoder();
+
+    // Fit the terminal and tell the backend the new size so the host PTY
+    // (and any TUI running inside it) renders at the correct dimensions.
+    const sendResize = () => {
+      try {
+        fitAddon.fit();
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
+      } catch (err) {
+        console.warn('Terminal resize error:', err);
+      }
+    };
 
     socket.onopen = () => {
       setStatus('connected');
       term.write('\r\n\x1b[1;36m=== Terminal ===\x1b[0m\r\n');
+      sendResize();
      };
 
     socket.onmessage = (event) => {
       if (typeof event.data === 'string') {
         term.write(event.data);
-      } else {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === 'string') {
-            term.write(reader.result);
-          }
-        };
-        reader.readAsText(event.data);
+      } else if (event.data instanceof ArrayBuffer) {
+        term.write(decoder.decode(event.data, { stream: true }));
       }
     };
 
@@ -109,18 +124,20 @@ export const ClusterTerminalView: React.FC = () => {
     };
     terminalRef.current?.addEventListener('paste', handlePaste);
 
-    // Handle resize
-    const handleResize = () => {
-      try {
-        fitAddon.fit();
-      } catch (err) {
-        console.warn('Terminal resize error:', err);
-      }
+    // Re-fit on container/window size changes, debounced to coalesce bursts.
+    let resizeTimer: ReturnType<typeof setTimeout>;
+    const scheduleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(sendResize, 80);
     };
-    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(scheduleResize);
+    if (terminalRef.current) resizeObserver.observe(terminalRef.current);
+    window.addEventListener('resize', scheduleResize);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      clearTimeout(resizeTimer);
+      window.removeEventListener('resize', scheduleResize);
+      resizeObserver.disconnect();
       terminalRef.current?.removeEventListener('paste', handlePaste);
       dataDisposable.dispose();
       term.dispose();
