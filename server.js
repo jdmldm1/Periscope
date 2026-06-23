@@ -34,10 +34,6 @@ const autoscaleRoutes = require('./src/routes/autoscaleRoutes');
 const backupRoutes = require('./src/routes/backupRoutes');
 const cronJobRoutes = require('./src/routes/cronJobRoutes');
 
-// Alerting Service Initializer
-const alertService = require('./src/services/alertService');
-alertService.startWatcher();
-
 const app = express();
 app.use(compression());
 app.use(cors());
