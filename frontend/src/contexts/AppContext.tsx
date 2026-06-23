@@ -11,7 +11,7 @@ export type ResourceKind =
   'pods' | 'deployments' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' |
   'services' | 'ingresses' | 'traffic' | 'configmaps' | 'secrets' | 'persistentvolumes' | 
   'persistentvolumeclaims' | 'helm' | 'helm-repos' | 'zarf' | 'zarf-registry' | 'image-scanner' | 'kubescape' | 'gitea' | 'custom' |
-  'cluster-pruner' | 'alert-settings' | 'autoscale-manager' | 'backup-restore' | 'cronjob-manager';
+  'autoscale-manager' | 'backup-restore';
 
 interface AppContextType {
   // Navigation
