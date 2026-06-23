@@ -1,4 +1,4 @@
-import { Search, Command, RefreshCw, Plus, Shield } from 'lucide-react';
+import { Search, Command, RefreshCw, Plus, Shield, Menu } from 'lucide-react';
 
 interface HeaderProps {
   search: string;
@@ -15,16 +15,21 @@ interface HeaderProps {
   fetchResources: () => void;
   setIsDeployZarfModalOpen?: (open: boolean) => void;
   setIsDeployHelmModalOpen?: (open: boolean) => void;
+  onToggleSidebar?: () => void;
 }
 
 export const Header = ({
   search, setSearch, setIsCmdPaletteOpen,
   contexts, currentContext, handleContextChange,
   activeTab, setActiveTab, selectedNs, setSelectedNs, namespaces,
-  fetchResources, setIsDeployZarfModalOpen, setIsDeployHelmModalOpen
+  fetchResources, setIsDeployZarfModalOpen, setIsDeployHelmModalOpen,
+  onToggleSidebar
 }: HeaderProps) => {
   return (
     <div className="topbar">
+      <button className="menu-toggle" onClick={onToggleSidebar} title="Menu" aria-label="Toggle navigation">
+        <Menu size={20} />
+      </button>
       <div className="search-box">
         <Search size={16} />
         <input
