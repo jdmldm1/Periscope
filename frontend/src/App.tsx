@@ -834,19 +834,25 @@ function AppContent() {
     deployments: (allDeployments || []).length
   };
 
+  // Controls the off-canvas sidebar drawer on small / touch screens.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   return (
     <div className="layout-container">
-      <Sidebar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        setSearch={setSearch} 
-        collapsedSections={collapsedSections} 
-        toggleSection={toggleSection} 
-        setCustomCrd={setCustomCrd} 
+      {mobileNavOpen && <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />}
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        setSearch={setSearch}
+        collapsedSections={collapsedSections}
+        toggleSection={toggleSection}
+        setCustomCrd={setCustomCrd}
+        isOpen={mobileNavOpen}
+        onNavigate={() => setMobileNavOpen(false)}
       />
 
       <main className="main-content">
-        <Header 
+        <Header
           search={search}
           setSearch={setSearch}
           setIsCmdPaletteOpen={setIsCmdPaletteOpen}
@@ -861,6 +867,7 @@ function AppContent() {
           fetchResources={() => {}}
           setIsDeployZarfModalOpen={setIsDeployZarfModalOpen}
           setIsDeployHelmModalOpen={setIsDeployHelmModalOpen}
+          onToggleSidebar={() => setMobileNavOpen(v => !v)}
         />
 
         <div className="content-area">
