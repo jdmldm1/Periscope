@@ -1,5 +1,23 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+
+export type WatchStatus = 'connecting' | 'live' | 'reconnecting';
+
+// The watcher is mounted once at the app root; this lets any component (e.g. the
+// dashboard) reflect the live connection state without prop drilling.
+const emitWatchStatus = (status: WatchStatus) => {
+  window.dispatchEvent(new CustomEvent('periscope:watch-status', { detail: status }));
+};
+
+export const useWatchStatus = (): WatchStatus => {
+  const [status, setStatus] = useState<WatchStatus>('connecting');
+  useEffect(() => {
+    const handler = (e: Event) => setStatus((e as CustomEvent).detail as WatchStatus);
+    window.addEventListener('periscope:watch-status', handler);
+    return () => window.removeEventListener('periscope:watch-status', handler);
+  }, []);
+  return status;
+};
 
 const KIND_TO_QUERY_KEY_MAP: Record<string, string> = {
   'Pod': 'pods',
@@ -37,6 +55,7 @@ export const useResourceWatcher = () => {
 
       socket.onopen = () => {
         console.log('[useResourceWatcher] Connected to Kubernetes resource watcher');
+        emitWatchStatus('live');
       };
 
       socket.onmessage = (event) => {
@@ -55,10 +74,12 @@ export const useResourceWatcher = () => {
                 query.queryKey[0] === 'resources' && query.queryKey[1] === queryKey,
             });
 
-            // Also refresh topology and dashboard stats if nodes/pods/deployments change.
-            if (['pods', 'services', 'deployments'].includes(queryKey)) {
+            // Also refresh topology and dashboard health if anything that affects
+            // cluster state changes (nodes included, so NotReady surfaces live).
+            if (['pods', 'services', 'deployments', 'nodes'].includes(queryKey)) {
               queryClient.invalidateQueries({ queryKey: ['topology'] });
               queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+              queryClient.invalidateQueries({ queryKey: ['dashboard-integration'] });
             }
           }
         } catch (err) {
@@ -69,6 +90,7 @@ export const useResourceWatcher = () => {
       socket.onclose = (e) => {
         console.log('[useResourceWatcher] Connection closed:', e.reason);
         socketRef.current = null;
+        emitWatchStatus('reconnecting');
         // Reconnect after 5 seconds
         reconnectTimeoutRef.current = setTimeout(() => {
           connect();
