@@ -102,34 +102,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   };
 
-  // ---- Resource gauge (CPU / RAM) with health thresholds ----
-  const renderGauge = (opts: { pct: number; title: string; sub: string; icon: React.ReactNode }) => {
-    const { pct, title, sub, icon } = opts;
+  // ---- Compact resource utilization bar (single source of truth) ----
+  const renderUtilBar = (opts: { pct: number; title: string; sub: string; icon: React.ReactNode; available: boolean }) => {
+    const { pct, title, sub, icon, available } = opts;
     const color = pct >= 90 ? 'var(--accent-error)' : pct >= 75 ? 'var(--accent-warning)' : 'var(--accent-green)';
-    const circ = 282.7;
+    const cls = pct >= 90 ? 'critical' : pct >= 75 ? 'warning' : 'normal';
     return (
-      <div className="dashboard-chart-card" style={{ flex: 1, minWidth: '240px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ width: '100%', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12, fontWeight: 600, letterSpacing: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          {icon} {title}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: 0.4 }}>
+            {icon} {title}
+          </span>
+          {available
+            ? <span style={{ fontSize: '0.95rem', fontWeight: 800, color }}>{pct}%</span>
+            : <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>metrics-server unavailable</span>}
         </div>
-        <svg width="130" height="130" viewBox="0 0 120 120">
-          <circle cx="60" cy="60" r="45" fill="transparent" stroke="var(--border-color)" strokeWidth="8" />
-          <circle cx="60" cy="60" r="45" fill="transparent"
-            stroke={color}
-            strokeWidth="8"
-            strokeDasharray={circ}
-            strokeDashoffset={circ - (circ * pct) / 100}
-            transform="rotate(-90 60 60)"
-            strokeLinecap="round"
-            style={{ transition: 'stroke-dashoffset 1s ease-out, stroke 0.4s' }}
-          />
-          <text x="60" y="58" textAnchor="middle" dy="0.3em" className="circular-gauge-text" style={{ fill: color }}>
-            {pct}%
-          </text>
-          <text x="60" y="78" textAnchor="middle" className="circular-gauge-label">
-            {sub}
-          </text>
-        </svg>
+        <div className="metric-bar-wrapper" style={{ height: 8 }}>
+          <div className={`metric-bar-fill ${cls}`} style={{ width: available ? `${pct}%` : '0%' }} />
+        </div>
+        {available && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{sub}</span>}
       </div>
     );
   };
@@ -432,6 +423,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const cpuCapCores = (dashboardRes?.cpuCap || 0) / 1000;
   const memUseGiB = (dashboardRes?.memUse || 0) / (1024 * 1024);
   const memCapGiB = (dashboardRes?.memCap || 0) / (1024 * 1024);
+  // Usage is only populated when metrics-server is installed
+  const metricsAvailable = (dashboardRes?.cpuUse || 0) > 0 || (dashboardRes?.memUse || 0) > 0;
 
   const overall = health.overall || 'healthy';
   const overallMeta = overall === 'critical'
@@ -491,7 +484,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Health summary cards: healthy vs unhealthy */}
+      {/* Active issues — primary error-resolution panel */}
+      <div className="dashboard-charts-grid" style={{ gridTemplateColumns: '1fr' }}>
+        {renderIssuesPanel(issues, health.criticalCount || 0, health.warningCount || 0)}
+      </div>
+
+      {/* Cluster state overview: health (healthy vs unhealthy) + resource utilization, once */}
+      <h2 style={{ fontSize: '1.1rem', margin: '4px 0 0', letterSpacing: 0.5 }}>CLUSTER STATE OVERVIEW</h2>
       <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
         {renderHealthStat({
           icon: <Server size={14} />, label: 'Nodes',
@@ -511,17 +510,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           bad: workloads.degraded, badLabel: 'degraded',
           onClick: () => setActiveTab('deployments'),
         })}
-      </div>
-
-      {/* Active issues — primary troubleshooting panel */}
-      <div className="dashboard-charts-grid" style={{ gridTemplateColumns: '1fr' }}>
-        {renderIssuesPanel(issues, health.criticalCount || 0, health.warningCount || 0)}
-      </div>
-
-      {/* Resource gauges */}
-      <div className="dashboard-row">
-        {renderGauge({ pct: cpuPct, title: 'CLUSTER CPU', sub: `${cpuUseCores.toFixed(1)} / ${cpuCapCores.toFixed(0)} cores`, icon: <Cpu size={13} /> })}
-        {renderGauge({ pct: memPct, title: 'CLUSTER MEMORY', sub: `${memUseGiB.toFixed(1)} / ${memCapGiB.toFixed(1)} GiB`, icon: <MemoryStick size={13} /> })}
+        <div className="dashboard-chart-card" style={{ display: 'flex', flexDirection: 'column', gap: 16, justifyContent: 'center' }}>
+          {renderUtilBar({ pct: cpuPct, title: 'CPU', sub: `${cpuUseCores.toFixed(1)} / ${cpuCapCores.toFixed(0)} cores`, icon: <Cpu size={13} />, available: metricsAvailable })}
+          {renderUtilBar({ pct: memPct, title: 'MEMORY', sub: `${memUseGiB.toFixed(1)} / ${memCapGiB.toFixed(1)} GiB`, icon: <MemoryStick size={13} />, available: metricsAvailable })}
+        </div>
       </div>
 
       {/* Pod health + recent warnings */}
