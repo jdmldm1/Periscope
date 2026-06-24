@@ -74,6 +74,39 @@ export const useDashboardStats = (namespace: string) => {
   });
 };
 
+export const useIntegrationReadiness = (namespace: string) => {
+  return useQuery({
+    queryKey: ['dashboard-integration', namespace],
+    queryFn: async () => {
+      const { data } = await api.get('/dashboard/integration', {
+        params: { namespace },
+      });
+      return data;
+    },
+    refetchInterval: 15000,
+  });
+};
+
+export interface IssueDetailParams {
+  kind: string;
+  namespace: string;
+  name: string;
+}
+
+export const useIssueDetail = (params: IssueDetailParams | null) => {
+  return useQuery({
+    queryKey: ['dashboard-issue-detail', params?.kind, params?.namespace, params?.name],
+    queryFn: async () => {
+      const { data } = await api.get('/dashboard/issue-detail', {
+        params: { kind: params!.kind, namespace: params!.namespace, name: params!.name },
+      });
+      return data;
+    },
+    enabled: !!params,
+    refetchInterval: 8000,
+  });
+};
+
 export const useTopologyData = (namespace: string) => {
   return useQuery({
     queryKey: ['topology', namespace],
