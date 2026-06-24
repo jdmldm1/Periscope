@@ -1060,10 +1060,11 @@ function AppContent() {
             ) : activeTab === 'traffic' ? (
               <TrafficInspectorView selectedNs={selectedNs} />
             ) : activeTab === 'dashboard' ? (
-              <DashboardView 
-                dashboardData={dashboardData || {}} 
-                cpuHistory={[]} 
-                memHistory={[]} 
+              <DashboardView
+                dashboardData={dashboardData || {}}
+                namespace={selectedNs}
+                cpuHistory={[]}
+                memHistory={[]}
                 setActiveTab={setActiveTab} 
                 setSearch={setSearch} 
                 setIsCmdPaletteOpen={setIsCmdPaletteOpen} 
