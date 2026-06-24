@@ -1,5 +1,8 @@
 import React from 'react';
-import { Activity, Command, Box, Package } from 'lucide-react';
+import {
+  Activity, Command, Box, Package, Server, Layers,
+  AlertTriangle, AlertCircle, CheckCircle2, ShieldAlert, Cpu, MemoryStick, ChevronRight
+} from 'lucide-react';
 
 interface DashboardViewProps {
   dashboardData: any;
@@ -13,10 +16,34 @@ interface DashboardViewProps {
   kubescapeReport: any;
 }
 
+interface Issue {
+  severity: 'critical' | 'warning' | 'info';
+  kind: string;
+  namespace: string;
+  name: string;
+  reason: string;
+  message: string;
+  restarts?: number;
+}
+
+interface RecentWarning {
+  reason: string;
+  message: string;
+  kind: string;
+  name: string;
+  namespace: string;
+  count: number;
+  timestamp?: string;
+}
+
+const SEV_COLOR: Record<string, string> = {
+  critical: 'var(--accent-error)',
+  warning: 'var(--accent-warning)',
+  info: 'var(--accent-blue)',
+};
+
 export const DashboardView: React.FC<DashboardViewProps> = ({
   dashboardData,
-  cpuHistory,
-  memHistory,
   setActiveTab,
   setSearch,
   setIsCmdPaletteOpen,
@@ -24,12 +51,242 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   runningImagesScanResults,
   kubescapeReport,
 }) => {
-  const renderSecuritySection = () => {
-    let criticalVulns = 0;
-    let highVulns = 0;
-    let mediumVulns = 0;
-    let lowVulns = 0;
+  const goToResource = (kind: string, name: string) => {
+    const tab = kind === 'Node' ? 'nodes'
+      : kind === 'Deployment' ? 'deployments'
+      : kind === 'Pod' ? 'pods'
+      : 'pods';
+    setSearch(name || '');
+    setActiveTab(tab);
+  };
 
+  // ---- Health-focused summary card (healthy vs unhealthy) ----
+  const renderHealthStat = (opts: {
+    icon: React.ReactNode;
+    label: string;
+    healthy: number;
+    total: number;
+    badLabel: string;
+    bad: number;
+    onClick?: () => void;
+  }) => {
+    const { icon, label, healthy, total, badLabel, bad, onClick } = opts;
+    const ok = bad === 0;
+    const pct = total > 0 ? Math.round((healthy / total) * 100) : 100;
+    const accent = ok ? 'var(--accent-green)' : (badLabel.toLowerCase().includes('critical') || bad > 0 && label === 'Nodes' ? 'var(--accent-error)' : 'var(--accent-warning)');
+    return (
+      <div
+        className="dashboard-chart-card"
+        style={{ cursor: onClick ? 'pointer' : 'default', display: 'flex', flexDirection: 'column', gap: 10, borderLeft: `3px solid ${ok ? 'var(--accent-green)' : accent}` }}
+        onClick={onClick}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            {icon} {label}
+          </div>
+          {ok
+            ? <CheckCircle2 size={18} style={{ color: 'var(--accent-green)' }} />
+            : <AlertTriangle size={18} style={{ color: accent }} />}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: '1.9rem', fontWeight: 800, color: 'var(--text-main)' }}>{healthy}</span>
+          <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>/ {total} healthy</span>
+        </div>
+        <div className="metric-bar-wrapper" style={{ height: 6 }}>
+          <div className={`metric-bar-fill ${ok ? 'normal' : (accent === 'var(--accent-error)' ? 'critical' : 'warning')}`} style={{ width: `${pct}%` }} />
+        </div>
+        <div style={{ fontSize: '0.75rem', color: ok ? 'var(--text-muted)' : accent, fontWeight: ok ? 400 : 700 }}>
+          {ok ? 'All healthy' : `${bad} ${badLabel}`}
+        </div>
+      </div>
+    );
+  };
+
+  // ---- Resource gauge (CPU / RAM) with health thresholds ----
+  const renderGauge = (opts: { pct: number; title: string; sub: string; icon: React.ReactNode }) => {
+    const { pct, title, sub, icon } = opts;
+    const color = pct >= 90 ? 'var(--accent-error)' : pct >= 75 ? 'var(--accent-warning)' : 'var(--accent-green)';
+    const circ = 282.7;
+    return (
+      <div className="dashboard-chart-card" style={{ flex: 1, minWidth: '240px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ width: '100%', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12, fontWeight: 600, letterSpacing: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          {icon} {title}
+        </div>
+        <svg width="130" height="130" viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="45" fill="transparent" stroke="var(--border-color)" strokeWidth="8" />
+          <circle cx="60" cy="60" r="45" fill="transparent"
+            stroke={color}
+            strokeWidth="8"
+            strokeDasharray={circ}
+            strokeDashoffset={circ - (circ * pct) / 100}
+            transform="rotate(-90 60 60)"
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dashoffset 1s ease-out, stroke 0.4s' }}
+          />
+          <text x="60" y="58" textAnchor="middle" dy="0.3em" className="circular-gauge-text" style={{ fill: color }}>
+            {pct}%
+          </text>
+          <text x="60" y="78" textAnchor="middle" className="circular-gauge-label">
+            {sub}
+          </text>
+        </svg>
+      </div>
+    );
+  };
+
+  // ---- Pod health doughnut (healthy vs failing/pending/not-ready) ----
+  const renderPodHealthDoughnut = (ph: any) => {
+    if (!ph) return null;
+    const failing = (ph.crashLooping || 0) + (ph.imagePullError || 0) + (ph.configError || 0) + (ph.oomKilled || 0) + (ph.failed || 0);
+    const notReady = (ph.notReady || 0) + (ph.terminating || 0);
+    const pending = ph.pending || 0;
+    const healthy = ph.healthy || 0;
+    const segments = [
+      { label: 'Healthy', value: healthy, color: 'var(--accent-green)' },
+      { label: 'Failing', value: failing, color: 'var(--accent-error)' },
+      { label: 'Pending', value: pending, color: 'var(--accent-warning)' },
+      { label: 'Not Ready', value: notReady, color: 'var(--accent-cyan)' },
+    ];
+    const total = segments.reduce((s, x) => s + x.value, 0);
+    if (total === 0) {
+      return <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>No Pods in scope</div>;
+    }
+    const r = 40;
+    const circ = 2 * Math.PI * r;
+    let offset = 0;
+
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24, justifyContent: 'center', flexWrap: 'wrap' }}>
+        <svg width="130" height="130" viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r={r} fill="transparent" stroke="var(--border-color)" strokeWidth="12" />
+          {segments.map((seg) => {
+            if (seg.value === 0) return null;
+            const pct = seg.value / total;
+            const dash = `${pct * circ} ${circ}`;
+            const el = (
+              <circle key={seg.label} cx="60" cy="60" r={r} fill="transparent"
+                stroke={seg.color} strokeWidth="12"
+                strokeDasharray={dash} strokeDashoffset={-offset}
+                transform="rotate(-90 60 60)"
+              />
+            );
+            offset += pct * circ;
+            return el;
+          })}
+          <text x="60" y="56" textAnchor="middle" dy="0.3em" className="circular-gauge-text" style={{ fontSize: '1.4rem', fill: failing > 0 ? 'var(--accent-error)' : 'var(--accent-green)' }}>
+            {Math.round((healthy / total) * 100)}%
+          </text>
+          <text x="60" y="78" textAnchor="middle" className="circular-gauge-label" style={{ fontSize: '0.5rem' }}>
+            Healthy
+          </text>
+        </svg>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.8rem' }}>
+          {segments.map(seg => (
+            <div key={seg.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: seg.color, display: 'inline-block' }} />
+              <span style={{ color: 'var(--text-muted)', width: 80 }}>{seg.label}:</span>
+              <span style={{ fontWeight: 600 }}>{seg.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ---- Active issues panel — the core troubleshooting view ----
+  const renderIssuesPanel = (issues: Issue[], criticalCount: number, warningCount: number) => {
+    return (
+      <div className="dashboard-chart-card" style={{ gridColumn: '1 / -1' }}>
+        <div className="dashboard-chart-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ShieldAlert size={15} /> ACTIVE ISSUES
+          </span>
+          <span style={{ display: 'flex', gap: 10, fontSize: '0.7rem' }}>
+            {criticalCount > 0 && <span style={{ color: 'var(--accent-error)', fontWeight: 700 }}>{criticalCount} CRITICAL</span>}
+            {warningCount > 0 && <span style={{ color: 'var(--accent-warning)', fontWeight: 700 }}>{warningCount} WARNING</span>}
+          </span>
+        </div>
+        {issues.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '28px 0', color: 'var(--accent-green)' }}>
+            <CheckCircle2 size={32} />
+            <span style={{ fontSize: '0.95rem', fontWeight: 600 }}>No active issues detected</span>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>All workloads, nodes and deployments are healthy.</span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6, maxHeight: 360, overflowY: 'auto' }}>
+            {issues.map((iss, idx) => (
+              <div
+                key={`${iss.kind}-${iss.namespace}-${iss.name}-${iss.reason}-${idx}`}
+                onClick={() => goToResource(iss.kind, iss.name)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px',
+                  borderRadius: 6, cursor: 'pointer',
+                  borderLeft: `3px solid ${SEV_COLOR[iss.severity]}`,
+                  background: 'rgba(255,255,255,0.015)',
+                  transition: 'background 0.15s'
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.015)')}
+              >
+                {iss.severity === 'critical'
+                  ? <AlertCircle size={16} style={{ color: SEV_COLOR.critical, flexShrink: 0 }} />
+                  : <AlertTriangle size={16} style={{ color: SEV_COLOR.warning, flexShrink: 0 }} />}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: SEV_COLOR[iss.severity], textTransform: 'uppercase', letterSpacing: 0.4 }}>{iss.reason}</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '1px 6px', borderRadius: 4 }}>{iss.kind}</span>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280 }}>
+                      {iss.namespace ? `${iss.namespace}/` : ''}{iss.name}
+                    </span>
+                    {!!iss.restarts && iss.restarts > 0 && (
+                      <span style={{ fontSize: '0.68rem', color: 'var(--accent-warning)' }}>↻ {iss.restarts}</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {iss.message}
+                  </div>
+                </div>
+                <ChevronRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ---- Recent warning events panel ----
+  const renderWarningsPanel = (warnings: RecentWarning[]) => (
+    <div className="dashboard-chart-card">
+      <div className="dashboard-chart-title">
+        RECENT WARNING EVENTS
+        <span className="dashboard-chart-subtitle">LAST HOUR</span>
+      </div>
+      {(!warnings || warnings.length === 0) ? (
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', textAlign: 'center', padding: '18px 0' }}>
+          No warning events in the last hour
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
+          {warnings.map((w, i) => (
+            <div key={i} style={{ fontSize: '0.75rem', borderLeft: '2px solid var(--accent-warning)', paddingLeft: 8 }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ fontWeight: 700, color: 'var(--accent-warning)' }}>{w.reason}</span>
+                {w.count > 1 && <span style={{ color: 'var(--text-muted)' }}>×{w.count}</span>}
+                <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {w.kind}/{w.namespace ? `${w.namespace}/` : ''}{w.name}
+                </span>
+              </div>
+              <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.message}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderSecuritySection = () => {
+    let criticalVulns = 0, highVulns = 0, mediumVulns = 0, lowVulns = 0;
     Object.values(runningImagesScanResults).forEach(res => {
       if (res.status === 'success' && res.vulnerabilities && res.vulnerabilities.matches) {
         res.vulnerabilities.matches.forEach((m: any) => {
@@ -50,9 +307,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <h2 style={{ fontSize: '1.1rem', margin: 0, letterSpacing: 0.5 }}>SECURITY COMPLIANCE & SCANS</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
-          {/* Vulnerability Summary Card */}
-          <div 
-            className="dashboard-chart-card" 
+          <div
+            className="dashboard-chart-card"
             style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
             onClick={() => setActiveTab('image-scanner')}
             onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
@@ -82,9 +338,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Compliance Summary Card */}
-          <div 
-            className="dashboard-chart-card" 
+          <div
+            className="dashboard-chart-card"
             style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
             onClick={() => setActiveTab('kubescape')}
             onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
@@ -118,116 +373,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   };
 
-  const renderPodStatusDoughnut = (phases: { running: number, pending: number, succeeded: number, failed: number }) => {
-    if (!phases) return null;
-    const total = (phases.running || 0) + (phases.pending || 0) + (phases.succeeded || 0) + (phases.failed || 0);
-    if (total === 0) {
-      return <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>No active Pods in namespace</div>;
-    }
-    const r = 40;
-    const circ = 2 * Math.PI * r; // 251.3
-    
-    const runPct = (phases.running || 0) / total;
-    const penPct = (phases.pending || 0) / total;
-    const failPct = (phases.failed || 0) / total;
-    const succPct = (phases.succeeded || 0) / total;
-    
-    const runOffset = 0;
-    const penOffset = runPct * circ;
-    const failOffset = (runPct + penPct) * circ;
-    const succOffset = (runPct + penPct + failPct) * circ;
-    
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 24, justifyContent: 'center' }}>
-        <svg width="130" height="130" viewBox="0 0 120 120">
-          <defs>
-            <filter id="doughnutGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-          <circle cx="60" cy="60" r={r} fill="transparent" stroke="var(--border-color)" strokeWidth="12" />
-          
-          {(phases.running || 0) > 0 && (
-            <circle cx="60" cy="60" r={r} fill="transparent" 
-              stroke="var(--accent-green)" 
-              strokeWidth="12" 
-              strokeDasharray={`${runPct * circ} ${circ}`} 
-              strokeDashoffset={-runOffset} 
-              transform="rotate(-90 60 60)"
-              filter="url(#doughnutGlow)"
-            />
-          )}
-          
-          {(phases.pending || 0) > 0 && (
-            <circle cx="60" cy="60" r={r} fill="transparent" 
-              stroke="var(--accent-warning)" 
-              strokeWidth="12" 
-              strokeDasharray={`${penPct * circ} ${circ}`} 
-              strokeDashoffset={-penOffset} 
-              transform="rotate(-90 60 60)"
-              filter="url(#doughnutGlow)"
-            />
-          )}
-          
-          {(phases.failed || 0) > 0 && (
-            <circle cx="60" cy="60" r={r} fill="transparent" 
-              stroke="var(--accent-error)" 
-              strokeWidth="12" 
-              strokeDasharray={`${failPct * circ} ${circ}`} 
-              strokeDashoffset={-failOffset} 
-              transform="rotate(-90 60 60)"
-              filter="url(#doughnutGlow)"
-            />
-          )}
-          
-          {(phases.succeeded || 0) > 0 && (
-            <circle cx="60" cy="60" r={r} fill="transparent" 
-              stroke="var(--accent-blue)" 
-              strokeWidth="12" 
-              strokeDasharray={`${succPct * circ} ${circ}`} 
-              strokeDashoffset={-succOffset} 
-              transform="rotate(-90 60 60)"
-              filter="url(#doughnutGlow)"
-            />
-          )}
-          
-          <text x="60" y="58" textAnchor="middle" dy="0.3em" className="circular-gauge-text" style={{ fontSize: '1.2rem' }}>
-            {total}
-          </text>
-          <text x="60" y="78" textAnchor="middle" className="circular-gauge-label" style={{ fontSize: '0.55rem' }}>
-            Pods Total
-          </text>
-        </svg>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.8rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-green)', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)', width: 65 }}>Running:</span>
-            <span style={{ fontWeight: 600 }}>{phases.running || 0} ({Math.round(runPct * 100)}%)</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-warning)', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)', width: 65 }}>Pending:</span>
-            <span style={{ fontWeight: 600 }}>{phases.pending || 0} ({Math.round(penPct * 100)}%)</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-error)', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)', width: 65 }}>Failed:</span>
-            <span style={{ fontWeight: 600 }}>{phases.failed || 0} ({Math.round(failPct * 100)}%)</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent-blue)', display: 'inline-block' }}></span>
-            <span style={{ color: 'var(--text-muted)', width: 65 }}>Succeeded:</span>
-            <span style={{ fontWeight: 600 }}>{phases.succeeded || 0} ({Math.round(succPct * 100)}%)</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const renderResourceBarChart = (counts: any) => {
     const data = [
       { name: 'Pods', value: counts.pods || 0, color: 'var(--accent-green)' },
@@ -237,10 +382,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       { name: 'Helm', value: counts.helmreleases || 0, color: 'var(--accent-pink)' },
       { name: 'Zarf', value: counts.zarfpackages || 0, color: 'var(--accent-warning)' },
     ];
-    
     const maxVal = Math.max(...data.map(d => d.value), 1);
     const chartHeight = 100;
-    
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
         <div style={{ display: 'flex', height: chartHeight, alignItems: 'flex-end', gap: 16, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
@@ -249,86 +392,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             return (
               <div key={d.name} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, height: '100%', justifyContent: 'flex-end' }}>
                 <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: 2 }}>{d.value}</div>
-                <div 
-                  style={{ 
-                    width: '100%', 
-                    height: barHeight, 
-                    background: d.color, 
-                    borderRadius: '2px 2px 0 0',
-                    boxShadow: `0 0 10px ${d.color}33`,
-                    transition: 'height 1s ease-out'
-                  }} 
-                />
+                <div style={{ width: '100%', height: barHeight, background: d.color, borderRadius: '2px 2px 0 0', boxShadow: `0 0 10px ${d.color}33`, transition: 'height 1s ease-out' }} />
               </div>
             );
           })}
         </div>
         <div style={{ display: 'flex', gap: 16 }}>
           {data.map(d => (
-            <div key={d.name} style={{ flex: 1, fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-              {d.name}
-            </div>
+            <div key={d.name} style={{ flex: 1, fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center' }}>{d.name}</div>
           ))}
         </div>
       </div>
     );
   };
 
-  const renderSparkline = (history: number[], color: string) => {
-    let activeHistory = [...history];
-    if (activeHistory.length === 0) {
-      activeHistory = [30, 32, 28, 35, 42, 38, 45, 41, 48, 52, 47, 50, 48, 55, 62, 58, 65, 60, 68, 62];
-    }
-    const width = 300;
-    const height = 100;
-    const maxVal = 100;
-    const pad = 5;
-    
-    const points = activeHistory.map((val, idx) => {
-      const x = pad + (idx * (width - 2 * pad)) / (activeHistory.length - 1 || 1);
-      const y = height - pad - (val / maxVal) * (height - 2 * pad);
-      return `${x},${y}`;
-    }).join(' ');
-    
-    const areaPoints = `${pad},${height - pad} ${points} ${width - pad},${height - pad}`;
-    
-    return (
-      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
-        <defs>
-          <linearGradient id={`areaGlow-${color}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.15" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-          <filter id={`lineGlow-${color}`} x="-10%" y="-10%" width="120%" height="120%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        <polygon points={areaPoints} fill={`url(#areaGlow-${color})`} />
-        <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
-        <polyline 
-          fill="none" 
-          stroke={color} 
-          strokeWidth="2.5" 
-          points={points} 
-          filter={`url(#lineGlow-${color})`}
-        />
-        {activeHistory.length > 0 && (() => {
-          const lastVal = activeHistory[activeHistory.length - 1];
-          const x = width - pad;
-          const y = height - pad - (lastVal / maxVal) * (height - 2 * pad);
-          return (
-            <circle cx={x} cy={y} r="4" fill={color} stroke="var(--bg-main)" strokeWidth="1" />
-          );
-        })()}
-      </svg>
-    );
-  };
-
-  if (!dashboardData) return <div className="loader-container"><div className="loader"></div></div>;
+  if (!dashboardData || Object.keys(dashboardData).length === 0) return <div className="loader-container"><div className="loader"></div></div>;
   if ('error' in (dashboardData as any)) {
     return (
       <div style={{ padding: '32px', color: 'var(--accent-error)', fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -339,178 +417,126 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
     );
   }
-  
+
   const counts = (dashboardData as any).counts || {};
-  const podPhases = (dashboardData as any).podPhases || { running: 0, pending: 0, succeeded: 0, failed: 0 };
   const dashboardRes = (dashboardData as any).resources || {};
-  
+  const health = (dashboardData as any).health || {};
+  const podHealth = (dashboardData as any).podHealth || {};
+  const issues: Issue[] = (dashboardData as any).issues || [];
+  const recentWarnings: RecentWarning[] = (dashboardData as any).recentWarnings || [];
+
   const cpuPct = dashboardRes?.cpuPct || 0;
   const memPct = dashboardRes?.memPct || 0;
-  const cpuUse = dashboardRes?.cpuUse || 0;
-  const cpuCap = dashboardRes?.cpuCap || 0;
-  const memUse = dashboardRes?.memUse || 0;
-  const memCap = dashboardRes?.memCap || 0;
-  
-  const formattedMemUse = (memUse / (1024 * 1024 * 1024)).toFixed(1);
-  const formattedMemCap = (memCap / (1024 * 1024 * 1024)).toFixed(1);
-  
+  // cpuUse/cpuCap are millicores; memUse/memCap are Ki
+  const cpuUseCores = (dashboardRes?.cpuUse || 0) / 1000;
+  const cpuCapCores = (dashboardRes?.cpuCap || 0) / 1000;
+  const memUseGiB = (dashboardRes?.memUse || 0) / (1024 * 1024);
+  const memCapGiB = (dashboardRes?.memCap || 0) / (1024 * 1024);
+
+  const overall = health.overall || 'healthy';
+  const overallMeta = overall === 'critical'
+    ? { color: 'var(--accent-error)', label: 'CRITICAL', icon: <AlertCircle size={26} /> }
+    : overall === 'degraded'
+    ? { color: 'var(--accent-warning)', label: 'DEGRADED', icon: <AlertTriangle size={26} /> }
+    : { color: 'var(--accent-green)', label: 'HEALTHY', icon: <CheckCircle2 size={26} /> };
+
+  const nodes = health.nodes || { total: counts.nodes || 0, ready: counts.nodes || 0, notReady: 0 };
+  const podsH = health.pods || { total: counts.pods || 0, healthy: counts.pods || 0, unhealthy: 0 };
+  const workloads = health.workloads || { total: counts.deployments || 0, healthy: counts.deployments || 0, degraded: 0 };
+
   return (
     <div className="dashboard-container animate-fade-in">
-      {/* Welcome Hero Banner */}
+      {/* Cluster Health Banner */}
       <div style={{
-        background: 'linear-gradient(135deg, rgba(13, 27, 42, 0.45) 0%, rgba(27, 38, 59, 0.2) 100%)',
-        border: '1px solid rgba(255, 255, 255, 0.05)',
+        background: `linear-gradient(135deg, ${overallMeta.color}1a 0%, rgba(27, 38, 59, 0.15) 100%)`,
+        border: `1px solid ${overallMeta.color}40`,
         borderRadius: 'var(--radius-lg)',
-        padding: '24px 32px',
-        marginBottom: '24px',
+        padding: '20px 28px',
+        marginBottom: '20px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: '24px',
-        position: 'relative',
-        overflow: 'hidden',
+        flexWrap: 'wrap',
         boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.25)'
       }}>
-        {/* Subtle background glow */}
-        <div style={{
-          position: 'absolute',
-          top: '-50%',
-          right: '-10%',
-          width: '300px',
-          height: '300px',
-          borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(96, 165, 250, 0.12) 0%, transparent 70%)',
-          filter: 'blur(30px)',
-          pointerEvents: 'none'
-        }} />
-        
-        <div style={{ flex: 1, zIndex: 1 }}>
-          <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#fff', marginBottom: '8px', letterSpacing: '-0.5px' }}>
-            Welcome to Periscope
-          </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5', maxWidth: '620px', margin: 0 }}>
-            Advanced control plane for Kubernetes clusters and Zarf package deployments. 
-            Monitor metrics, trace topologies, execute terminal commands, manage Helm charts, and explore container files instantly.
-          </p>
-          <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
-            <button className="btn btn-primary btn-sm" onClick={() => { setActiveTab('topology'); setSearch(''); }} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Activity size={12} /> Open Topology Graph
-            </button>
-            <button className="btn btn-sm" onClick={() => setIsCmdPaletteOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
-              <Command size={12} /> Command Palette
-            </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <div style={{ color: overallMeta.color }}>{overallMeta.icon}</div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.5px' }}>Cluster Health</h1>
+              <span style={{ background: overallMeta.color, color: '#000', fontWeight: 800, fontSize: '0.72rem', padding: '3px 10px', borderRadius: 20, letterSpacing: 0.5 }}>
+                {overallMeta.label}
+              </span>
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '6px 0 0' }}>
+              {issues.length === 0
+                ? 'No active issues — all nodes, workloads and pods are healthy.'
+                : <>
+                    <span style={{ color: 'var(--accent-error)', fontWeight: 700 }}>{health.criticalCount || 0} critical</span>
+                    {' · '}
+                    <span style={{ color: 'var(--accent-warning)', fontWeight: 700 }}>{health.warningCount || 0} warning</span>
+                    {' issues need attention'}
+                  </>}
+            </p>
           </div>
         </div>
-        
-        <div style={{ width: '220px', height: '125px', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', position: 'relative', zIndex: 1, flexShrink: 0, boxShadow: '0 4px 20px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)' }}>
-          <img 
-            src="/logo.png" 
-            alt="Periscope Logo" 
-            style={{ width: '80%', height: '80%', objectFit: 'contain' }} 
-          />
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-primary btn-sm" onClick={() => { setActiveTab('topology'); setSearch(''); }} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Activity size={12} /> Topology
+          </button>
+          <button className="btn btn-sm" onClick={() => setIsCmdPaletteOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
+            <Command size={12} /> Command Palette
+          </button>
         </div>
       </div>
 
+      {/* Health summary cards: healthy vs unhealthy */}
+      <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        {renderHealthStat({
+          icon: <Server size={14} />, label: 'Nodes',
+          healthy: nodes.ready, total: nodes.total,
+          bad: nodes.notReady, badLabel: 'not ready',
+          onClick: () => setActiveTab('nodes'),
+        })}
+        {renderHealthStat({
+          icon: <Box size={14} />, label: 'Pods',
+          healthy: podsH.healthy, total: podsH.total,
+          bad: podsH.unhealthy, badLabel: 'unhealthy',
+          onClick: () => setActiveTab('pods'),
+        })}
+        {renderHealthStat({
+          icon: <Layers size={14} />, label: 'Deployments',
+          healthy: workloads.healthy, total: workloads.total,
+          bad: workloads.degraded, badLabel: 'degraded',
+          onClick: () => setActiveTab('deployments'),
+        })}
+      </div>
+
+      {/* Active issues — primary troubleshooting panel */}
+      <div className="dashboard-charts-grid" style={{ gridTemplateColumns: '1fr' }}>
+        {renderIssuesPanel(issues, health.criticalCount || 0, health.warningCount || 0)}
+      </div>
+
+      {/* Resource gauges */}
       <div className="dashboard-row">
-        <div className="dashboard-chart-card" style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ width: '100%', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 16, fontWeight: 600, letterSpacing: 0.5 }}>CLUSTER CPU UTILIZATION</div>
-          <svg width="140" height="140" viewBox="0 0 120 120">
-            <defs>
-              <linearGradient id="cpuGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="var(--accent-cyan)" />
-                <stop offset="100%" stopColor="var(--accent-blue)" />
-              </linearGradient>
-              <filter id="cpuGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="4" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <circle cx="60" cy="60" r="45" fill="transparent" stroke="var(--border-color)" strokeWidth="8" />
-            <circle cx="60" cy="60" r="45" fill="transparent" 
-              stroke="url(#cpuGradient)" 
-              strokeWidth="8" 
-              strokeDasharray="282.7" 
-              strokeDashoffset={282.7 - (282.7 * cpuPct) / 100} 
-              transform="rotate(-90 60 60)"
-              filter="url(#cpuGlow)"
-              strokeLinecap="round"
-              style={{ transition: 'stroke-dashoffset 1s ease-out' }}
-            />
-            <text x="60" y="58" textAnchor="middle" dy="0.3em" className="circular-gauge-text">
-              {cpuPct}%
-            </text>
-            <text x="60" y="78" textAnchor="middle" className="circular-gauge-label">
-              {cpuUse.toFixed(1)} / {cpuCap.toFixed(0)} Cores
-            </text>
-          </svg>
-        </div>
-        
-        <div className="dashboard-chart-card" style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ width: '100%', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 16, fontWeight: 600, letterSpacing: 0.5 }}>CLUSTER RAM UTILIZATION</div>
-          <svg width="140" height="140" viewBox="0 0 120 120">
-            <defs>
-              <linearGradient id="memGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="var(--accent-purple)" />
-                <stop offset="100%" stopColor="var(--accent-pink)" />
-              </linearGradient>
-              <filter id="memGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="4" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <circle cx="60" cy="60" r="45" fill="transparent" stroke="var(--border-color)" strokeWidth="8" />
-            <circle cx="60" cy="60" r="45" fill="transparent" 
-              stroke="url(#memGradient)" 
-              strokeWidth="8" 
-              strokeDasharray="282.7" 
-              strokeDashoffset={282.7 - (282.7 * memPct) / 100} 
-              transform="rotate(-90 60 60)"
-              filter="url(#memGlow)"
-              strokeLinecap="round"
-              style={{ transition: 'stroke-dashoffset 1s ease-out' }}
-            />
-            <text x="60" y="58" textAnchor="middle" dy="0.3em" className="circular-gauge-text">
-              {memPct}%
-            </text>
-            <text x="60" y="78" textAnchor="middle" className="circular-gauge-label">
-              {formattedMemUse} / {formattedMemCap} GB
-            </text>
-          </svg>
-        </div>
+        {renderGauge({ pct: cpuPct, title: 'CLUSTER CPU', sub: `${cpuUseCores.toFixed(1)} / ${cpuCapCores.toFixed(0)} cores`, icon: <Cpu size={13} /> })}
+        {renderGauge({ pct: memPct, title: 'CLUSTER MEMORY', sub: `${memUseGiB.toFixed(1)} / ${memCapGiB.toFixed(1)} GiB`, icon: <MemoryStick size={13} /> })}
       </div>
 
+      {/* Pod health + recent warnings */}
       <div className="dashboard-charts-grid">
         <div className="dashboard-chart-card">
-          <div className="dashboard-chart-title">
-            CPU UTILIZATION TIMELINE
-            <span className="dashboard-chart-subtitle">LIVE LOAD SPARKLINE</span>
-          </div>
-          {renderSparkline(cpuHistory, 'var(--accent-cyan)')}
+          <div className="dashboard-chart-title">POD HEALTH BREAKDOWN</div>
+          {renderPodHealthDoughnut(podHealth)}
         </div>
-
-        <div className="dashboard-chart-card">
-          <div className="dashboard-chart-title">
-            MEMORY UTILIZATION TIMELINE
-            <span className="dashboard-chart-subtitle">HISTORICAL GRAPH</span>
-          </div>
-          {renderSparkline(memHistory, 'var(--accent-purple)')}
-        </div>
+        {renderWarningsPanel(recentWarnings)}
       </div>
 
+      {/* Inventory + security */}
       <div className="dashboard-charts-grid">
         <div className="dashboard-chart-card">
-          <div className="dashboard-chart-title">POD WORKLOAD STATUSES</div>
-          {renderPodStatusDoughnut(podPhases)}
-        </div>
-        
-        <div className="dashboard-chart-card">
-          <div className="dashboard-chart-title">NAMESPACE RESOURCE TOTALS</div>
+          <div className="dashboard-chart-title">RESOURCE INVENTORY</div>
           {renderResourceBarChart(counts)}
         </div>
       </div>
