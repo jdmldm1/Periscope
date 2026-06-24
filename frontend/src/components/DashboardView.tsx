@@ -1,11 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Activity, Command, Box, Package, Server, Layers,
-  AlertTriangle, AlertCircle, CheckCircle2, ShieldAlert, Cpu, MemoryStick, ChevronRight
+  AlertTriangle, AlertCircle, CheckCircle2, ShieldAlert, Cpu, MemoryStick, ChevronRight,
+  X, FileText, Radio, Image as ImageIcon, Gauge, Database, ExternalLink
 } from 'lucide-react';
+import { useIssueDetail, useIntegrationReadiness } from '../utils/kubeHooks';
+import { useWatchStatus } from '../hooks/useResourceWatcher';
 
 interface DashboardViewProps {
   dashboardData: any;
+  namespace: string;
   cpuHistory: number[];
   memHistory: number[];
   setActiveTab: (tab: any) => void;
@@ -24,6 +28,9 @@ interface Issue {
   reason: string;
   message: string;
   restarts?: number;
+  ownerKind?: string;
+  ownerName?: string;
+  count?: number;
 }
 
 interface RecentWarning {
@@ -44,6 +51,7 @@ const SEV_COLOR: Record<string, string> = {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   dashboardData,
+  namespace,
   setActiveTab,
   setSearch,
   setIsCmdPaletteOpen,
@@ -51,6 +59,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   runningImagesScanResults,
   kubescapeReport,
 }) => {
+  const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
+  const watchStatus = useWatchStatus();
+  const integration = useIntegrationReadiness(namespace);
+  const issueDetailParams = selectedIssue
+    ? { kind: selectedIssue.kind, namespace: selectedIssue.namespace, name: selectedIssue.name }
+    : null;
+  const { data: issueDetail, isLoading: issueLoading } = useIssueDetail(issueDetailParams);
+
   const goToResource = (kind: string, name: string) => {
     const tab = kind === 'Node' ? 'nodes'
       : kind === 'Deployment' ? 'deployments'
@@ -205,10 +221,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6, maxHeight: 360, overflowY: 'auto' }}>
-            {issues.map((iss, idx) => (
+            {issues.map((iss, idx) => {
+              const grouped = (iss.count || 1) > 1;
+              const displayName = grouped && iss.ownerName ? `${iss.ownerKind}/${iss.ownerName}` : `${iss.namespace ? `${iss.namespace}/` : ''}${iss.name}`;
+              return (
               <div
                 key={`${iss.kind}-${iss.namespace}-${iss.name}-${iss.reason}-${idx}`}
-                onClick={() => goToResource(iss.kind, iss.name)}
+                onClick={() => setSelectedIssue(iss)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px',
                   borderRadius: 6, cursor: 'pointer',
@@ -227,8 +246,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <span style={{ fontSize: '0.7rem', fontWeight: 700, color: SEV_COLOR[iss.severity], textTransform: 'uppercase', letterSpacing: 0.4 }}>{iss.reason}</span>
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '1px 6px', borderRadius: 4 }}>{iss.kind}</span>
                     <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280 }}>
-                      {iss.namespace ? `${iss.namespace}/` : ''}{iss.name}
+                      {displayName}
                     </span>
+                    {grouped && (
+                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: SEV_COLOR[iss.severity], background: `${SEV_COLOR[iss.severity]}22`, padding: '1px 6px', borderRadius: 10 }}>×{iss.count} pods</span>
+                    )}
                     {!!iss.restarts && iss.restarts > 0 && (
                       <span style={{ fontSize: '0.68rem', color: 'var(--accent-warning)' }}>↻ {iss.restarts}</span>
                     )}
@@ -239,7 +261,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
                 <ChevronRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -275,6 +298,253 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
     </div>
   );
+
+  // ---- Issue drill-down drawer (evidence for resolution) ----
+  const renderIssueDrawer = () => {
+    if (!selectedIssue) return null;
+    const d = issueDetail;
+    const sevColor = SEV_COLOR[selectedIssue.severity];
+    return (
+      <>
+        <div onClick={() => setSelectedIssue(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, animation: 'fadeIn 0.15s' }} />
+        <div style={{
+          position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(620px, 95vw)', zIndex: 201,
+          background: 'var(--bg-card, #0d1b2a)', borderLeft: `1px solid var(--border-color)`,
+          boxShadow: '-12px 0 40px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
+        }}>
+          {/* header */}
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: sevColor, textTransform: 'uppercase', letterSpacing: 0.5 }}>{selectedIssue.reason}</span>
+                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '1px 6px', borderRadius: 4 }}>{selectedIssue.kind}</span>
+              </div>
+              <div style={{ fontSize: '1rem', fontWeight: 700, marginTop: 4, wordBreak: 'break-all' }}>
+                {selectedIssue.namespace ? `${selectedIssue.namespace}/` : ''}{selectedIssue.name}
+              </div>
+              {(selectedIssue.count || 1) > 1 && (
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                  Showing one of {selectedIssue.count} affected pods · owner {selectedIssue.ownerKind}/{selectedIssue.ownerName}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button className="btn btn-sm" title="Open in resource view" onClick={() => { goToResource(selectedIssue.kind, selectedIssue.name); setSelectedIssue(null); }} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-color)' }}>
+                <ExternalLink size={12} /> Open
+              </button>
+              <button className="btn btn-sm" onClick={() => setSelectedIssue(null)} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-color)' }}>
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+
+          {/* body */}
+          <div style={{ overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 18, fontSize: '0.82rem' }}>
+            {issueLoading && !d && <div className="loader-container" style={{ padding: 30 }}><div className="loader" /></div>}
+
+            {d?.error && <div style={{ color: 'var(--accent-error)' }}>Failed to load detail: {d.error}</div>}
+
+            {/* Container states */}
+            {Array.isArray(d?.containers) && d.containers.length > 0 && (
+              <div>
+                <div className="dashboard-chart-title" style={{ marginBottom: 8 }}>CONTAINERS</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {d.containers.map((c: any) => (
+                    <div key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', background: 'rgba(255,255,255,0.02)', borderRadius: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.ready ? 'var(--accent-green)' : 'var(--accent-error)', flexShrink: 0 }} />
+                      <span style={{ fontWeight: 600 }}>{c.name}{c.init && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> (init)</span>}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{c.state}{c.waitingReason ? `: ${c.waitingReason}` : ''}</span>
+                      {c.restartCount > 0 && <span style={{ color: 'var(--accent-warning)', marginLeft: 'auto' }}>↻ {c.restartCount}</span>}
+                      {c.lastTerminated && (
+                        <span style={{ color: 'var(--text-muted)', marginLeft: c.restartCount > 0 ? 8 : 'auto', fontSize: '0.72rem' }}>
+                          last exit {c.lastTerminated.exitCode}{c.lastTerminated.reason ? ` (${c.lastTerminated.reason})` : ''}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Deployment replicas */}
+            {d?.replicas && (
+              <div>
+                <div className="dashboard-chart-title" style={{ marginBottom: 8 }}>REPLICAS</div>
+                <div style={{ color: 'var(--text-muted)' }}>
+                  {d.replicas.ready}/{d.replicas.desired} ready · {d.replicas.available} available · {d.replicas.updated} updated
+                </div>
+                {Array.isArray(d.pods) && d.pods.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+                    {d.pods.map((p: any) => (
+                      <div key={p.name} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.status === 'healthy' ? 'var(--accent-green)' : 'var(--accent-error)' }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                        <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>{p.status}{p.restarts ? ` · ↻${p.restarts}` : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Conditions */}
+            {Array.isArray(d?.conditions) && d.conditions.length > 0 && (
+              <div>
+                <div className="dashboard-chart-title" style={{ marginBottom: 8 }}>CONDITIONS</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {d.conditions.filter((c: any) => c.type).map((c: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', gap: 8 }}>
+                      <span style={{ color: c.status === 'True' ? 'var(--accent-green)' : 'var(--accent-warning)', width: 130, flexShrink: 0 }}>{c.type}={c.status}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{c.reason}{c.message ? `: ${c.message}` : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Previous-container logs — the crash evidence */}
+            {d?.logs && (
+              <div>
+                <div className="dashboard-chart-title" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FileText size={13} /> {d.logs.previous ? 'PREVIOUS CONTAINER LOGS' : 'CONTAINER LOGS'}
+                  <span className="dashboard-chart-subtitle">{d.logs.container}{d.logs.previous ? ' · before last crash' : ''}</span>
+                </div>
+                <pre style={{ margin: 0, padding: 12, background: '#000', borderRadius: 6, maxHeight: 260, overflow: 'auto', fontSize: '0.72rem', lineHeight: 1.45, color: '#d1d5db', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {d.logs.available ? (d.logs.text || '(empty)') : 'No logs available for this container.'}
+                </pre>
+              </div>
+            )}
+
+            {/* Events */}
+            {Array.isArray(d?.events) && d.events.length > 0 && (
+              <div>
+                <div className="dashboard-chart-title" style={{ marginBottom: 8 }}>RECENT EVENTS</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {d.events.map((e: any, i: number) => (
+                    <div key={i} style={{ borderLeft: `2px solid ${e.type === 'Warning' ? 'var(--accent-warning)' : 'var(--border-color)'}`, paddingLeft: 8 }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <span style={{ fontWeight: 700, color: e.type === 'Warning' ? 'var(--accent-warning)' : 'var(--text-muted)' }}>{e.reason}</span>
+                        {e.count > 1 && <span style={{ color: 'var(--text-muted)' }}>×{e.count}</span>}
+                      </div>
+                      <div style={{ color: 'var(--text-muted)' }}>{e.message}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {d && !issueLoading && !d.error
+              && !(d.containers?.length) && !(d.events?.length) && !d.logs && !d.replicas && (
+              <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 20 }}>No additional detail available.</div>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  };
+
+  // ---- Integration readiness section (#4) ----
+  const renderIntegrationSection = () => {
+    const data = integration.data;
+    const quotas = data?.quotas || [];
+    const imagePullIssues = data?.imagePullIssues || [];
+    const missingRequests = data?.missingRequests || [];
+    const overMemory = data?.overMemory || [];
+    const hasAnything = quotas.length || imagePullIssues.length || missingRequests.length || overMemory.length;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <h2 style={{ fontSize: '1.1rem', margin: 0, letterSpacing: 0.5 }}>INTEGRATION READINESS</h2>
+        {!hasAnything ? (
+          <div className="dashboard-chart-card" style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--accent-green)' }}>
+            <CheckCircle2 size={18} />
+            <span style={{ fontSize: '0.85rem' }}>No quota limits, image-pull failures or unset resource requests detected{namespace && namespace !== 'all' ? ` in ${namespace}` : ''}.</span>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+            {/* Image pull failures */}
+            {imagePullIssues.length > 0 && (
+              <div className="dashboard-chart-card">
+                <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ImageIcon size={13} /> IMAGE PULL FAILURES
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                  {imagePullIssues.map((p: any, i: number) => (
+                    <div key={i} style={{ fontSize: '0.76rem' }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700, color: 'var(--accent-error)' }}>{p.reason}</span>
+                        <span style={{ color: 'var(--text-muted)' }}>registry: {p.registry}</span>
+                        {p.count > 1 && <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>×{p.count}</span>}
+                      </div>
+                      <div style={{ color: 'var(--text-main)', wordBreak: 'break-all' }}>{p.image}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Resource quotas */}
+            {quotas.length > 0 && (
+              <div className="dashboard-chart-card">
+                <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Database size={13} /> RESOURCE QUOTAS
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8, maxHeight: 220, overflowY: 'auto' }}>
+                  {quotas.map((q: any, i: number) => (
+                    <div key={i}>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 4 }}>{q.namespace}/{q.name}</div>
+                      {(q.entries || []).slice(0, 6).map((e: any, j: number) => (
+                        <div key={j} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>{e.resource}</span>
+                          <span style={{ fontWeight: 600 }}>{e.used} / {e.hard}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Pods without resource requests */}
+            {missingRequests.length > 0 && (
+              <div className="dashboard-chart-card">
+                <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Gauge size={13} /> MISSING RESOURCE REQUESTS
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Workloads with no CPU/memory requests — risky scheduling & QoS.</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
+                  {missingRequests.map((m: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.namespace}/{m.owner}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{m.count} pod{m.count > 1 ? 's' : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Memory exceeding requests */}
+            {overMemory.length > 0 && (
+              <div className="dashboard-chart-card">
+                <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <MemoryStick size={13} /> MEMORY OVER REQUEST
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Using more memory than requested — OOM / eviction risk.</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
+                  {overMemory.map((m: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.namespace}/{m.name}</span>
+                      <span style={{ color: m.ratio >= 1.5 ? 'var(--accent-error)' : 'var(--accent-warning)' }}>{m.usageMiB}Mi / {m.requestMiB}Mi ({m.ratio}×)</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderSecuritySection = () => {
     let criticalVulns = 0, highVulns = 0, mediumVulns = 0, lowVulns = 0;
@@ -461,6 +731,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span style={{ background: overallMeta.color, color: '#000', fontWeight: 800, fontSize: '0.72rem', padding: '3px 10px', borderRadius: 20, letterSpacing: 0.5 }}>
                 {overallMeta.label}
               </span>
+              <span title={watchStatus === 'live' ? 'Live updates streaming from the cluster' : 'Reconnecting to live updates'}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.68rem', fontWeight: 700, letterSpacing: 0.4,
+                  color: watchStatus === 'live' ? 'var(--accent-green)' : 'var(--accent-warning)' }}>
+                <Radio size={12} className={watchStatus === 'live' ? 'pulse-dot' : ''} />
+                {watchStatus === 'live' ? 'LIVE' : 'RECONNECTING'}
+              </span>
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '6px 0 0' }}>
               {issues.length === 0
@@ -533,6 +809,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
+      {renderIntegrationSection()}
+
       {renderSecuritySection()}
 
       <div>
@@ -562,6 +840,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
+
+      {renderIssueDrawer()}
     </div>
   );
 };
