@@ -1164,6 +1164,16 @@ div.vis-tooltip {
   color: var(--accent-error) !important;
 }
 
+/* Live-stream connection indicator */
+@keyframes pulseDot {
+  0% { opacity: 1; }
+  50% { opacity: 0.35; }
+  100% { opacity: 1; }
+}
+.pulse-dot {
+  animation: pulseDot 1.6s ease-in-out infinite;
+}
+
 /* Custom scrollbars inside diagnostics and logs */
 .diagnostics-log-tail {
   background: #000;
