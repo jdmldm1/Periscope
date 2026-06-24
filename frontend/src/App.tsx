@@ -12,7 +12,6 @@ import { useZarfManager } from './hooks/useZarfManager';
 import { useHelmManager } from './hooks/useHelmManager';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { StatsGrid } from './components/StatsGrid';
 import { ResourceListView } from './components/ResourceListView';
 import { ModalManager } from './components/ModalManager';
 import { CommandPalette } from './components/CommandPalette';
@@ -346,14 +345,6 @@ function AppContent() {
     return {
       cpuPercent: Math.round((cpuUse / cpuCap) * 100),
       memPercent: Math.round((memUse / memCap) * 100)
-    };
-  };
-
-  const getNodeCapacity = (name: string) => {
-    const node = (filteredResources || []).find(n => n.metadata.name === name);
-    return {
-      cpu: parseCpu(node?.status?.capacity?.cpu || '1'),
-      memory: parseMem(node?.status?.capacity?.memory || '1Ki')
     };
   };
 
@@ -829,12 +820,6 @@ function AppContent() {
     }
   };
 
-  const stats = {
-    nodes: (nodeMetrics || []).length,
-    pods: (podMetrics || []).length,
-    deployments: (allDeployments || []).length
-  };
-
   // Controls the off-canvas sidebar drawer on small / touch screens.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -872,17 +857,6 @@ function AppContent() {
         />
 
         <div className="content-area">
-          {activeTab === 'dashboard' && (
-            <ErrorBoundary fallbackTitle="Stats Grid">
-              <StatsGrid 
-                stats={stats} 
-                nodeMetrics={nodeMetrics || []} 
-                getNodeCapacity={getNodeCapacity} 
-                setActiveTab={setActiveTab} 
-              />
-            </ErrorBoundary>
-          )}
-
           <div className="header animate-fade-in" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <h2 style={{ margin: 0, fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: 10 }}>
