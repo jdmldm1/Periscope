@@ -1,4 +1,4 @@
-const { exec } = require('child_process');
+const { run } = require('../utils/exec');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -46,45 +46,49 @@ class SecurityService {
         // Background execution
         (async () => {
             try {
-                let cmd = await this._getKubescapeCommand();
-                if (!cmd) {
+                let bin = await this._getKubescapeCommand();
+                if (!bin) {
                     logger.info('[Kubescape] CLI not found. Downloading binary...');
-                    const localPath = await this._downloadKubescape();
-                    cmd = `"${localPath}"`;
+                    bin = await this._downloadKubescape();
                 }
 
                 const tempFileName = `kubescape-scan-${Date.now()}.json`;
                 const tempFilePath = path.join(os.tmpdir(), tempFileName);
-                const fullCmd = `${cmd} scan --format json --format-version v2 --output "${tempFilePath}"`;
+                const scanArgs = ['scan', '--format', 'json', '--format-version', 'v2', '--output', tempFilePath];
 
-                logger.info({ fullCmd }, '[Kubescape] Executing scan');
+                logger.info({ bin, scanArgs }, '[Kubescape] Executing scan');
 
-                exec(fullCmd, (error, stdout, stderr) => {
-                    try {
-                        if (error) {
-                            logger.warn({ error: error.message || stderr }, '[Kubescape] Execution warning/error');
-                        }
+                let stderr = '';
+                try {
+                    const result = await run(bin, scanArgs);
+                    stderr = result.stderr;
+                } catch (error) {
+                    // Kubescape exits non-zero when controls fail; that's expected,
+                    // so we still try to read the report it wrote.
+                    stderr = error.stderr || error.message;
+                    logger.warn({ error: stderr }, '[Kubescape] Execution warning/error');
+                }
 
-                        if (fs.existsSync(tempFilePath)) {
-                            const rawReport = JSON.parse(fs.readFileSync(tempFilePath, 'utf8'));
-                            const parsed = this._parseKubescapeReport(rawReport);
+                try {
+                    if (fs.existsSync(tempFilePath)) {
+                        const rawReport = JSON.parse(fs.readFileSync(tempFilePath, 'utf8'));
+                        const parsed = this._parseKubescapeReport(rawReport);
 
-                            this.kubescapeScanCache = parsed;
-                            fs.writeFileSync(this.kubescapeCacheFile, JSON.stringify(parsed, null, 2), 'utf8');
-                            logger.info('[Kubescape] Compliance scan completed successfully!');
-                            try { fs.unlinkSync(tempFilePath); } catch (e) {}
-                        } else {
-                            throw new Error('Scan report file was not generated: ' + stderr);
-                        }
-                    } catch (parseErr) {
-                        logger.error(parseErr, '[Kubescape] Failed to parse report. Falling back to mock.');
-                        const mock = this.getMockKubescapeReport();
-                        this.kubescapeScanCache = mock;
-                        fs.writeFileSync(this.kubescapeCacheFile, JSON.stringify(mock, null, 2), 'utf8');
-                    } finally {
-                        this.isKubescapeScanning = false;
+                        this.kubescapeScanCache = parsed;
+                        fs.writeFileSync(this.kubescapeCacheFile, JSON.stringify(parsed, null, 2), 'utf8');
+                        logger.info('[Kubescape] Compliance scan completed successfully!');
+                        try { fs.unlinkSync(tempFilePath); } catch (e) {}
+                    } else {
+                        throw new Error('Scan report file was not generated: ' + stderr);
                     }
-                });
+                } catch (parseErr) {
+                    logger.error(parseErr, '[Kubescape] Failed to parse report. Falling back to mock.');
+                    const mock = this.getMockKubescapeReport();
+                    this.kubescapeScanCache = mock;
+                    fs.writeFileSync(this.kubescapeCacheFile, JSON.stringify(mock, null, 2), 'utf8');
+                } finally {
+                    this.isKubescapeScanning = false;
+                }
             } catch (err) {
                 logger.error(err, '[Kubescape] Compliance scan failed. Falling back to mock.');
                 const mock = this.getMockKubescapeReport();
@@ -98,13 +102,15 @@ class SecurityService {
     }
 
     async _getKubescapeCommand() {
-        return new Promise((resolve) => {
-            exec('kubescape version', (err) => {
-                if (!err) return resolve('kubescape');
-                if (fs.existsSync(this.localKubescapePath)) return resolve(`"${this.localKubescapePath}"`);
-                resolve(null);
-            });
-        });
+        // Returns the executable path to invoke (passed to run() as argv[0]),
+        // or null if no kubescape binary is available yet.
+        try {
+            await run('kubescape', ['version']);
+            return 'kubescape';
+        } catch (err) {
+            if (fs.existsSync(this.localKubescapePath)) return this.localKubescapePath;
+            return null;
+        }
     }
 
     async _downloadKubescape() {
