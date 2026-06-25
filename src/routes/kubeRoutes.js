@@ -254,6 +254,29 @@ router.get('/resource/:kind/:namespace/:name/events', async (req, res) => {
     }
 });
 
+async function findTrueWorkloadOwner(namespace, pod) {
+    const ownerReferences = pod.metadata?.ownerReferences || [];
+    if (ownerReferences.length === 0) {
+        return null;
+    }
+    const primaryOwner = ownerReferences[0];
+    const { kind, name } = primaryOwner;
+    
+    if (kind === 'ReplicaSet') {
+        try {
+            const rs = await k8sService.apps.readNamespacedReplicaSet({ name, namespace });
+            const rsBody = rs.body || rs;
+            const rsOwner = (rsBody.metadata?.ownerReferences || [])[0];
+            if (rsOwner) {
+                return { kind: rsOwner.kind, name: rsOwner.name };
+            }
+        } catch (err) {
+            logger.error({ name, namespace, error: err.message }, 'Failed to resolve ReplicaSet parent');
+        }
+    }
+    return { kind, name };
+}
+
 router.get('/diagnose/:namespace/:podName', async (req, res) => {
     const { namespace, podName } = req.params;
     try {
@@ -295,6 +318,7 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
             status: 'Healthy',
             summary: 'No issues detected. The pod is running normally.',
             details: [],
+            suggestedFixes: [],
             events: events.map(e => ({
                 type: e.type,
                 reason: e.reason,
@@ -311,6 +335,15 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
         ];
 
         let hasIssue = false;
+        let oomKilledContainer = null;
+        let pullFailureContainer = null;
+        
+        let ownerWorkload = null;
+        try {
+            ownerWorkload = await findTrueWorkloadOwner(namespace, pod);
+        } catch (e) {
+            logger.error(e, 'Error resolving workload owner in diagnose');
+        }
 
         containerStatuses.forEach(cs => {
             const name = cs.name;
@@ -332,6 +365,7 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
                     }
                     if (exitCode === 137 || termReason === 'OOMKilled') {
                         detail += ` Root cause: Out Of Memory (OOMKilled). The container exceeded its memory limit.`;
+                        oomKilledContainer = name;
                     } else if (exitCode === 1) {
                         detail += ` This usually indicates an application crash or misconfiguration.`;
                     } else if (exitCode === 127) {
@@ -341,6 +375,7 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
                 } else if (reason === 'ErrImagePull' || reason === 'ImagePullBackOff') {
                     diagnosis.status = 'Critical';
                     diagnosis.details.push(`Container '${name}' failed to pull image. Reason: ${reason}. Check if the image reference is correct, the registry exists, and credentials are correct.`);
+                    pullFailureContainer = name;
                 } else if (reason === 'CreateContainerConfigError' || reason === 'CreateContainerError') {
                     diagnosis.status = 'Critical';
                     diagnosis.details.push(`Container '${name}' failed to create. Reason: ${reason}. This is often caused by a missing ConfigMap, Secret, or invalid command arguments.`);
@@ -357,6 +392,7 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
                 if (term.reason === 'OOMKilled') {
                     diagnosis.status = 'Critical';
                     detail += ` The container was terminated because it ran out of memory. Try increasing the memory limits in the deployment spec.`;
+                    oomKilledContainer = name;
                 } else {
                     if (diagnosis.status !== 'Critical') diagnosis.status = 'Warning';
                 }
@@ -404,8 +440,156 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
             }
         }
 
+        // Build dynamically suggested fixes
+        if (oomKilledContainer && ownerWorkload && ['Deployment', 'StatefulSet', 'DaemonSet'].includes(ownerWorkload.kind)) {
+            diagnosis.suggestedFixes.push({
+                type: 'ScaleResources',
+                title: `Double Memory limits for '${oomKilledContainer}'`,
+                description: `Automatically scale resources for container '${oomKilledContainer}' in the parent ${ownerWorkload.kind} '${ownerWorkload.name}' by doubling its memory limits/requests.`,
+                params: {
+                    containerName: oomKilledContainer,
+                    workloadKind: ownerWorkload.kind,
+                    workloadName: ownerWorkload.name
+                }
+            });
+        }
+
+        if (ownerWorkload && ['Deployment', 'StatefulSet', 'DaemonSet'].includes(ownerWorkload.kind)) {
+            diagnosis.suggestedFixes.push({
+                type: 'RolloutRestart',
+                title: `Rollout Restart Workload`,
+                description: `Trigger a rollout restart on parent ${ownerWorkload.kind} '${ownerWorkload.name}' to clean up failed containers or re-pull images.`,
+                params: {
+                    workloadKind: ownerWorkload.kind,
+                    workloadName: ownerWorkload.name
+                }
+            });
+        }
+
+        // Secondary fallback is always to recreate the pod directly
+        diagnosis.suggestedFixes.push({
+            type: 'RecreatePod',
+            title: 'Recreate Pod',
+            description: `Forcefully delete pod '${podName}' and let the controller spin up a clean replica.`,
+            params: {}
+        });
+
         res.json(diagnosis);
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/resource/pods/:namespace/:name/remediate', async (req, res) => {
+    const { namespace, name } = req.params;
+    const { type, params } = req.body;
+    
+    try {
+        const { exec } = require('child_process');
+        const util = require('util');
+        const execPromise = util.promisify(exec);
+
+        if (type === 'RecreatePod') {
+            const cmd = `kubectl delete pod ${name} -n ${namespace}`;
+            await execPromise(cmd);
+            if (typeof k8sService.clearCache === 'function') {
+                k8sService.clearCache('pods', namespace);
+            }
+            return res.json({ success: true, message: `Pod '${name}' deleted and will be recreated.` });
+        }
+        
+        if (type === 'RolloutRestart') {
+            const { workloadKind, workloadName } = params;
+            if (!workloadKind || !workloadName) {
+                return res.status(400).json({ error: 'workloadKind and workloadName are required for RolloutRestart' });
+            }
+            const cmd = `kubectl rollout restart ${workloadKind.toLowerCase()}/${workloadName} -n ${namespace}`;
+            await execPromise(cmd);
+            if (typeof k8sService.clearCache === 'function') {
+                k8sService.clearCache(workloadKind.toLowerCase() + 's', namespace);
+                k8sService.clearCache('pods', namespace);
+            }
+            return res.json({ success: true, message: `Rollout restart triggered for ${workloadKind} '${workloadName}'.` });
+        }
+        
+        if (type === 'ScaleResources') {
+            const { workloadKind, workloadName, containerName } = params;
+            if (!workloadKind || !workloadName || !containerName) {
+                return res.status(400).json({ error: 'workloadKind, workloadName, and containerName are required for ScaleResources' });
+            }
+            
+            // 1. Get current resources of the workload
+            const getCmd = `kubectl get ${workloadKind.toLowerCase()} ${workloadName} -n ${namespace} -o json`;
+            const { stdout } = await execPromise(getCmd);
+            const workload = JSON.parse(stdout);
+            
+            // 2. Find container and double memory
+            const containers = workload.spec?.template?.spec?.containers || [];
+            const containerIdx = containers.findIndex(c => c.name === containerName);
+            if (containerIdx === -1) {
+                return res.status(404).json({ error: `Container '${containerName}' not found in workload` });
+            }
+            
+            const container = containers[containerIdx];
+            const resources = container.resources || {};
+            const requests = resources.requests || {};
+            const limits = resources.limits || {};
+            
+            const doubleMemory = (memStr, defaultVal) => {
+                if (!memStr) return defaultVal;
+                const val = parseFloat(memStr);
+                const unit = memStr.replace(/[0-9.]/g, '');
+                return `${Math.ceil(val * 2)}${unit || 'Mi'}`;
+            };
+            
+            const newMemRequest = doubleMemory(requests.memory, '256Mi');
+            const newMemLimit = doubleMemory(limits.memory, '512Mi');
+            
+            // Construct a patch object
+            const patchObj = {
+                spec: {
+                    template: {
+                        spec: {
+                            containers: [{
+                                name: containerName,
+                                resources: {
+                                    requests: { ...requests, memory: newMemRequest },
+                                    limits: { ...limits, memory: newMemLimit }
+                                }
+                            }]
+                        }
+                    }
+                }
+            };
+            
+            const os = require('os');
+            const fs = require('fs');
+            const path = require('path');
+            const tempFileName = `patch-${name}-${Date.now()}.json`;
+            const tempFilePath = path.join(os.tmpdir(), tempFileName);
+            fs.writeFileSync(tempFilePath, JSON.stringify(patchObj), 'utf8');
+
+            try {
+                const patchCmd = `kubectl patch ${workloadKind.toLowerCase()} ${workloadName} -n ${namespace} --type=merge --patch-file "${tempFilePath}"`;
+                await execPromise(patchCmd);
+            } finally {
+                try { fs.unlinkSync(tempFilePath); } catch (_) {}
+            }
+            
+            if (typeof k8sService.clearCache === 'function') {
+                k8sService.clearCache(workloadKind.toLowerCase() + 's', namespace);
+                k8sService.clearCache('pods', namespace);
+            }
+            
+            return res.json({ 
+                success: true, 
+                message: `Successfully doubled memory for container '${containerName}' in ${workloadKind} '${workloadName}' (Request: ${newMemRequest}, Limit: ${newMemLimit}).` 
+            });
+        }
+        
+        return res.status(400).json({ error: `Unsupported remediation action: ${type}` });
+    } catch (err) {
+        logger.error({ namespace, name, type, error: err.message }, 'Failed to apply remediation');
         res.status(500).json({ error: err.message });
     }
 });
