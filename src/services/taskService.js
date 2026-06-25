@@ -8,7 +8,13 @@ class TaskService {
 
     startTask(cmd, args, cwd = process.cwd(), onClose = null) {
         const taskId = `task-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-        const child = spawn(cmd, args, { cwd, shell: true });
+        // shell:false (the default) is critical: with shell:true, spawn would
+        // concatenate cmd+args into a single shell string, re-introducing
+        // command injection for any user-controlled arg (package paths, image
+        // refs, etc.). Without a shell, each arg is passed verbatim to the
+        // executable. Callers that genuinely need shell features pass an
+        // explicit interpreter, e.g. startTask('sh', ['-c', script]).
+        const child = spawn(cmd, args, { cwd, shell: false });
 
         this.activeTasks[taskId] = {
             id: taskId,
