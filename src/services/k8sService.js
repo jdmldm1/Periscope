@@ -126,22 +126,25 @@ class K8sService {
     }
 
     async setContext(contextName) {
-        const { exec } = require('child_process');
-        return new Promise((resolve, reject) => {
-            exec(`kubectl config use-context "${contextName}"`, (error, stdout, stderr) => {
-                if (error) {
-                    logger.error({ contextName, error: error.message }, 'Failed to switch context');
-                    return reject(error);
-                }
-                try {
-                    this.kc.loadFromDefault();
-                    this.initializeClients();
-                    resolve(this.kc.currentContext);
-                } catch (err) {
-                    reject(err);
-                }
-            });
-        });
+        // Only allow switching to a context that actually exists in the loaded
+        // kubeconfig. This both validates input and means contextName is never an
+        // arbitrary string heading toward an external command.
+        const known = this.kc.contexts.some(c => c.name === contextName);
+        if (!known) {
+            const err = new Error(`Unknown context: ${contextName}`);
+            err.statusCode = 400;
+            throw err;
+        }
+        const { run } = require('../utils/exec');
+        try {
+            await run('kubectl', ['config', 'use-context', contextName]);
+        } catch (error) {
+            logger.error({ contextName, error: error.message }, 'Failed to switch context');
+            throw error;
+        }
+        this.kc.loadFromDefault();
+        this.initializeClients();
+        return this.kc.currentContext;
     }
 
     async getTopologyData(ns) {
