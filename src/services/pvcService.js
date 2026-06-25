@@ -1,6 +1,6 @@
 const k8sService = require('./k8sService');
 const logger = require('../utils/logger');
-const { exec } = require('child_process');
+const { run } = require('../utils/exec');
 
 class PvcService {
     async getHelperPodName(pvcName) {
@@ -88,14 +88,20 @@ class PvcService {
 
     async execCommand(namespace, pvcName, command) {
         const podName = await this.ensureHelperPod(namespace, pvcName);
-        return new Promise((resolve, reject) => {
-            exec(`kubectl exec -n ${namespace} ${podName} -c browser -- ${command}`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-                if (error && !stdout) {
-                    return reject(new Error(stderr || error.message));
-                }
-                resolve({ stdout, stderr });
-            });
-        });
+        // namespace/podName are passed as argv elements (no server-side shell).
+        // `command` is the script we want the throwaway helper pod's shell to
+        // run; it executes inside that ephemeral alpine pod, never on the host.
+        try {
+            const { stdout, stderr } = await run('kubectl', [
+                'exec', '-n', namespace, podName, '-c', 'browser', '--', 'sh', '-c', command
+            ]);
+            return { stdout, stderr };
+        } catch (error) {
+            if (error.stdout) {
+                return { stdout: error.stdout, stderr: error.stderr };
+            }
+            throw new Error(error.stderr || error.message);
+        }
     }
 
     async listFiles(namespace, pvcName, folderPath = '/') {
