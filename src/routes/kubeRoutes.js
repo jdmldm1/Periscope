@@ -4,6 +4,28 @@ const k8sService = require('../services/k8sService');
 const logger = require('../utils/logger');
 const stream = require('stream');
 const yaml = require('js-yaml');
+const { run } = require('../utils/exec');
+const { assertNamespace, assertName, assertKind } = require('../utils/validators');
+
+// Validate path params before any handler runs. Combined with argv-based command
+// execution below, this means a hostile :namespace/:name/:kind can neither inject
+// shell syntax nor reach an external binary as a malformed identifier.
+router.param('namespace', (req, res, next, val) => {
+    try { assertNamespace(val); next(); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+router.param('name', (req, res, next, val) => {
+    try { assertName(val); next(); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+router.param('podName', (req, res, next, val) => {
+    try { assertName(val, 'podName'); next(); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+router.param('kind', (req, res, next, val) => {
+    try { assertKind(val.replace(/^resource\//, '')); next(); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 // Specific routes MUST come before generic ones
 router.get('/contexts', async (req, res) => {
@@ -125,18 +147,14 @@ router.post('/resource/:kind/:namespace/:name/save', async (req, res) => {
 router.put('/resource/deployments/:namespace/:name/restart', async (req, res) => {
     const { namespace, name } = req.params;
     try {
-        const { exec } = require('child_process');
-        const cmd = `kubectl rollout restart deployment/${name} -n ${namespace}`;
-        exec(cmd, (error, stdout, stderr) => {
-            if (error) return res.status(500).json({ error: error.message || stderr });
-            if (typeof k8sService.clearCache === 'function') {
-                k8sService.clearCache('deployments', namespace);
-                k8sService.clearCache('pods', namespace);
-            }
-            res.json({ success: true, message: stdout.trim() });
-        });
+        const { stdout } = await run('kubectl', ['rollout', 'restart', `deployment/${name}`, '-n', namespace]);
+        if (typeof k8sService.clearCache === 'function') {
+            k8sService.clearCache('deployments', namespace);
+            k8sService.clearCache('pods', namespace);
+        }
+        res.json({ success: true, message: stdout.trim() });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.stderr || err.message });
     }
 });
 
@@ -147,17 +165,13 @@ router.put('/resource/deployments/:namespace/:name/scale', async (req, res) => {
         return res.status(400).json({ error: 'Valid replicas count is required' });
     }
     try {
-        const { exec } = require('child_process');
-        const cmd = `kubectl scale deployment/${name} --replicas=${replicas} -n ${namespace}`;
-        exec(cmd, (error, stdout, stderr) => {
-            if (error) return res.status(500).json({ error: error.message || stderr });
-            if (typeof k8sService.clearCache === 'function') {
-                k8sService.clearCache('deployments', namespace);
-            }
-            res.json({ success: true, message: stdout.trim() });
-        });
+        const { stdout } = await run('kubectl', ['scale', `deployment/${name}`, `--replicas=${Number(replicas)}`, '-n', namespace]);
+        if (typeof k8sService.clearCache === 'function') {
+            k8sService.clearCache('deployments', namespace);
+        }
+        res.json({ success: true, message: stdout.trim() });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.stderr || err.message });
     }
 });
 
@@ -166,23 +180,23 @@ router.put('/resource/deployments/:namespace/:name/scale', async (req, res) => {
 router.put('/resource/deployments/:namespace/:name/stop', async (req, res) => {
     const { namespace, name } = req.params;
     try {
-        const { exec } = require('child_process');
-        const getCmd = `kubectl get deployment/${name} -n ${namespace} -o jsonpath="{.spec.replicas}"`;
-        exec(getCmd, (getErr, getOut) => {
+        let previous = 1;
+        try {
+            const { stdout: getOut } = await run('kubectl', ['get', `deployment/${name}`, '-n', namespace, '-o', 'jsonpath={.spec.replicas}']);
             const current = parseInt((getOut || '').trim(), 10);
-            const previous = (!getErr && !isNaN(current) && current > 0) ? current : 1;
-            const cmd = `kubectl annotate deployment/${name} -n ${namespace} periscope-previous-replicas=${previous} --overwrite && kubectl scale deployment/${name} --replicas=0 -n ${namespace}`;
-            exec(cmd, (error, stdout, stderr) => {
-                if (error) return res.status(500).json({ error: error.message || stderr });
-                if (typeof k8sService.clearCache === 'function') {
-                    k8sService.clearCache('deployments', namespace);
-                    k8sService.clearCache('pods', namespace);
-                }
-                res.json({ success: true, message: `Deployment ${name} stopped (scaled to 0)`, previousReplicas: previous });
-            });
-        });
+            if (!isNaN(current) && current > 0) previous = current;
+        } catch (_) { /* default to 1 */ }
+
+        await run('kubectl', ['annotate', `deployment/${name}`, '-n', namespace, `periscope-previous-replicas=${previous}`, '--overwrite']);
+        await run('kubectl', ['scale', `deployment/${name}`, '--replicas=0', '-n', namespace]);
+
+        if (typeof k8sService.clearCache === 'function') {
+            k8sService.clearCache('deployments', namespace);
+            k8sService.clearCache('pods', namespace);
+        }
+        res.json({ success: true, message: `Deployment ${name} stopped (scaled to 0)`, previousReplicas: previous });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.stderr || err.message });
     }
 });
 
@@ -191,41 +205,36 @@ router.put('/resource/deployments/:namespace/:name/stop', async (req, res) => {
 router.put('/resource/deployments/:namespace/:name/start', async (req, res) => {
     const { namespace, name } = req.params;
     try {
-        const { exec } = require('child_process');
-        const getCmd = `kubectl get deployment/${name} -n ${namespace} -o jsonpath="{.metadata.annotations.periscope-previous-replicas}"`;
-        exec(getCmd, (getErr, getOut) => {
-            const saved = parseInt((getOut || '').trim(), 10);
-            const bodyReplicas = Number(req.body && req.body.replicas);
-            const target = (!getErr && !isNaN(saved) && saved > 0)
-                ? saved
-                : (!isNaN(bodyReplicas) && bodyReplicas > 0 ? bodyReplicas : 1);
-            const cmd = `kubectl scale deployment/${name} --replicas=${target} -n ${namespace}`;
-            exec(cmd, (error, stdout, stderr) => {
-                if (error) return res.status(500).json({ error: error.message || stderr });
-                if (typeof k8sService.clearCache === 'function') {
-                    k8sService.clearCache('deployments', namespace);
-                    k8sService.clearCache('pods', namespace);
-                }
-                res.json({ success: true, message: `Deployment ${name} started (scaled to ${target})`, replicas: target });
-            });
-        });
+        let saved = NaN;
+        try {
+            const { stdout: getOut } = await run('kubectl', ['get', `deployment/${name}`, '-n', namespace, '-o', 'jsonpath={.metadata.annotations.periscope-previous-replicas}']);
+            saved = parseInt((getOut || '').trim(), 10);
+        } catch (_) { /* fall through to body/default */ }
+
+        const bodyReplicas = Number(req.body && req.body.replicas);
+        const target = (!isNaN(saved) && saved > 0)
+            ? saved
+            : (!isNaN(bodyReplicas) && bodyReplicas > 0 ? bodyReplicas : 1);
+
+        await run('kubectl', ['scale', `deployment/${name}`, `--replicas=${target}`, '-n', namespace]);
+        if (typeof k8sService.clearCache === 'function') {
+            k8sService.clearCache('deployments', namespace);
+            k8sService.clearCache('pods', namespace);
+        }
+        res.json({ success: true, message: `Deployment ${name} started (scaled to ${target})`, replicas: target });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.stderr || err.message });
     }
 });
 
 router.delete('/resource/:kind/:namespace/:name', async (req, res) => {
     const { kind, namespace, name } = req.params;
     try {
-        const { exec } = require('child_process');
-        const cmd = `kubectl delete ${kind} ${name} -n ${namespace}`;
-        exec(cmd, (error, stdout, stderr) => {
-            if (error) return res.status(500).json({ error: error.message || stderr });
-            if (typeof k8sService.clearCache === 'function') {
-                k8sService.clearCache(kind, namespace);
-            }
-            res.json({ success: true, message: stdout.trim() });
-        });
+        const { stdout } = await run('kubectl', ['delete', kind, name, '-n', namespace]);
+        if (typeof k8sService.clearCache === 'function') {
+            k8sService.clearCache(kind, namespace);
+        }
+        res.json({ success: true, message: stdout.trim() });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -485,42 +494,46 @@ router.post('/resource/pods/:namespace/:name/remediate', async (req, res) => {
     const { type, params } = req.body;
     
     try {
-        const { exec } = require('child_process');
-        const util = require('util');
-        const execPromise = util.promisify(exec);
+        // workloadKind / workloadName / containerName come from the request body,
+        // so validate them as strict Kubernetes identifiers before they reach
+        // kubectl (argv-based; no shell interpolation either way).
+        const validateWorkload = (kind, wname, container) => {
+            assertKind(kind, 'workloadKind');
+            assertName(wname, 'workloadName');
+            if (container !== undefined) assertName(container, 'containerName');
+        };
 
         if (type === 'RecreatePod') {
-            const cmd = `kubectl delete pod ${name} -n ${namespace}`;
-            await execPromise(cmd);
+            await run('kubectl', ['delete', 'pod', name, '-n', namespace]);
             if (typeof k8sService.clearCache === 'function') {
                 k8sService.clearCache('pods', namespace);
             }
             return res.json({ success: true, message: `Pod '${name}' deleted and will be recreated.` });
         }
-        
+
         if (type === 'RolloutRestart') {
             const { workloadKind, workloadName } = params;
             if (!workloadKind || !workloadName) {
                 return res.status(400).json({ error: 'workloadKind and workloadName are required for RolloutRestart' });
             }
-            const cmd = `kubectl rollout restart ${workloadKind.toLowerCase()}/${workloadName} -n ${namespace}`;
-            await execPromise(cmd);
+            validateWorkload(workloadKind, workloadName);
+            await run('kubectl', ['rollout', 'restart', `${workloadKind.toLowerCase()}/${workloadName}`, '-n', namespace]);
             if (typeof k8sService.clearCache === 'function') {
                 k8sService.clearCache(workloadKind.toLowerCase() + 's', namespace);
                 k8sService.clearCache('pods', namespace);
             }
             return res.json({ success: true, message: `Rollout restart triggered for ${workloadKind} '${workloadName}'.` });
         }
-        
+
         if (type === 'ScaleResources') {
             const { workloadKind, workloadName, containerName } = params;
             if (!workloadKind || !workloadName || !containerName) {
                 return res.status(400).json({ error: 'workloadKind, workloadName, and containerName are required for ScaleResources' });
             }
-            
+            validateWorkload(workloadKind, workloadName, containerName);
+
             // 1. Get current resources of the workload
-            const getCmd = `kubectl get ${workloadKind.toLowerCase()} ${workloadName} -n ${namespace} -o json`;
-            const { stdout } = await execPromise(getCmd);
+            const { stdout } = await run('kubectl', ['get', workloadKind.toLowerCase(), workloadName, '-n', namespace, '-o', 'json']);
             const workload = JSON.parse(stdout);
             
             // 2. Find container and double memory
@@ -570,8 +583,7 @@ router.post('/resource/pods/:namespace/:name/remediate', async (req, res) => {
             fs.writeFileSync(tempFilePath, JSON.stringify(patchObj), 'utf8');
 
             try {
-                const patchCmd = `kubectl patch ${workloadKind.toLowerCase()} ${workloadName} -n ${namespace} --type=merge --patch-file "${tempFilePath}"`;
-                await execPromise(patchCmd);
+                await run('kubectl', ['patch', workloadKind.toLowerCase(), workloadName, '-n', namespace, '--type=merge', '--patch-file', tempFilePath]);
             } finally {
                 try { fs.unlinkSync(tempFilePath); } catch (_) {}
             }
@@ -618,11 +630,17 @@ router.post('/resource/pods/:namespace/:name/exec', async (req, res) => {
             const pod = podRes.body || podRes;
             containerName = pod.spec.containers[0].name;
         }
-        const { exec } = require('child_process');
-        exec(`kubectl exec -n ${namespace} ${name} -c ${containerName} -- ${command}`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-            if (error && !stdout) return res.status(500).json({ error: error.message || stderr });
+        // `command` runs inside the target pod via `sh -c` (the intended
+        // "exec into pod" feature); namespace/name/container are argv elements,
+        // so nothing is interpreted by a shell on the server itself.
+        try {
+            const { stdout, stderr } = await run('kubectl',
+                ['exec', '-n', namespace, name, '-c', containerName, '--', 'sh', '-c', String(command)]);
             res.json({ stdout, stderr });
-        });
+        } catch (error) {
+            if (error.stdout) return res.json({ stdout: error.stdout, stderr: error.stderr });
+            res.status(500).json({ error: error.stderr || error.message });
+        }
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -767,13 +785,15 @@ router.get('/resource/pods/:namespace/:name/files/view', async (req, res) => {
             containerName = pod.spec.containers[0].name;
         }
         
-        const { exec } = require('child_process');
-        exec(`kubectl exec -n ${namespace} ${name} -c ${containerName} -- cat "${filePath.replace(/"/g, '\\"')}"`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-            if (error) {
-                return res.status(500).json({ error: error.message || stderr });
-            }
+        // filePath is passed straight to `cat` as a single argv element, so no
+        // quoting/escaping is needed and shell metacharacters are inert.
+        try {
+            const { stdout } = await run('kubectl',
+                ['exec', '-n', namespace, name, '-c', containerName, '--', 'cat', filePath]);
             res.json({ content: stdout });
-        });
+        } catch (error) {
+            res.status(500).json({ error: error.stderr || error.message });
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -846,12 +866,15 @@ router.delete('/resource/pods/:namespace/:name/files', async (req, res) => {
             containerName = pod.spec.containers[0].name;
         }
         
-        const cmd = `rm -rf "${filePath.replace(/"/g, '\\"')}"`;
-        const { exec } = require('child_process');
-        exec(`kubectl exec -n ${namespace} ${name} -c ${containerName} -- sh -c '${cmd}'`, (error, stdout, stderr) => {
-            if (error) return res.status(500).json({ error: error.message || stderr });
+        // `rm` receives filePath as a single argv element; no shell on the
+        // server side, and `--` stops kubectl/rm from treating it as a flag.
+        try {
+            await run('kubectl',
+                ['exec', '-n', namespace, name, '-c', containerName, '--', 'rm', '-rf', '--', filePath]);
             res.json({ success: true });
-        });
+        } catch (error) {
+            res.status(500).json({ error: error.stderr || error.message });
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

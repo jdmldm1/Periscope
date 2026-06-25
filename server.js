@@ -36,13 +36,38 @@ const cronJobRoutes = require('./src/routes/cronJobRoutes');
 
 const app = express();
 app.use(compression());
-app.use(cors());
+
+// CORS is locked down by default. Periscope serves its own frontend from the
+// same origin, so cross-origin requests are unnecessary unless explicitly
+// allowed via CORS_ORIGIN (comma-separated list of origins, or "*" to opt back
+// into the old allow-all behavior). Defaulting to same-origin closes the
+// CSRF-style hole that an open `cors()` left when auth was disabled.
+const corsOrigins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+if (corsOrigins.length) {
+    app.use(cors({ origin: corsOrigins.includes('*') ? true : corsOrigins }));
+}
+
 app.use(express.json());
 
 // Authentication middleware for all API routes
 app.use('/api', authMiddleware);
 
+// Rate-limit mutating API calls (the destructive surface: scale, delete, exec,
+// deploy, restore...). Reads are left unthrottled.
 const destructiveLimiter = createRateLimiter({ windowMs: 60000, maxRequests: 30 });
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+app.use('/api', (req, res, next) => {
+    if (MUTATING_METHODS.has(req.method)) return destructiveLimiter(req, res, next);
+    next();
+});
+
+// Audit log every mutating API request so destructive actions are traceable.
+app.use('/api', (req, res, next) => {
+    if (MUTATING_METHODS.has(req.method)) {
+        logger.warn({ audit: true, method: req.method, url: req.url.split('?')[0], ip: req.ip }, 'Mutating API request');
+    }
+    next();
+});
 
 (function decompressGrypeDb() {
     const dbBaseDir = '/app/.cache/grype';
@@ -75,17 +100,28 @@ const destructiveLimiter = createRateLimiter({ windowMs: 60000, maxRequests: 30 
     }
 })();
 
-// Request logging
+// Request logging (strip any token query param so secrets never hit the logs)
 app.use((req, res, next) => {
     if (!req.url.includes('/metrics')) {
-        logger.info({ method: req.method, url: req.url }, 'Incoming request');
+        const safeUrl = req.url.replace(/([?&]token=)[^&]*/gi, '$1[redacted]');
+        logger.info({ method: req.method, url: safeUrl }, 'Incoming request');
     }
     next();
 });
 
-// Health checks
+// Health checks. /healthz is a liveness probe (process is up); /readyz is a
+// readiness probe that actually verifies API-server connectivity, so Kubernetes
+// won't route traffic to a replica that can't reach the cluster.
 app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
-app.get('/readyz', (req, res) => res.json({ status: 'ready' }));
+app.get('/readyz', async (req, res) => {
+    try {
+        await k8sService.core.listNamespace({ limit: 1 });
+        res.json({ status: 'ready' });
+    } catch (err) {
+        logger.warn({ error: err.message }, 'Readiness check failed: cannot reach Kubernetes API');
+        res.status(503).json({ status: 'not-ready', error: 'Kubernetes API unreachable' });
+    }
+});
 
 // API Routes (Matching old paths for compatibility)
 app.use('/api/kube', kubeRoutes);
