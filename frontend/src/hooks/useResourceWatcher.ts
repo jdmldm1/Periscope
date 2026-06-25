@@ -1,23 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-
-export type WatchStatus = 'connecting' | 'live' | 'reconnecting';
-
-// The watcher is mounted once at the app root; this lets any component (e.g. the
-// dashboard) reflect the live connection state without prop drilling.
-const emitWatchStatus = (status: WatchStatus) => {
-  window.dispatchEvent(new CustomEvent('periscope:watch-status', { detail: status }));
-};
-
-export const useWatchStatus = (): WatchStatus => {
-  const [status, setStatus] = useState<WatchStatus>('connecting');
-  useEffect(() => {
-    const handler = (e: Event) => setStatus((e as CustomEvent).detail as WatchStatus);
-    window.addEventListener('periscope:watch-status', handler);
-    return () => window.removeEventListener('periscope:watch-status', handler);
-  }, []);
-  return status;
-};
 
 const KIND_TO_QUERY_KEY_MAP: Record<string, string> = {
   'Pod': 'pods',
@@ -38,7 +20,6 @@ const KIND_TO_QUERY_KEY_MAP: Record<string, string> = {
 export const useResourceWatcher = () => {
   const queryClient = useQueryClient();
   const socketRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
     const connect = () => {
@@ -55,7 +36,6 @@ export const useResourceWatcher = () => {
 
       socket.onopen = () => {
         console.log('[useResourceWatcher] Connected to Kubernetes resource watcher');
-        emitWatchStatus('live');
       };
 
       socket.onmessage = (event) => {
@@ -90,11 +70,6 @@ export const useResourceWatcher = () => {
       socket.onclose = (e) => {
         console.log('[useResourceWatcher] Connection closed:', e.reason);
         socketRef.current = null;
-        emitWatchStatus('reconnecting');
-        // Reconnect after 5 seconds
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
-        }, 5000);
       };
 
       socket.onerror = (err) => {
@@ -108,9 +83,6 @@ export const useResourceWatcher = () => {
     return () => {
       if (socketRef.current) {
         socketRef.current.close();
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
       }
     };
   }, [queryClient]);
