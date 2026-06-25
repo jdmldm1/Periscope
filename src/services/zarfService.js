@@ -1,48 +1,43 @@
-const { exec } = require('child_process');
+const { run } = require('../utils/exec');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
 const taskService = require('./taskService');
 const k8sService = require('./k8sService');
 
+const REGISTRY_URL = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
+
+// Strip ANSI terminal escape sequences from CLI output before parsing tables.
+const ANSI_RE = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+
+// Every zarf invocation goes through run() with an argv array (no shell), so
+// package names, image refs, repo names, file paths and registry credentials are
+// passed as single arguments and can't be interpreted as shell syntax.
 class ZarfService {
     async getStatus() {
-        return new Promise((resolve) => {
-            exec('zarf version', (error, stdout, stderr) => {
-                if (error) {
-                    return resolve({ installed: false, error: error.message || stderr });
-                }
-                resolve({ installed: true, version: stdout.trim() });
-            });
-        });
+        try {
+            const { stdout } = await run('zarf', ['version']);
+            return { installed: true, version: stdout.trim() };
+        } catch (error) {
+            return { installed: false, error: error.stderr || error.message };
+        }
     }
 
     async listPackages() {
-        return new Promise((resolve, reject) => {
-            exec('zarf package list -o json', (error, stdout, stderr) => {
-                if (error) {
-                    return reject(new Error(error.message || stderr));
-                }
-                try {
-                    const packages = this._extractZarfJson(stdout);
-                    const shimmed = (packages || []).map(p => ({
-                        ...p,
-                        metadata: {
-                            name: p.package || p.name,
-                            namespace: 'zarf',
-                            uid: `zarf-${p.package || p.name}`,
-                            creationTimestamp: p.timestamp || new Date().toISOString()
-                        },
-                        status: {
-                            phase: 'deployed'
-                        }
-                    }));
-                    resolve(shimmed);
-                } catch (e) {
-                    reject(new Error('Failed to parse zarf packages output: ' + e.message));
-                }
-            });
-        });
+        const { stdout } = await run('zarf', ['package', 'list', '-o', 'json']);
+        const packages = this._extractZarfJson(stdout);
+        return (packages || []).map(p => ({
+            ...p,
+            metadata: {
+                name: p.package || p.name,
+                namespace: 'zarf',
+                uid: `zarf-${p.package || p.name}`,
+                creationTimestamp: p.timestamp || new Date().toISOString()
+            },
+            status: {
+                phase: 'deployed'
+            }
+        }));
     }
 
     async deployPackage(packagePath, configPath) {
@@ -54,47 +49,27 @@ class ZarfService {
     }
 
     async removePackage(name) {
-        return new Promise((resolve, reject) => {
-            const cmd = `zarf package remove "${name}" --confirm`;
-            exec(cmd, (error, stdout, stderr) => {
-                if (error) {
-                    return reject(new Error(error.message || stderr));
-                }
-                resolve(stdout);
-            });
-        });
+        const { stdout } = await run('zarf', ['package', 'remove', name, '--confirm']);
+        return stdout;
     }
 
     async getRegistryAllImages() {
-        const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
-        return new Promise((resolve, reject) => {
-            this._ensureRegistryLogin(() => {
-                exec(`zarf tools registry catalog ${registryUrl}`, (error, stdout, stderr) => {
-                    if (error) return reject(new Error(error.message || stderr));
-                    const repos = stdout.split('\n').map(r => r.trim()).filter(Boolean);
-                    
-                    const results = [];
-                    let completed = 0;
-                    
-                    if (repos.length === 0) return resolve([]);
-                    
-                    repos.forEach(repo => {
-                        exec(`zarf tools registry ls ${registryUrl}/${repo}`, (lsError, lsStdout, lsStderr) => {
-                            if (!lsError) {
-                                const tags = lsStdout.split('\n').map(t => t.trim()).filter(Boolean);
-                                tags.forEach(tag => {
-                                    results.push({ repository: repo, tag: tag, full: `${repo}:${tag}` });
-                                });
-                            }
-                            completed++;
-                            if (completed === repos.length) {
-                                resolve(results);
-                            }
-                        });
-                    });
+        await this._ensureRegistryLogin();
+        const { stdout } = await run('zarf', ['tools', 'registry', 'catalog', REGISTRY_URL]);
+        const repos = stdout.split('\n').map(r => r.trim()).filter(Boolean);
+
+        const results = [];
+        await Promise.all(repos.map(async (repo) => {
+            try {
+                const { stdout: lsOut } = await run('zarf', ['tools', 'registry', 'ls', `${REGISTRY_URL}/${repo}`]);
+                lsOut.split('\n').map(t => t.trim()).filter(Boolean).forEach(tag => {
+                    results.push({ repository: repo, tag, full: `${repo}:${tag}` });
                 });
-            }, (err) => reject(err));
-        });
+            } catch (err) {
+                // Skip repos we can't list.
+            }
+        }));
+        return results;
     }
 
     _extractZarfJson(stdout) {
@@ -122,107 +97,118 @@ class ZarfService {
         }
     }
 
-    _ensureRegistryLogin(onSuccess, onError) {
-        const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
-        exec(`zarf tools registry catalog ${registryUrl}`, (error, stdout, stderr) => {
-            if (error && (stdout.includes('UNAUTHORIZED') || stderr.includes('UNAUTHORIZED') || error.message.includes('UNAUTHORIZED'))) {
-                exec('zarf tools get-creds', (credError, credStdout, credStderr) => {
-                    if (credError) {
-                        return onError(new Error('Failed to retrieve Zarf credentials: ' + (credError.message || credStderr)));
-                    }
-                    const cleanStdout = credStdout.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-                    const lines = cleanStdout.split('\n');
-                    let username = 'zarf-push';
-                    let password = '';
-                    lines.forEach(line => {
-                        const parts = line.split('|').map(p => p.trim());
-                        if (parts.length >= 3 && parts[0] && parts[0].trim() === 'Registry') {
-                            username = parts[1] || 'zarf-push';
-                            password = parts[2] || '';
-                        }
-                    });
-                    if (!password) {
-                        return onError(new Error('Registry push password not found in Zarf credentials'));
-                    }
-                    exec(`zarf tools registry login --username ${username} --password "${password}" ${registryUrl}`, (loginError, loginStdout, loginStderr) => {
-                        if (loginError) {
-                            return onError(new Error('Registry login failed: ' + (loginError.message || loginStderr)));
-                        }
-                        onSuccess();
-                    });
-                });
-            } else if (error) {
-                return onError(new Error('Failed to communicate with Zarf registry: ' + (error.message || stderr)));
-            } else {
-                onSuccess();
+    /**
+     * Ensure we're authenticated to the in-cluster Zarf registry. Resolves on
+     * success, rejects with an Error on failure.
+     *
+     * Accepts optional (onSuccess, onError) callbacks for legacy callers; when
+     * provided it invokes them, otherwise it behaves as a normal promise.
+     */
+    async _ensureRegistryLogin(onSuccess, onError) {
+        const done = (err) => {
+            if (err) {
+                if (onError) { onError(err); return; }
+                throw err;
+            }
+            if (onSuccess) onSuccess();
+        };
+
+        try {
+            await run('zarf', ['tools', 'registry', 'catalog', REGISTRY_URL]);
+            return done();
+        } catch (error) {
+            const blob = `${error.stdout || ''}${error.stderr || ''}${error.message || ''}`;
+            if (!blob.includes('UNAUTHORIZED')) {
+                return done(new Error('Failed to communicate with Zarf registry: ' + (error.stderr || error.message)));
+            }
+        }
+
+        // Unauthorized — fetch creds and log in.
+        let credStdout;
+        try {
+            ({ stdout: credStdout } = await run('zarf', ['tools', 'get-creds']));
+        } catch (credError) {
+            return done(new Error('Failed to retrieve Zarf credentials: ' + (credError.stderr || credError.message)));
+        }
+
+        const cleanStdout = credStdout.replace(ANSI_RE, '');
+        let username = 'zarf-push';
+        let password = '';
+        cleanStdout.split('\n').forEach(line => {
+            const parts = line.split('|').map(p => p.trim());
+            if (parts.length >= 3 && parts[0] && parts[0].trim() === 'Registry') {
+                username = parts[1] || 'zarf-push';
+                password = parts[2] || '';
             }
         });
+        if (!password) {
+            return done(new Error('Registry push password not found in Zarf credentials'));
+        }
+
+        try {
+            await run('zarf', ['tools', 'registry', 'login', '--username', username, '--password', password, REGISTRY_URL]);
+            return done();
+        } catch (loginError) {
+            return done(new Error('Registry login failed: ' + (loginError.stderr || loginError.message)));
+        }
     }
 
     async getCreds() {
-        return new Promise((resolve, reject) => {
-            exec('zarf tools get-creds', (error, stdout, stderr) => {
-                if (error) return reject(new Error(error.message || stderr));
-                const cleanStdout = stdout.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-                const lines = cleanStdout.split('\n');
-                const creds = [];
-                lines.forEach(line => {
-                    const parts = line.split('|').map(p => p.trim());
-                    if (parts.length >= 4 && parts[0] && !parts[0].includes('Application') && !parts[0].includes('---')) {
-                        creds.push({
-                            application: parts[0],
-                            username: parts[1] || 'N/A',
-                            password: parts[2] || 'N/A',
-                            connect: parts[3] || 'N/A',
-                            key: parts[4] || 'N/A'
-                        });
-                    }
+        const { stdout } = await run('zarf', ['tools', 'get-creds']);
+        const cleanStdout = stdout.replace(ANSI_RE, '');
+        const creds = [];
+        cleanStdout.split('\n').forEach(line => {
+            const parts = line.split('|').map(p => p.trim());
+            if (parts.length >= 4 && parts[0] && !parts[0].includes('Application') && !parts[0].includes('---')) {
+                creds.push({
+                    application: parts[0],
+                    username: parts[1] || 'N/A',
+                    password: parts[2] || 'N/A',
+                    connect: parts[3] || 'N/A',
+                    key: parts[4] || 'N/A'
                 });
-                resolve(creds);
-            });
+            }
         });
+        return creds;
     }
 
     async clearCache() {
-        return new Promise((resolve, reject) => {
-            exec('zarf tools clear-cache --confirm', (error, stdout, stderr) => {
-                if (error) return reject(new Error(error.message || stderr));
-                resolve({ success: true, output: stdout });
-            });
-        });
+        const { stdout } = await run('zarf', ['tools', 'clear-cache', '--confirm']);
+        return { success: true, output: stdout };
     }
 
     async unpackPackage(packagePath) {
-        return new Promise((resolve, reject) => {
-            const tempDir = path.join(process.cwd(), `zarf-unpack-${Date.now()}`);
-            if (!fs.existsSync(tempDir)) {
-                fs.mkdirSync(tempDir);
-            }
-            exec(`zarf tools archiver decompress "${packagePath}" "${tempDir}"`, (error, stdout, stderr) => {
-                if (error) {
-                    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
-                    return reject(new Error('Failed to decompress package: ' + (error.message || stderr)));
-                }
-                const yamlPath = path.join(tempDir, 'zarf.yaml');
-                if (!fs.existsSync(yamlPath)) {
-                    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
-                    return reject(new Error('zarf.yaml not found inside package'));
-                }
-                try {
-                    const configText = fs.readFileSync(yamlPath, 'utf8');
-                    resolve({ success: true, tempDir, configText });
-                } catch (err) {
-                    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
-                    reject(new Error('Failed to read zarf.yaml: ' + err.message));
-                }
-            });
-        });
+        const tempDir = path.join(process.cwd(), `zarf-unpack-${Date.now()}`);
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir);
+        }
+        try {
+            await run('zarf', ['tools', 'archiver', 'decompress', packagePath, tempDir]);
+        } catch (error) {
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
+            throw new Error('Failed to decompress package: ' + (error.stderr || error.message));
+        }
+        const yamlPath = path.join(tempDir, 'zarf.yaml');
+        if (!fs.existsSync(yamlPath)) {
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
+            throw new Error('zarf.yaml not found inside package');
+        }
+        try {
+            const configText = fs.readFileSync(yamlPath, 'utf8');
+            return { success: true, tempDir, configText };
+        } catch (err) {
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
+            throw new Error('Failed to read zarf.yaml: ' + err.message);
+        }
     }
 
     async rebuildDeploy(tempDir, configText) {
         const yamlPath = path.join(tempDir, 'zarf.yaml');
         fs.writeFileSync(yamlPath, configText, 'utf8');
-        
+
+        // tempDir is server-generated (see unpackPackage); no user input is
+        // interpolated into this script. The shell is the package builder's, run
+        // via an explicit `sh -c`, not from spawn({shell:true}).
         const runScript = `
             cd "${tempDir}"
             zarf package create --confirm
@@ -307,21 +293,15 @@ class ZarfService {
         if (!fs.existsSync(outDir)) {
             fs.mkdirSync(outDir, { recursive: true });
         }
-        return new Promise((resolve, reject) => {
-            exec(`zarf package inspect sbom "${packagePath}" --output "${outDir}"`, (error, stdout, stderr) => {
-                if (error) return reject(new Error(error.message || stderr));
-                fs.readdir(outDir, (readErr, files) => {
-                    if (readErr) return reject(readErr);
-                    const htmlFiles = files
-                        .filter(f => f.endsWith('.html'))
-                        .map(f => ({
-                            name: f,
-                            url: `/${staticSubdir}/${packageName}/${f}`
-                        }));
-                    resolve({ success: true, files: htmlFiles });
-                });
-            });
-        });
+        await run('zarf', ['package', 'inspect', 'sbom', packagePath, '--output', outDir]);
+        const files = fs.readdirSync(outDir);
+        const htmlFiles = files
+            .filter(f => f.endsWith('.html'))
+            .map(f => ({
+                name: f,
+                url: `/${staticSubdir}/${packageName}/${f}`
+            }));
+        return { success: true, files: htmlFiles };
     }
 
     async getPackage(name) {
@@ -345,7 +325,7 @@ class ZarfService {
         const base64Data = secretBody.data.state;
         const decodedString = Buffer.from(base64Data, 'base64').toString('utf8');
         const parsedJson = JSON.parse(decodedString);
-        
+
         if (parsedJson.registryInfo) {
             if (parsedJson.registryInfo.pushPassword) parsedJson.registryInfo.pushPassword = '●●●●●●●●';
             if (parsedJson.registryInfo.pullPassword) parsedJson.registryInfo.pullPassword = '●●●●●●●●';
@@ -365,42 +345,22 @@ class ZarfService {
     }
 
     async getRegistryCatalog() {
-        const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
-        return new Promise((resolve, reject) => {
-            this._ensureRegistryLogin(() => {
-                exec(`zarf tools registry catalog ${registryUrl}`, (error, stdout, stderr) => {
-                    if (error) return reject(new Error(error.message || stderr));
-                    const repos = stdout.split('\n').map(r => r.trim()).filter(Boolean);
-                    resolve(repos);
-                });
-            }, (err) => reject(err));
-        });
+        await this._ensureRegistryLogin();
+        const { stdout } = await run('zarf', ['tools', 'registry', 'catalog', REGISTRY_URL]);
+        return stdout.split('\n').map(r => r.trim()).filter(Boolean);
     }
 
     async getRegistryRepositoryTags(repo) {
-        const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
-        return new Promise((resolve, reject) => {
-            this._ensureRegistryLogin(() => {
-                exec(`zarf tools registry ls ${registryUrl}/${repo}`, (error, stdout, stderr) => {
-                    if (error) return reject(new Error(error.message || stderr));
-                    const tags = stdout.split('\n').map(t => t.trim()).filter(Boolean);
-                    resolve(tags);
-                });
-            }, (err) => reject(err));
-        });
+        await this._ensureRegistryLogin();
+        const { stdout } = await run('zarf', ['tools', 'registry', 'ls', `${REGISTRY_URL}/${repo}`]);
+        return stdout.split('\n').map(t => t.trim()).filter(Boolean);
     }
 
     async deleteRegistryImage(imageRef) {
-        const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
-        return new Promise((resolve, reject) => {
-            this._ensureRegistryLogin(() => {
-                const fullRef = imageRef.startsWith(registryUrl) ? imageRef : `${registryUrl}/${imageRef}`;
-                exec(`zarf tools registry delete ${fullRef}`, (error, stdout, stderr) => {
-                    if (error) return reject(new Error(error.message || stderr));
-                    resolve({ success: true, output: stdout });
-                });
-            }, (err) => reject(err));
-        });
+        await this._ensureRegistryLogin();
+        const fullRef = imageRef.startsWith(REGISTRY_URL) ? imageRef : `${REGISTRY_URL}/${imageRef}`;
+        const { stdout } = await run('zarf', ['tools', 'registry', 'delete', fullRef]);
+        return { success: true, output: stdout };
     }
 
     async pruneRegistry() {
@@ -408,60 +368,39 @@ class ZarfService {
     }
 
     async pullRegistryImage(source, target) {
-        const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
-        return new Promise((resolve, reject) => {
-            this._ensureRegistryLogin(() => {
-                const targetRef = target.includes(':') ? target : `${target}:latest`;
-                const fullTarget = `${registryUrl}/${targetRef}`;
-                const taskId = taskService.startTask('zarf', [
-                    'tools', 'registry', 'copy',
-                    source,
-                    fullTarget,
-                    '--insecure'
-                ]);
-                resolve(taskId);
-            }, (err) => reject(err));
-        });
+        await this._ensureRegistryLogin();
+        const targetRef = target.includes(':') ? target : `${target}:latest`;
+        const fullTarget = `${REGISTRY_URL}/${targetRef}`;
+        return taskService.startTask('zarf', [
+            'tools', 'registry', 'copy', source, fullTarget, '--insecure'
+        ]);
     }
 
     async downloadRegistryImage(imageRef) {
-        const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
-        const fullSource = imageRef.startsWith(registryUrl) ? imageRef : `${registryUrl}/${imageRef}`;
+        const fullSource = imageRef.startsWith(REGISTRY_URL) ? imageRef : `${REGISTRY_URL}/${imageRef}`;
         const os = require('os');
         const tempFileName = `image-${imageRef.replace(/[:/]/g, '-')}-${Date.now()}.tar`;
         const tempFilePath = path.join(os.tmpdir(), tempFileName);
-        
-        return new Promise((resolve, reject) => {
-            this._ensureRegistryLogin(() => {
-                const taskId = taskService.startTask('zarf', [
-                    'tools', 'registry', 'copy',
-                    fullSource,
-                    tempFilePath,
-                    '--insecure'
-                ]);
-                resolve({ taskId, tempFileName });
-            }, (err) => reject(err));
-        });
+
+        await this._ensureRegistryLogin();
+        const taskId = taskService.startTask('zarf', [
+            'tools', 'registry', 'copy', fullSource, tempFilePath, '--insecure'
+        ]);
+        return { taskId, tempFileName };
     }
 
     async pushRegistryImage(targetRef, tempFilePath) {
-        const registryUrl = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
-        const fullTarget = `${registryUrl}/${targetRef}`;
-        return new Promise((resolve, reject) => {
-            this._ensureRegistryLogin(() => {
-                const taskId = taskService.startTask('zarf', [
-                    'tools', 'registry', 'copy',
-                    tempFilePath,
-                    fullTarget,
-                    '--insecure'
-                ], process.cwd(), () => {
-                    try { fs.unlinkSync(tempFilePath); } catch (e) {}
-                });
-                resolve(taskId);
-            }, (err) => {
-                try { fs.unlinkSync(tempFilePath); } catch (e) {}
-                reject(err);
-            });
+        const fullTarget = `${REGISTRY_URL}/${targetRef}`;
+        try {
+            await this._ensureRegistryLogin();
+        } catch (err) {
+            try { fs.unlinkSync(tempFilePath); } catch (e) {}
+            throw err;
+        }
+        return taskService.startTask('zarf', [
+            'tools', 'registry', 'copy', tempFilePath, fullTarget, '--insecure'
+        ], process.cwd(), () => {
+            try { fs.unlinkSync(tempFilePath); } catch (e) {}
         });
     }
 }
