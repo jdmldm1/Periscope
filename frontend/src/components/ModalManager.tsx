@@ -5,6 +5,7 @@ import { SecretDecoderPanel } from './SecretDecoderPanel';
 import { PodFilesExplorer } from './PodFilesExplorer';
 import { InteractiveTerminal } from './InteractiveTerminal';
 import { PvcExplorerView } from './PvcExplorerView';
+import { useAppContext } from '../contexts/AppContext';
 
 interface ModalManagerProps {
   modal: any;
@@ -63,6 +64,11 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
   handleRollback, handleInspectRevisionValues, selectedRevisionValues, setSelectedRevisionValues,
   isLoadingRevisionValues, renderDiffView
 }) => {
+  const { api } = useAppContext();
+  const [remediatingType, setRemediatingType] = React.useState<string | null>(null);
+  const [remediateSuccess, setRemediateSuccess] = React.useState<string | null>(null);
+  const [remediateError, setRemediateError] = React.useState<string | null>(null);
+
   if (!modal) return null;
 
   const tabs = modal.kind === 'pods' ? ['diagnose', 'yaml', 'logs', 'events', 'files', 'terminal'] : 
@@ -414,6 +420,84 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Suggested Remediation Actions */}
+                {modalData.suggestedFixes && modalData.suggestedFixes.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      🩺 Suggested Remediation Actions (Smart Doctor)
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {modalData.suggestedFixes.map((fix: any, idx: number) => (
+                        <div 
+                          key={idx}
+                          style={{
+                            padding: 14,
+                            borderRadius: 6,
+                            background: 'rgba(59, 130, 246, 0.03)',
+                            border: '1px solid rgba(59, 130, 246, 0.1)',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 16
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                            <strong style={{ color: 'var(--accent-cyan)', fontSize: '0.9rem' }}>{fix.title}</strong>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.3 }}>{fix.description}</span>
+                          </div>
+                          <button
+                            className="btn btn-sm"
+                            style={{
+                              background: 'var(--accent-blue)',
+                              borderColor: 'var(--accent-blue)',
+                              color: '#fff',
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0
+                            }}
+                            disabled={remediatingType !== null}
+                            onClick={async () => {
+                              setRemediatingType(fix.type);
+                              setRemediateError(null);
+                              setRemediateSuccess(null);
+                              try {
+                                const { data } = await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/remediate`, {
+                                  type: fix.type,
+                                  params: fix.params
+                                });
+                                if (data.success) {
+                                  setRemediateSuccess(data.message || 'Action executed successfully!');
+                                  setTimeout(() => {
+                                    fetchModalData('diagnose');
+                                    setRemediateSuccess(null);
+                                    setRemediatingType(null);
+                                  }, 2000);
+                                } else {
+                                  throw new Error(data.error || 'Failed to remediate');
+                                }
+                              } catch (err: any) {
+                                setRemediateError(err.response?.data?.error || err.message);
+                                setRemediatingType(null);
+                              }
+                            }}
+                          >
+                            {remediatingType === fix.type ? 'Applying...' : 'Apply Fix'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    {remediateSuccess && (
+                      <div style={{ color: 'var(--accent-success)', fontSize: '0.85rem', padding: '4px 10px', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: 4 }}>
+                        ✓ {remediateSuccess}
+                      </div>
+                    )}
+                    {remediateError && (
+                      <div style={{ color: 'var(--accent-error)', fontSize: '0.85rem', padding: '4px 10px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 4 }}>
+                        ⚠ Error: {remediateError}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Related Events */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
