@@ -29,6 +29,27 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+# Pod- and container-level security hardening. Defaults run Periscope as the
+# unprivileged `node` user (uid 1000) baked into the image, with all Linux
+# capabilities dropped and privilege escalation disabled.
+#
+# NOTE: the live network capture (Traffic Inspector / tcpdump) feature needs
+# CAP_NET_RAW. If you use it, add the capability back:
+#   containerSecurityContext:
+#     capabilities:
+#       drop: ["ALL"]
+#       add: ["NET_RAW"]
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
 persistence:
   enabled: true
   storageClass: ""
