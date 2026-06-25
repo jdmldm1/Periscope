@@ -243,7 +243,8 @@ router.get('/stats', async (req, res) => {
             }
         });
 
-        const overall = criticalCount > 0 ? 'critical' : (warningCount > 0 ? 'degraded' : 'healthy');
+        const allPodsRunning = pods.length === (podHealth.healthy || 0);
+        const overall = criticalCount > 0 ? 'critical' : (warningCount > 0 && !allPodsRunning ? 'degraded' : 'healthy');
 
         // Calculate Cluster Health Score (0 - 100%)
         let score = 100;
