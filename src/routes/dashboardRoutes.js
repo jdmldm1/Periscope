@@ -490,25 +490,42 @@ router.get('/integration', async (req, res) => {
         });
         const imagePullIssues = [...imagePullMap.values()].sort((a, b) => b.count - a.count).slice(0, 20);
 
-        // Pods whose containers declare no resource requests (scheduling/QoS risk),
-        // grouped by owning workload.
-        const missingReqMap = new Map();
+        // Pods with container restarts (restarting workloads/pods)
+        const restartList = [];
+        const unschedulable = [];
         pods.forEach(p => {
             if (p.status?.phase === 'Succeeded') return;
-            const containers = p.spec?.containers || [];
-            const missing = containers.some(c => {
-                const reqs = c.resources?.requests || {};
-                return !reqs.cpu || !reqs.memory;
-            });
-            if (missing) {
-                const owner = podOwner(p);
-                const key = `${p.metadata?.namespace}|${owner.kind}/${owner.name}`;
-                const ex = missingReqMap.get(key) || { namespace: p.metadata?.namespace, owner: `${owner.kind}/${owner.name}`, count: 0 };
-                ex.count += 1;
-                missingReqMap.set(key, ex);
+            
+            // Check for restarts
+            const rCount = podRestarts(p);
+            if (rCount > 0) {
+                const isOOMKilled = (p.status?.containerStatuses || []).some(cs => 
+                    cs.state?.terminated?.reason === 'OOMKilled' || 
+                    cs.lastState?.terminated?.reason === 'OOMKilled'
+                );
+                restartList.push({
+                    namespace: p.metadata?.namespace,
+                    name: p.metadata?.name,
+                    restarts: rCount,
+                    isOOMKilled
+                });
+            }
+
+            // Check for scheduling issues
+            if (p.status?.phase === 'Pending') {
+                const schedCond = (p.status?.conditions || []).find(c => c.type === 'PodScheduled');
+                if (schedCond && schedCond.status === 'False' && (schedCond.reason === 'Unschedulable' || schedCond.message?.includes('Insufficient') || schedCond.message?.includes('fit'))) {
+                    unschedulable.push({
+                        namespace: p.metadata?.namespace,
+                        name: p.metadata?.name,
+                        reason: schedCond.reason || 'Unschedulable',
+                        message: schedCond.message || 'Pod could not be scheduled'
+                    });
+                }
             }
         });
-        const missingRequests = [...missingReqMap.values()].sort((a, b) => b.count - a.count).slice(0, 20);
+        const podRestartsData = restartList.sort((a, b) => b.restarts - a.restarts).slice(0, 20);
+        const unschedulableData = unschedulable.slice(0, 20);
 
         // Workloads using more memory than they request (no headroom -> OOM risk)
         const usageByPod = new Map();
@@ -539,7 +556,8 @@ router.get('/integration', async (req, res) => {
             quotas,
             limitRangeNamespaces: [...new Set(limitRangeItems.map(l => l.metadata?.namespace))],
             imagePullIssues,
-            missingRequests,
+            podRestarts: podRestartsData,
+            unschedulable: unschedulableData,
             overMemory: overMem.slice(0, 15)
         });
     } catch (err) {
