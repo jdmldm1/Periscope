@@ -2,5 +2,5 @@ apiVersion: v2
 name: periscope
 description: A badass web-based tool for exploring and managing Kubernetes resources.
 type: application
-version: 0.1.0
-appVersion: "1.1.3"
+version: 0.2.0
+appVersion: "1.2.0"
