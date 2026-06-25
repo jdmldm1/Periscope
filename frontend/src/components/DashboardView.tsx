@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Activity, Command, Box, Package, Server, Layers,
   AlertTriangle, AlertCircle, CheckCircle2, ShieldAlert, Cpu, MemoryStick, ChevronRight,
-  X, FileText, Radio, Image as ImageIcon, Gauge, Database, ExternalLink
+  X, FileText, Radio, Image as ImageIcon, Database, ExternalLink, RefreshCw
 } from 'lucide-react';
 import { useIssueDetail, useIntegrationReadiness } from '../utils/kubeHooks';
 import { useWatchStatus } from '../hooks/useResourceWatcher';
@@ -448,17 +448,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const data = integration.data;
     const quotas = data?.quotas || [];
     const imagePullIssues = data?.imagePullIssues || [];
-    const missingRequests = data?.missingRequests || [];
+    const podRestarts = data?.podRestarts || [];
+    const unschedulable = data?.unschedulable || [];
     const overMemory = data?.overMemory || [];
-    const hasAnything = quotas.length || imagePullIssues.length || missingRequests.length || overMemory.length;
+    const hasAnything = quotas.length || imagePullIssues.length || podRestarts.length || unschedulable.length || overMemory.length;
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <h2 style={{ fontSize: '1.1rem', margin: 0, letterSpacing: 0.5 }}>INTEGRATION READINESS</h2>
         {!hasAnything ? (
           <div className="dashboard-chart-card" style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--accent-green)' }}>
             <CheckCircle2 size={18} />
-            <span style={{ fontSize: '0.85rem' }}>No quota limits, image-pull failures or unset resource requests detected{namespace && namespace !== 'all' ? ` in ${namespace}` : ''}.</span>
+            <span style={{ fontSize: '0.85rem' }}>No quota limits, image-pull failures, pod restarts or resource issues detected{namespace && namespace !== 'all' ? ` in ${namespace}` : ''}.</span>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
@@ -505,18 +505,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             )}
 
-            {/* Pods without resource requests */}
-            {missingRequests.length > 0 && (
+            {/* Pod restarts */}
+            {podRestarts.length > 0 && (
               <div className="dashboard-chart-card">
                 <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Gauge size={13} /> MISSING RESOURCE REQUESTS
+                  <RefreshCw size={13} /> POD RESTARTS
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Workloads with no CPU/memory requests — risky scheduling & QoS.</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Pods experiencing container restarts.</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
-                  {missingRequests.map((m: any, i: number) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem' }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.namespace}/{m.owner}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>{m.count} pod{m.count > 1 ? 's' : ''}</span>
+                  {podRestarts.map((p: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', alignItems: 'center' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${p.namespace}/${p.name}`}>
+                        {p.namespace}/{p.name}
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {p.isOOMKilled && (
+                          <span style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: 3, background: 'rgba(239, 68, 68, 0.15)', color: 'var(--accent-error)', fontWeight: 600 }}>OOM</span>
+                        )}
+                        <span style={{ color: p.restarts > 5 ? 'var(--accent-error)' : 'var(--text-muted)', fontWeight: 600 }}>{p.restarts} restart{p.restarts > 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Unschedulable pods */}
+            {unschedulable.length > 0 && (
+              <div className="dashboard-chart-card">
+                <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <AlertCircle size={13} style={{ color: 'var(--accent-warning)' }} /> UNSCHEDULABLE PODS
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Pods unable to be scheduled on any node.</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
+                  {unschedulable.map((u: any, i: number) => (
+                    <div key={i} style={{ fontSize: '0.76rem' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--accent-warning)', wordBreak: 'break-all' }}>{u.namespace}/{u.name}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: 2, wordBreak: 'break-word' }}>{u.message}</div>
                     </div>
                   ))}
                 </div>
