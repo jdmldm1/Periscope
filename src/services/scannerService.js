@@ -1,4 +1,4 @@
-const { exec } = require('child_process');
+const { run } = require('../utils/exec');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
@@ -107,28 +107,26 @@ class ScannerService {
         this.grypeDbUpdateError = null;
 
         logger.info('Checking/Updating Grype Vulnerability Database...');
-        return new Promise((resolve) => {
-            const execOptions = {
-                timeout: 300000,
-                env: {
-                    ...process.env,
-                    GRYPE_DB_CACHE_DIR: path.join(this.cacheDir, 'grype')
-                }
-            };
-            exec('grype db update', execOptions, (error, stdout, stderr) => {
-                this.isGrypeDbUpdating = false;
-                this.lastGrypeDbCheck = new Date();
-
-                if (error) {
-                    logger.error({ error: stderr || error.message }, 'Failed to update Grype DB');
-                    this.grypeDbUpdateError = stderr || error.message;
-                    resolve(false);
-                } else {
-                    logger.info('Grype Vulnerability Database is up to date.');
-                    resolve(true);
-                }
-            });
-        });
+        const execOptions = {
+            timeout: 300000,
+            env: {
+                ...process.env,
+                GRYPE_DB_CACHE_DIR: path.join(this.cacheDir, 'grype')
+            }
+        };
+        try {
+            await run('grype', ['db', 'update'], execOptions);
+            logger.info('Grype Vulnerability Database is up to date.');
+            return true;
+        } catch (error) {
+            const msg = error.stderr || error.message;
+            logger.error({ error: msg }, 'Failed to update Grype DB');
+            this.grypeDbUpdateError = msg;
+            return false;
+        } finally {
+            this.isGrypeDbUpdating = false;
+            this.lastGrypeDbCheck = new Date();
+        }
     }
 
     getDbStatus() {
@@ -153,25 +151,27 @@ class ScannerService {
                     .replace('localhost:31999', 'zarf-docker-registry.zarf.svc.cluster.local:5000');
 
                 const runScan = () => {
-                    exec(`zarf tools sbom scan "${targetRef}" -o json`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-                        if (error) {
-                            const failRes = { error: error.message || stderr, failed: true };
+                    run('zarf', ['tools', 'sbom', 'scan', targetRef, '-o', 'json'], { maxBuffer: 10 * 1024 * 1024 })
+                        .then(({ stdout }) => {
+                            try {
+                                const parsed = JSON.parse(stdout);
+                                this.sbomScanCache.set(imageRef, parsed);
+                                this.saveSbomCache();
+                                resolve(parsed);
+                            } catch (parseErr) {
+                                const failRes = { error: 'Failed to parse SBOM JSON: ' + parseErr.message, failed: true };
+                                this.sbomScanCache.set(imageRef, failRes);
+                                this.saveSbomCache();
+                                reject(new Error('Failed to parse SBOM JSON: ' + parseErr.message));
+                            }
+                        })
+                        .catch((error) => {
+                            const msg = error.stderr || error.message;
+                            const failRes = { error: msg, failed: true };
                             this.sbomScanCache.set(imageRef, failRes);
                             this.saveSbomCache();
-                            return reject(new Error(error.message || stderr));
-                        }
-                        try {
-                            const parsed = JSON.parse(stdout);
-                            this.sbomScanCache.set(imageRef, parsed);
-                            this.saveSbomCache();
-                            resolve(parsed);
-                        } catch (parseErr) {
-                            const failRes = { error: 'Failed to parse SBOM JSON: ' + parseErr.message, failed: true };
-                            this.sbomScanCache.set(imageRef, failRes);
-                            this.saveSbomCache();
-                            reject(new Error('Failed to parse SBOM JSON: ' + parseErr.message));
-                        }
-                    });
+                            reject(new Error(msg));
+                        });
                 };
 
                 if (isLocalRegistry) {
@@ -205,6 +205,8 @@ class ScannerService {
 
                 const execOptions = {
                     maxBuffer: 25 * 1024 * 1024,
+                    timeout: 300000,
+                    killSignal: 'SIGTERM',
                     env: {
                         ...process.env,
                         GRYPE_DB_AUTO_UPDATE: 'true',
@@ -221,27 +223,27 @@ class ScannerService {
                         scanRef = `registry:${scanRef}`;
                     }
 
-                    const child = exec(`grype "${scanRef}" -o json`, execOptions, (error, stdout, stderr) => {
-                        if (error) {
-                            const failRes = { error: error.message || stderr, failed: true };
+                    run('grype', [scanRef, '-o', 'json'], execOptions)
+                        .then(({ stdout }) => {
+                            try {
+                                const parsed = JSON.parse(stdout);
+                                this.vulnsScanCache.set(imageRef, parsed);
+                                this.saveVulnsCache();
+                                resolve(parsed);
+                            } catch (parseErr) {
+                                const failRes = { error: 'Failed to parse Vulnerability JSON: ' + parseErr.message, failed: true };
+                                this.vulnsScanCache.set(imageRef, failRes);
+                                this.saveVulnsCache();
+                                reject(new Error('Failed to parse Vulnerability JSON: ' + parseErr.message));
+                            }
+                        })
+                        .catch((error) => {
+                            const msg = error.stderr || error.message;
+                            const failRes = { error: msg, failed: true };
                             this.vulnsScanCache.set(imageRef, failRes);
                             this.saveVulnsCache();
-                            return reject(new Error(error.message || stderr));
-                        }
-                        try {
-                            const parsed = JSON.parse(stdout);
-                            this.vulnsScanCache.set(imageRef, parsed);
-                            this.saveVulnsCache();
-                            resolve(parsed);
-                        } catch (parseErr) {
-                            const failRes = { error: 'Failed to parse Vulnerability JSON: ' + parseErr.message, failed: true };
-                            this.vulnsScanCache.set(imageRef, failRes);
-                            this.saveVulnsCache();
-                            reject(new Error('Failed to parse Vulnerability JSON: ' + parseErr.message));
-                        }
-                    });
-
-                    setTimeout(() => child.kill('SIGTERM'), 300000);
+                            reject(new Error(msg));
+                        });
                 };
 
                 if (isLocalRegistry) {

