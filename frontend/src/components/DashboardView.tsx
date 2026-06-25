@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import {
   Activity, Command, Box, Package, Server, Layers,
   AlertTriangle, AlertCircle, CheckCircle2, ShieldAlert, Cpu, MemoryStick, ChevronRight,
-  X, FileText, Radio, Image as ImageIcon, Database, ExternalLink, RefreshCw
+  X, FileText, Image as ImageIcon, Database, ExternalLink, RefreshCw
 } from 'lucide-react';
 import { useIssueDetail, useIntegrationReadiness } from '../utils/kubeHooks';
-import { useWatchStatus } from '../hooks/useResourceWatcher';
 
 interface DashboardViewProps {
   dashboardData: any;
@@ -60,7 +59,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   kubescapeReport,
 }) => {
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
-  const watchStatus = useWatchStatus();
   const integration = useIntegrationReadiness(namespace);
   const issueDetailParams = selectedIssue
     ? { kind: selectedIssue.kind, namespace: selectedIssue.namespace, name: selectedIssue.name }
@@ -788,12 +786,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.5px' }}>Cluster Health</h1>
               <span style={{ background: overallMeta.color, color: '#000', fontWeight: 800, fontSize: '0.72rem', padding: '3px 10px', borderRadius: 20, letterSpacing: 0.5 }}>
                 {overallMeta.label}
-              </span>
-              <span title={watchStatus === 'live' ? 'Live updates streaming from the cluster' : 'Reconnecting to live updates'}
-                style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.68rem', fontWeight: 700, letterSpacing: 0.4,
-                  color: watchStatus === 'live' ? 'var(--accent-green)' : 'var(--accent-warning)' }}>
-                <Radio size={12} className={watchStatus === 'live' ? 'pulse-dot' : ''} />
-                {watchStatus === 'live' ? 'LIVE' : 'RECONNECTING'}
               </span>
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '6px 0 0' }}>
