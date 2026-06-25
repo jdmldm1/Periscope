@@ -724,7 +724,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.25)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-          <div style={{ color: overallMeta.color }}>{overallMeta.icon}</div>
+          <div style={{ position: 'relative', width: 62, height: 62, flexShrink: 0 }}>
+            <svg width="62" height="62" viewBox="0 0 60 60">
+              <circle cx="30" cy="30" r="26" fill="transparent" stroke="rgba(255, 255, 255, 0.05)" strokeWidth="4" />
+              <circle 
+                cx="30" 
+                cy="30" 
+                r="26" 
+                fill="transparent" 
+                stroke={overallMeta.color} 
+                strokeWidth="4" 
+                strokeDasharray={`${2 * Math.PI * 26}`}
+                strokeDashoffset={`${2 * Math.PI * 26 * (1 - (health.score ?? 100) / 100)}`}
+                strokeLinecap="round"
+                transform="rotate(-90 30 30)"
+                style={{ transition: 'stroke-dashoffset 1s ease-in-out' }}
+              />
+            </svg>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <span style={{ fontSize: '1rem', fontWeight: 800, color: '#fff', lineHeight: 1 }}>
+                {health.score ?? 100}%
+              </span>
+              <span style={{ fontSize: '0.42rem', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.2px', marginTop: 2 }}>HEALTH</span>
+            </div>
+          </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.5px' }}>Cluster Health</h1>

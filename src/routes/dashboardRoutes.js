@@ -245,6 +245,35 @@ router.get('/stats', async (req, res) => {
 
         const overall = criticalCount > 0 ? 'critical' : (warningCount > 0 ? 'degraded' : 'healthy');
 
+        // Calculate Cluster Health Score (0 - 100%)
+        let score = 100;
+        
+        // 1. Pod health deductions
+        const criticalPodsCount = (podHealth.crashLooping || 0) + (podHealth.imagePullError || 0) + (podHealth.configError || 0) + (podHealth.oomKilled || 0) + (podHealth.failed || 0);
+        const warningPodsCount = (podHealth.pending || 0) + (podHealth.notReady || 0) + (podHealth.terminating || 0);
+        score -= (criticalPodsCount * 6);
+        score -= (warningPodsCount * 3);
+
+        // 2. Node health deductions
+        const nodesNotReadyCount = nodes.length - nodesReady;
+        score -= (nodesNotReadyCount * 15);
+        
+        let nodePressureCount = 0;
+        nodes.forEach(node => {
+            const conditions = node.status?.conditions || [];
+            ['MemoryPressure', 'DiskPressure', 'PIDPressure'].forEach(type => {
+                const c = conditions.find(cond => cond.type === type);
+                if (c?.status === 'True') nodePressureCount++;
+            });
+        });
+        score -= (nodePressureCount * 4);
+
+        // 3. Workload (Deployment) health deductions
+        const degradedDeploymentsCount = deployments.length - deploymentsHealthy;
+        score -= (degradedDeploymentsCount * 5);
+
+        score = Math.max(0, Math.min(100, score));
+
         res.json({
             counts: {
                 nodes: nodes.length, pods: pods.length, deployments: deployments.length,
@@ -258,7 +287,7 @@ router.get('/stats', async (req, res) => {
                 memPct: memCap > 0 ? Math.round((memUse / memCap) * 100) : 0
             },
             health: {
-                overall, issueCount: issues.length, criticalCount, warningCount,
+                overall, score, issueCount: issues.length, criticalCount, warningCount,
                 nodes: { total: nodes.length, ready: nodesReady, notReady: nodes.length - nodesReady },
                 pods: { total: pods.length, healthy: podHealth.healthy, unhealthy: podsUnhealthy },
                 workloads: { total: deployments.length, healthy: deploymentsHealthy, degraded: deployments.length - deploymentsHealthy }
