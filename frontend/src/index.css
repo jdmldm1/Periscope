@@ -355,8 +355,9 @@ body {
 
 .resource-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   padding: 14px 20px;
@@ -372,11 +373,21 @@ body {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
 }
 
+/* row-main is the full-width column container inside the card;
+   row-header is the top line (name + badge + actions). */
 .row-main {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 10px;
   flex: 1;
+  min-width: 0;
+}
+
+.row-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .row-icon {
@@ -392,22 +403,24 @@ body {
   min-width: 0;
 }
 
-/* Status badge sits in a fixed-width slot so the meta columns that follow
-   start at the same x-position on every row. */
+/* Status badge sits right of the name, fixed width so badge text doesn't
+   shift the action buttons. */
 .row-status {
   flex: 0 0 auto;
-  width: 118px;
+  width: 110px;
   display: flex;
   align-items: center;
 }
 
+/* meta row sits below the name/badge header; cells are fixed-width so
+   IP, CPU sparkline, RAM sparkline, NS and Age columns line up across rows. */
 .row-meta {
   color: var(--text-muted);
   font-size: 0.85rem;
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 20px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 /* Each meta field gets a dedicated fixed-width column so that values,
@@ -504,8 +517,11 @@ body {
 .row-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.2s ease;
+  padding-top: 2px;
 }
 .resource-row:hover .row-actions {
   opacity: 1;
