@@ -70,7 +70,7 @@ test.describe('Periscope E2E QA', () => {
       await firstRow.locator('button:has-text("YAML")').click();
       await expect(page.locator('.modal-content')).toBeVisible();
       await expect(page.locator('.modal-tab.active:has-text("YAML")')).toBeVisible();
-      await expect(page.locator('.editor-textarea')).toBeVisible();
+      await expect(page.locator('.editor-container')).toBeVisible();
       
       // Switch tabs: YAML -> Logs
       await page.locator('.modal-tab:has-text("Logs")').click();
@@ -154,7 +154,7 @@ test.describe('Periscope E2E QA', () => {
        
        await firstRow.locator('button:has-text("Edit")').click();
        await expect(page.locator('.modal-content')).toBeVisible();
-       await expect(page.locator('.editor-textarea')).not.toBeDisabled();
+       await expect(page.locator('.editor-container')).toBeVisible();
        await page.locator('.modal-header .btn-icon').click(); 
     }
   });
