@@ -72,26 +72,6 @@ function assertContainer(value, field = 'container') {
     return value;
 }
 
-/**
- * Express middleware: validate common :namespace/:name/:kind route params.
- * Skips any param that isn't present on the route.
- */
-function validateResourceParams(req, res, next) {
-    try {
-        const { namespace, name, kind, podName } = req.params;
-        if (namespace !== undefined) assertNamespace(namespace);
-        if (name !== undefined) assertName(name);
-        if (podName !== undefined) assertName(podName, 'podName');
-        if (kind !== undefined) assertKind(kind.replace(/^resource\//, ''));
-        next();
-    } catch (err) {
-        if (err instanceof ValidationError) {
-            return res.status(400).json({ error: err.message });
-        }
-        next(err);
-    }
-}
-
 module.exports = {
     ValidationError,
     isValidNamespace,
@@ -102,5 +82,4 @@ module.exports = {
     assertName,
     assertKind,
     assertContainer,
-    validateResourceParams,
 };
