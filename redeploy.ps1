@@ -56,14 +56,14 @@ if ($Mode -eq "Connected") {
     
     Ensure-ZarfInit
     Write-Host "Deploying Connected Zarf package..."
-    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.1.3
+    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.2.0 --confirm
     Write-Host "Restarting deployment..."
     kubectl rollout restart deployment periscope -n periscope
 }
 elseif ($Mode -eq "Airgap") {
     Ensure-ZarfInit
     Write-Host "Deploying Airgap Zarf package..."
-    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.1.3
+    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.2.0 --confirm
     Write-Host "Restarting deployment..."
     kubectl rollout restart deployment periscope -n periscope
 }
