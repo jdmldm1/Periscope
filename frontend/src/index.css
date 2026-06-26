@@ -388,13 +388,88 @@ body {
   font-weight: 600;
   font-size: 0.95rem;
   color: #ffffff;
+  flex: 1 1 auto;
+  min-width: 0;
 }
+
+/* Status badge sits in a fixed-width slot so the meta columns that follow
+   start at the same x-position on every row. */
+.row-status {
+  flex: 0 0 auto;
+  width: 118px;
+  display: flex;
+  align-items: center;
+}
+
 .row-meta {
   color: var(--text-muted);
   font-size: 0.85rem;
   display: flex;
-  gap: 16px;
+  align-items: stretch;
+  gap: 20px;
+  flex-shrink: 0;
 }
+
+/* Each meta field gets a dedicated fixed-width column so that values,
+   sparklines and bars line up vertically from one row to the next,
+   regardless of how long an individual field's text is. */
+.meta-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+.meta-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meta-value {
+  font-size: 0.82rem;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+.meta-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.meta-spark {
+  display: inline-flex;
+  align-items: center;
+  width: 46px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.meta-bar-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.6;
+  display: flex;
+  justify-content: space-between;
+}
+
+.meta-cell-ip { width: 130px; }
+.meta-cell-ns { width: 150px; }
+.meta-cell-os { width: 80px; }
+.meta-cell-text { width: 210px; }
+.meta-cell-metric { width: 112px; }
+.meta-cell-bar { width: 110px; }
+.meta-cell-age { width: 46px; }
 
 .badge {
   padding: 3px 10px;
@@ -1344,6 +1419,18 @@ div.vis-tooltip {
   .resource-row {
     flex-wrap: wrap;
     row-gap: 12px;
+  }
+
+  /* On narrow viewports let the fixed meta columns wrap onto additional lines
+     instead of forcing horizontal overflow. */
+  .row-main {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+
+  .row-meta {
+    flex-wrap: wrap;
+    gap: 14px;
   }
 
   .row-actions {
