@@ -91,13 +91,13 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
   isClearingZarfCache,
   handleClearZarfCache,
   zarfLocalPackages,
-  fetchZarfLocalPackages,
-  handleDeleteWorkspaceItem,
-  handleCompressFolder,
-  handleDecompressPackage,
-  handleUnpackZarfPackage,
-  isUnpackingZarf,
-  selectedZarfPackagePath,
+  fetchZarfLocalPackages: _fetchZarfLocalPackages,
+  handleDeleteWorkspaceItem: _handleDeleteWorkspaceItem,
+  handleCompressFolder: _handleCompressFolder,
+  handleDecompressPackage: _handleDecompressPackage,
+  handleUnpackZarfPackage: _handleUnpackZarfPackage,
+  isUnpackingZarf: _isUnpackingZarf,
+  selectedZarfPackagePath: _selectedZarfPackagePath,
   zarfConfigText,
   setZarfConfigText,
   isSavingZarfConfig,
@@ -110,9 +110,9 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
   setZarfConfigFile,
   zarfUploadProgress,
   handleUploadZarfPackage,
-  selectedZarfConfigPath,
-  setSelectedZarfConfigPath,
-  handleDeployLocalPackage,
+  selectedZarfConfigPath: _selectedZarfConfigPath,
+  setSelectedZarfConfigPath: _setSelectedZarfConfigPath,
+  handleDeployLocalPackage: _handleDeployLocalPackage,
   sbomPackageName,
   setSbomPackageName,
   sbomExtractedFiles,
@@ -409,103 +409,6 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
                         <ZarfComponentGraph pkg={pkg} pods={resources.filter((r: any) => r.kind === 'Pod')} />
                       </div>
                     )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Local Workspace Files Section */}
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Local Workspace Files ({zarfLocalPackages.length})</h3>
-            <button className="btn btn-icon" onClick={fetchZarfLocalPackages}>
-              <RefreshCw size={14} />
-            </button>
-          </div>
-
-          {zarfLocalPackages.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '16px 0', textAlign: 'center' }}>
-              No local workspace files or package archives found.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {zarfLocalPackages.map((pkg: any) => {
-                const isPackage = pkg.name.endsWith('.tar.zst') || pkg.name.endsWith('.zst');
-                return (
-                  <div 
-                    key={pkg.name} 
-                    style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center', 
-                      padding: '12px 16px', 
-                      background: 'rgba(255,255,255,0.02)', 
-                      border: '1px solid var(--border-color)', 
-                      borderRadius: 6 
-                    }}
-                  >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-main)' }}>{pkg.name}</span>
-                        {pkg.isDir && <span className="badge badge-running" style={{ textTransform: 'none', background: 'rgba(0, 122, 255, 0.1)', color: '#007aff', borderColor: '#007aff' }}>Folder</span>}
-                        {isPackage && <span className="badge badge-running" style={{ textTransform: 'none', background: 'rgba(57, 255, 20, 0.1)', color: '#39ff14', borderColor: '#39ff14' }}>Zarf Archive</span>}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        Size: <span style={{ color: 'var(--text-main)', marginRight: 12 }}>{pkg.isDir ? 'N/A' : `${(pkg.size / (1024 * 1024)).toFixed(1)} MB`}</span>
-                        Modified: <span style={{ color: 'var(--text-main)' }}>{new Date(pkg.mtime).toLocaleString()}</span>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      {(pkg.name.endsWith('.yaml') || pkg.name.endsWith('.yml')) && (
-                        <button 
-                          className={`btn ${selectedZarfConfigPath === pkg.path ? 'btn-primary' : ''}`}
-                          onClick={() => setSelectedZarfConfigPath(selectedZarfConfigPath === pkg.path ? '' : pkg.path)}
-                          style={selectedZarfConfigPath === pkg.path ? { background: 'var(--accent-green)', color: '#000' } : {}}
-                        >
-                          {selectedZarfConfigPath === pkg.path ? 'Active Config' : 'Set as Config'}
-                        </button>
-                      )}
-                      {pkg.isDir && (
-                        <button 
-                          className="btn" 
-                          onClick={() => handleCompressFolder(pkg.name)}
-                        >
-                          Compress
-                        </button>
-                      )}
-                      {isPackage && (
-                        <>
-                          <button 
-                            className="btn" 
-                            onClick={() => handleDecompressPackage(pkg.name)}
-                          >
-                            Decompress
-                          </button>
-                          <button 
-                            className="btn" 
-                            onClick={() => handleUnpackZarfPackage(pkg.path)}
-                            disabled={isUnpackingZarf}
-                          >
-                            {isUnpackingZarf && selectedZarfPackagePath === pkg.path ? 'Unpacking...' : 'Inspect & Edit'}
-                          </button>
-                          <button 
-                            className="btn btn-primary" 
-                            onClick={() => handleDeployLocalPackage(pkg.path)}
-                          >
-                            Deploy
-                          </button>
-                        </>
-                      )}
-                      <button 
-                        className="btn btn-danger btn-icon" 
-                        onClick={() => handleDeleteWorkspaceItem(pkg.name)}
-                        style={{ padding: '6px' }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
                   </div>
                 );
               })}
