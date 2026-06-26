@@ -367,73 +367,108 @@ export const ResourceListView = ({
                 </div>
               )})()}
             </div>
-            {renderStatusBadge(res)}
+            {activeTab !== 'events' && <div className="row-status">{renderStatusBadge(res)}</div>}
             <div className="row-meta">
-              {activeTab === 'pods' && res.status?.podIP && <span>IP: {res.status.podIP}</span>}
+              {activeTab === 'pods' && (
+                <div className="meta-cell meta-cell-ip">
+                  <span className="meta-label">IP</span>
+                  <span className="meta-value" title={res.status?.podIP || ''}>{res.status?.podIP || '—'}</span>
+                </div>
+              )}
               {activeTab === 'pods' && (() => {
                 const metric = (podMetrics || []).find(pm => pm && pm.metadata && pm.metadata.name === res.metadata.name && pm.metadata.namespace === res.metadata.namespace);
-                if (!metric) return null;
                 let cpuUsage = 0;
                 let memUsage = 0;
-                metric.containers?.forEach((c: any) => {
-                  cpuUsage += parseCpu(c.usage?.cpu || '0');
-                  memUsage += parseMem(c.usage?.memory || '0');
-                });
+                if (metric) {
+                  metric.containers?.forEach((c: any) => {
+                    cpuUsage += parseCpu(c.usage?.cpu || '0');
+                    memUsage += parseMem(c.usage?.memory || '0');
+                  });
+                }
                 const key = `${res.metadata.namespace}/${res.metadata.name}`;
                 const history = podMetricsHistory ? podMetricsHistory[key] : null;
                 return (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span style={{ color: 'var(--accent-cyan)' }}>
-                      CPU: {cpuUsage < 1 ? (cpuUsage * 1000).toFixed(0) + 'm' : cpuUsage.toFixed(1) + 'c'}
-                    </span>
-                    {history && renderSmallSparkline(history.cpu, '#38bdf8')}
-                    <span style={{ color: 'var(--text-muted)', marginLeft: 2, marginRight: 2 }}>|</span>
-                    <span style={{ color: 'var(--accent-purple)' }}>
-                      RAM: {(memUsage / (1024 * 1024)).toFixed(0)}MB
-                    </span>
-                    {history && renderSmallSparkline(history.mem, '#c084fc')}
-                  </span>
+                  <>
+                    <div className="meta-cell meta-cell-metric">
+                      <span className="meta-label">CPU</span>
+                      <span className="meta-value meta-metric">
+                        <span style={{ color: 'var(--accent-cyan)' }}>
+                          {metric ? (cpuUsage < 1 ? (cpuUsage * 1000).toFixed(0) + 'm' : cpuUsage.toFixed(1) + 'c') : '—'}
+                        </span>
+                        <span className="meta-spark">{history && renderSmallSparkline(history.cpu, '#38bdf8')}</span>
+                      </span>
+                    </div>
+                    <div className="meta-cell meta-cell-metric">
+                      <span className="meta-label">RAM</span>
+                      <span className="meta-value meta-metric">
+                        <span style={{ color: 'var(--accent-purple)' }}>
+                          {metric ? (memUsage / (1024 * 1024)).toFixed(0) + 'MB' : '—'}
+                        </span>
+                        <span className="meta-spark">{history && renderSmallSparkline(history.mem, '#c084fc')}</span>
+                      </span>
+                    </div>
+                  </>
                 );
               })()}
-              {activeTab === 'nodes' && <span>OS: {res.status?.nodeInfo?.operatingSystem}</span>}
+              {activeTab === 'nodes' && (
+                <div className="meta-cell meta-cell-os">
+                  <span className="meta-label">OS</span>
+                  <span className="meta-value" title={res.status?.nodeInfo?.operatingSystem || ''}>{res.status?.nodeInfo?.operatingSystem || '—'}</span>
+                </div>
+              )}
               {activeTab === 'nodes' && (() => {
                 const metric = (nodeMetrics || []).find(nm => nm && nm.metadata && nm.metadata.name === res.metadata.name);
-                if (!metric) return null;
-                const { cpuPercent, memPercent } = getNodeUsagePercent(metric);
+                const usage = metric ? getNodeUsagePercent(metric) : null;
+                const cpuPercent = usage ? usage.cpuPercent : 0;
+                const memPercent = usage ? usage.memPercent : 0;
                 return (
-                  <div className="row-metrics" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                    <div style={{ width: 100 }}>
-                      <div style={{ fontSize: '0.65rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                        <span>CPU</span><span>{cpuPercent}%</span>
+                  <>
+                    <div className="meta-cell meta-cell-bar">
+                      <div className="meta-bar-label">
+                        <span>CPU</span><span>{metric ? `${cpuPercent}%` : '—'}</span>
                       </div>
-                      <div className="metric-bar-wrapper" style={{ margin: 0 }}><div className={`metric-bar-fill ${cpuPercent > 80 ? 'critical' : cpuPercent > 60 ? 'warning' : 'normal'}`} style={{ width: `${cpuPercent}%` }}></div></div>
+                      <div className="metric-bar-wrapper" style={{ margin: 0 }}><div className={`metric-bar-fill ${cpuPercent > 80 ? 'critical' : cpuPercent > 60 ? 'warning' : 'normal'}`} style={{ width: `${metric ? cpuPercent : 0}%` }}></div></div>
                     </div>
-                    <div style={{ width: 100 }}>
-                      <div style={{ fontSize: '0.65rem', display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                        <span>RAM</span><span>{memPercent}%</span>
+                    <div className="meta-cell meta-cell-bar">
+                      <div className="meta-bar-label">
+                        <span>RAM</span><span>{metric ? `${memPercent}%` : '—'}</span>
                       </div>
-                      <div className="metric-bar-wrapper" style={{ margin: 0 }}><div className={`metric-bar-fill ${memPercent > 80 ? 'critical' : memPercent > 60 ? 'warning' : 'normal'}`} style={{ width: `${memPercent}%` }}></div></div>
+                      <div className="metric-bar-wrapper" style={{ margin: 0 }}><div className={`metric-bar-fill ${memPercent > 80 ? 'critical' : memPercent > 60 ? 'warning' : 'normal'}`} style={{ width: `${metric ? memPercent : 0}%` }}></div></div>
                     </div>
-                  </div>
+                  </>
                 );
               })()}
               {activeTab === 'crds' && (
-                <span>Group: {res.spec?.group} | Scope: {res.spec?.scope}</span>
+                <div className="meta-cell meta-cell-text">
+                  <span className="meta-label">Group / Scope</span>
+                  <span className="meta-value" title={`${res.spec?.group} | ${res.spec?.scope}`}>{res.spec?.group} | {res.spec?.scope}</span>
+                </div>
               )}
               {activeTab === 'custom' && customCrd && (
-                <span>Kind: {res.kind} | API: {customCrd.group}/{customCrd.version}</span>
+                <div className="meta-cell meta-cell-text">
+                  <span className="meta-label">Kind / API</span>
+                  <span className="meta-value" title={`${res.kind} | ${customCrd.group}/${customCrd.version}`}>{res.kind} | {customCrd.group}/{customCrd.version}</span>
+                </div>
               )}
-              {res.metadata.namespace && <span>NS: {res.metadata.namespace}</span>}
-              <span>{(() => {
-                const timestamp = res.lastTimestamp || res.metadata.creationTimestamp || new Date().toISOString();
-                const diffMs = Date.now() - new Date(timestamp).getTime();
-                const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                if (diffDays > 0) return `${diffDays}d`;
-                const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
-                if (diffHrs > 0) return `${diffHrs}h`;
-                const diffMins = Math.floor(diffMs / (1000 * 60));
-                return `${diffMins}m`;
-              })()}</span>
+              {res.metadata.namespace && (
+                <div className="meta-cell meta-cell-ns">
+                  <span className="meta-label">Namespace</span>
+                  <span className="meta-value" title={res.metadata.namespace}>{res.metadata.namespace}</span>
+                </div>
+              )}
+              <div className="meta-cell meta-cell-age">
+                <span className="meta-label">Age</span>
+                <span className="meta-value">{(() => {
+                  const timestamp = res.lastTimestamp || res.metadata.creationTimestamp || new Date().toISOString();
+                  const diffMs = Date.now() - new Date(timestamp).getTime();
+                  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                  if (diffDays > 0) return `${diffDays}d`;
+                  const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+                  if (diffHrs > 0) return `${diffHrs}h`;
+                  const diffMins = Math.floor(diffMs / (1000 * 60));
+                  return `${diffMins}m`;
+                })()}</span>
+              </div>
             </div>
           </div>
           <div className="row-actions">
