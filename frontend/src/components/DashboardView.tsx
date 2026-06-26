@@ -297,6 +297,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     </div>
   );
 
+  const renderDeploymentsPanel = (deployments: any[]) => (
+    <div className="dashboard-chart-card">
+      <div className="dashboard-chart-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Package size={14} /> RECENT DEPLOYMENTS
+        </span>
+        <span className="dashboard-chart-subtitle">HELM & ZARF</span>
+      </div>
+      {(!deployments || deployments.length === 0) ? (
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', textAlign: 'center', padding: '28px 0' }}>
+          No recent deployments found
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
+          {deployments.map((d, i) => (
+            <div key={i} style={{ fontSize: '0.75rem', borderLeft: `2px solid ${d.type === 'helm' ? 'var(--accent-pink)' : 'var(--accent-warning)'}`, paddingLeft: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ minWidth: 0, flex: 1, marginRight: 8 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className="badge" style={{ transform: 'none', textTransform: 'uppercase', fontSize: '0.6rem', padding: '1px 4px', background: d.type === 'helm' ? 'rgba(236, 72, 153, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: d.type === 'helm' ? 'var(--accent-pink)' : 'var(--accent-warning)', border: 'none' }}>
+                    {d.type}
+                  </span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.name}>
+                    {d.name}
+                  </span>
+                </div>
+                <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.7rem', marginTop: 2 }}>
+                  {d.type === 'helm' ? `ns: ${d.namespace} · version: ${d.version}` : `version: ${d.version || 'unknown'}`}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                  {d.timestamp ? new Date(d.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'recently'}
+                </div>
+                <span className="badge" style={{ fontSize: '0.6rem', padding: '0px 4px', background: 'rgba(16, 185, 129, 0.15)', color: 'var(--accent-green)', border: 'none', textTransform: 'uppercase', marginTop: 2 }}>
+                  {d.status}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   // ---- Issue drill-down drawer (evidence for resolution) ----
   const renderIssueDrawer = () => {
     if (!selectedIssue) return null;
@@ -708,6 +752,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const podHealth = (dashboardData as any).podHealth || {};
   const issues: Issue[] = (dashboardData as any).issues || [];
   const recentWarnings: RecentWarning[] = (dashboardData as any).recentWarnings || [];
+  const recentDeployments: any[] = (dashboardData as any).recentDeployments || [];
 
   const cpuPct = dashboardRes?.cpuPct || 0;
   const memPct = dashboardRes?.memPct || 0;
@@ -849,6 +894,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {renderPodHealthDoughnut(podHealth)}
         </div>
         {renderWarningsPanel(recentWarnings)}
+        {renderDeploymentsPanel(recentDeployments)}
       </div>
 
       {/* Inventory + security */}
