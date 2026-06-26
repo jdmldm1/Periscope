@@ -269,10 +269,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // ---- Recent warning events panel ----
   const renderWarningsPanel = (warnings: RecentWarning[]) => (
-    <div className="dashboard-chart-card">
-      <div className="dashboard-chart-title">
-        WARNINGS
-        <span className="dashboard-chart-subtitle">LAST HOUR</span>
+    <div className="dashboard-chart-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('events')}
+      onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)')}
+      onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
+      <div className="dashboard-chart-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>WARNINGS <span className="dashboard-chart-subtitle">LAST HOUR</span></span>
+        <span style={{ fontSize: '0.65rem', color: 'var(--accent-blue)', fontWeight: 600, letterSpacing: 0.3 }}>VIEW EVENTS →</span>
       </div>
       {(!warnings || warnings.length === 0) ? (
         <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', textAlign: 'center', padding: '18px 0' }}>
@@ -298,12 +300,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   );
 
   const renderDeploymentsPanel = (deployments: any[]) => (
-    <div className="dashboard-chart-card">
+    <div className="dashboard-chart-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('helm')}
+      onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)')}
+      onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
       <div className="dashboard-chart-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Package size={14} /> RECENT DEPLOYMENTS
+          <Package size={14} /> RECENT DEPLOYMENTS <span className="dashboard-chart-subtitle">HELM & ZARF</span>
         </span>
-        <span className="dashboard-chart-subtitle">HELM & ZARF</span>
+        <span style={{ fontSize: '0.65rem', color: 'var(--accent-blue)', fontWeight: 600, letterSpacing: 0.3 }}>VIEW HELM →</span>
       </div>
       {(!deployments || deployments.length === 0) ? (
         <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', textAlign: 'center', padding: '28px 0' }}>
@@ -893,8 +897,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Pod health + recent warnings */}
       <div className="dashboard-charts-grid">
-        <div className="dashboard-chart-card">
-          <div className="dashboard-chart-title">POD HEALTH BREAKDOWN</div>
+        <div className="dashboard-chart-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('pods')}
+          onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)')}
+          onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
+          <div className="dashboard-chart-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>POD HEALTH BREAKDOWN</span>
+            <span style={{ fontSize: '0.65rem', color: 'var(--accent-blue)', fontWeight: 600, letterSpacing: 0.3 }}>VIEW PODS →</span>
+          </div>
           {renderPodHealthDoughnut(podHealth)}
         </div>
         {renderWarningsPanel(recentWarnings)}
@@ -918,11 +927,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="dashboard-quick-actions">
           <div className="quick-action-btn" onClick={() => setActiveTab('pods')}>
             <Box size={24} style={{ color: 'var(--accent-green)' }} />
-            <span>Inspect Workloads</span>
+            <span>Pods</span>
           </div>
           <div className="quick-action-btn" onClick={() => setActiveTab('topology')}>
             <Activity size={24} style={{ color: 'var(--accent-cyan)' }} />
-            <span>Topology Maps</span>
+            <span>Topology</span>
           </div>
           <div className="quick-action-btn" onClick={() => setActiveTab('helm')}>
             <Package size={24} style={{ color: 'var(--accent-pink)' }} />
@@ -931,7 +940,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {zarfStatus.installed && (
             <div className="quick-action-btn" onClick={() => setActiveTab('zarf')}>
               <Package size={24} style={{ color: 'var(--accent-warning)' }} />
-              <span>Zarf Console</span>
+              <span>Zarf</span>
             </div>
           )}
           <div className="quick-action-btn" onClick={() => setIsCmdPaletteOpen(true)}>
