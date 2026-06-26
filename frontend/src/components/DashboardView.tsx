@@ -204,7 +204,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="dashboard-chart-card" style={{ gridColumn: '1 / -1' }}>
         <div className="dashboard-chart-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ShieldAlert size={15} /> ACTIVE ISSUES
+            <ShieldAlert size={15} /> ISSUES
           </span>
           <span style={{ display: 'flex', gap: 10, fontSize: '0.7rem' }}>
             {criticalCount > 0 && <span style={{ color: 'var(--accent-error)', fontWeight: 700 }}>{criticalCount} CRITICAL</span>}
@@ -271,7 +271,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const renderWarningsPanel = (warnings: RecentWarning[]) => (
     <div className="dashboard-chart-card">
       <div className="dashboard-chart-title">
-        RECENT WARNING EVENTS
+        WARNINGS
         <span className="dashboard-chart-subtitle">LAST HOUR</span>
       </div>
       {(!warnings || warnings.length === 0) ? (
@@ -556,7 +556,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Pods experiencing container restarts.</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
                   {podRestarts.map((p: any, i: number) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', alignItems: 'center' }}>
+                    <div key={i} onClick={() => { setSearch(p.name); setActiveTab('pods'); }} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', alignItems: 'center', cursor: 'pointer', padding: '3px 6px', borderRadius: 4, transition: 'background 0.15s' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${p.namespace}/${p.name}`}>
                         {p.namespace}/{p.name}
                       </span>
@@ -599,7 +601,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Using more memory than requested — OOM / eviction risk.</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
                   {overMemory.map((m: any, i: number) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem' }}>
+                    <div key={i} onClick={() => { setSearch(m.name); setActiveTab('pods'); }} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', cursor: 'pointer', padding: '3px 6px', borderRadius: 4, transition: 'background 0.15s' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.namespace}/{m.name}</span>
                       <span style={{ color: m.ratio >= 1.5 ? 'var(--accent-error)' : 'var(--accent-warning)' }}>{m.usageMiB}Mi / {m.requestMiB}Mi ({m.ratio}×)</span>
                     </div>
@@ -922,7 +926,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="quick-action-btn" onClick={() => setActiveTab('helm')}>
             <Package size={24} style={{ color: 'var(--accent-pink)' }} />
-            <span>Helm Deployer</span>
+            <span>Helm</span>
           </div>
           {zarfStatus.installed && (
             <div className="quick-action-btn" onClick={() => setActiveTab('zarf')}>
