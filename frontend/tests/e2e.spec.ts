@@ -24,8 +24,8 @@ test.describe('Periscope E2E QA', () => {
 
   test('Dashboard loads and displays stats', async ({ page }) => {
     await sidebarClick(page, 'Dashboard');
-    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('text=Active Pods')).toBeVisible();
+    await expect(page.locator('.dashboard-charts-grid').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Cluster Health').or(page.locator('text=ACTIVE ISSUES')).first()).toBeVisible();
   });
 
   test('Topology view graph and list modes', async ({ page }) => {
