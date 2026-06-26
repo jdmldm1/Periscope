@@ -71,17 +71,23 @@ test('validators - assert* returns the value when valid', () => {
 });
 
 test('exec.run - executes without a shell, so metacharacters stay literal', async () => {
-    // With a shell, `echo $(id)` would run `id`. Via execFile (no shell), echo
-    // receives the literal string. This is the core anti-injection guarantee.
-    const { stdout } = await run('echo', ['$(id)']);
+    // We use process.execPath (Node) to print inputs in a cross-platform way.
+    // With a shell, metacharacters would be evaluated. Via execFile (no shell),
+    // they stay literal. This is the core anti-injection guarantee.
+    const { stdout } = await run(process.execPath, ['-e', 'console.log(process.argv[1])', '$(id)']);
     assert.strictEqual(stdout.trim(), '$(id)');
 
-    const { stdout: out2 } = await run('echo', ['a; rm -rf /', 'b`whoami`']);
+    const { stdout: out2 } = await run(process.execPath, ['-e', 'console.log(process.argv.slice(1).join(" "))', 'a; rm -rf /', 'b`whoami`']);
     assert.strictEqual(out2.trim(), 'a; rm -rf / b`whoami`');
 });
 
 test('exec.run - rejects on non-zero exit and surfaces stderr', async () => {
-    await assert.rejects(run('sh', ['-c', 'echo boom 1>&2; exit 3']), (err) => {
+    await assert.rejects(run(process.execPath, ['-e', 'console.error("boom"); process.exit(3)']), (err) => {
         return err.stderr.includes('boom');
     });
 });
+
+// Import service tests
+require('./src/services/helmService.test');
+require('./src/services/k8sService.test');
+
