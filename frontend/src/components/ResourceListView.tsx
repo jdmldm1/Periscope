@@ -61,14 +61,12 @@ export const ResourceListView = ({
             animationDelay: `${i * 0.02}s`,
             border: focusedRowIndex === i ? '1px solid var(--accent-green)' : '1px solid var(--border-color)',
             boxShadow: focusedRowIndex === i ? '0 0 10px rgba(59, 130, 246, 0.2)' : 'none',
-            minHeight: '80px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '20px'
+            minHeight: '80px'
           }}
         >
-          <div className="row-main" style={{ flex: '1 1 400px', minWidth: 0 }}>
-            <div className="row-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div className="row-main">
+            <div className="row-header">
+            <div className="row-title">
               {activeTab === 'events' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ fontWeight: 600, color: res.type === 'Warning' ? 'var(--accent-warning)' : 'var(--text-main)' }}>
@@ -368,6 +366,7 @@ export const ResourceListView = ({
               )})()}
             </div>
             {activeTab !== 'events' && <div className="row-status">{renderStatusBadge(res)}</div>}
+            </div>{/* row-header */}
             <div className="row-meta">
               {activeTab === 'pods' && (
                 <div className="meta-cell meta-cell-ip">
