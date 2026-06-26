@@ -275,6 +275,45 @@ router.get('/stats', async (req, res) => {
 
         score = Math.max(0, Math.min(100, score));
 
+        // ---- Recent deployments (Helm releases & Zarf packages) ----
+        const recentDeployments = [];
+
+        (helmreleases || []).forEach(r => {
+            recentDeployments.push({
+                type: 'helm',
+                name: r.name,
+                namespace: r.namespace,
+                version: r.chart || r.app_version || '',
+                status: r.status?.phase || r.status || 'deployed',
+                timestamp: r.updated || r.metadata?.creationTimestamp || ''
+            });
+        });
+
+        (zarfpackages || []).forEach(p => {
+            recentDeployments.push({
+                type: 'zarf',
+                name: p.package || p.name,
+                namespace: 'zarf',
+                version: p.version || '',
+                status: p.status?.phase || 'deployed',
+                timestamp: p.timestamp || p.metadata?.creationTimestamp || ''
+            });
+        });
+
+        recentDeployments.forEach(d => {
+            let ts = 0;
+            if (d.timestamp) {
+                let cleanTs = d.timestamp.replace(/\s+[A-Z]{3,4}$/, '');
+                ts = Date.parse(cleanTs);
+                if (isNaN(ts)) {
+                    ts = Date.parse(d.timestamp);
+                }
+            }
+            d._ts = isNaN(ts) ? 0 : ts;
+        });
+        recentDeployments.sort((a, b) => b._ts - a._ts);
+        const topRecentDeployments = recentDeployments.slice(0, 8);
+
         res.json({
             counts: {
                 nodes: nodes.length, pods: pods.length, deployments: deployments.length,
@@ -295,7 +334,8 @@ router.get('/stats', async (req, res) => {
             },
             podHealth,
             issues: issues.slice(0, 100),
-            recentWarnings
+            recentWarnings,
+            recentDeployments: topRecentDeployments
         });
     } catch (err) {
         logger.error(err, 'Error getting dashboard stats');
