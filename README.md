@@ -1,8 +1,22 @@
 # Periscope
 
-A web-based Kubernetes control plane for visualizing and managing cluster state,security, workloads, Helm releases, and Zarf packages.
+A web-based Kubernetes control plane for visualizing and managing cluster state, security, workloads, Helm releases, and Zarf packages.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
+---
+
+## Screenshots
+
+The dashboard leads with a cluster-health score and an actionable issues feed, alongside pod-health, resource utilization, recent deployments, and security panels.
+
+![Periscope cluster health dashboard](docs/screenshots/dashboard.png)
+
+Clicking an issue opens a drill-down drawer with container states, conditions, recent events, and the previous container's crash logs — the evidence you need to resolve it.
+
+![Issue drill-down drawer](docs/screenshots/issue-drawer.png)
+
+> Screenshots show representative sample data.
 
 ---
 
