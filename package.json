@@ -1,14 +1,20 @@
 {
   "name": "periscope",
   "version": "1.2.0",
-  "description": "",
-  "main": "index.js",
+  "description": "A web-based Kubernetes control plane for visualizing and managing cluster state, security, workloads, Helm releases, and Zarf packages.",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
     "test": "node --test server.test.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "kubernetes",
+    "helm",
+    "zarf",
+    "dashboard"
+  ],
+  "author": "jdmldm1",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0",

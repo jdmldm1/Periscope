@@ -179,6 +179,16 @@ class K8sService {
         const res = await this.core.listNamespace();
         return res.items.map(ns => ns.metadata.name);
     }
+
+    // Resolve which container to act on: use the caller-supplied one if present,
+    // otherwise default to the pod's first container. Centralizes the lookup that
+    // the pod exec/logs/file-explorer endpoints all need.
+    async resolveContainerName(namespace, name, container) {
+        if (container) return container;
+        const podRes = await this.core.readNamespacedPod({ name, namespace });
+        const pod = podRes.body || podRes;
+        return pod.spec.containers[0].name;
+    }
 }
 
 module.exports = new K8sService();

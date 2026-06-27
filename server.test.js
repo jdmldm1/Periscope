@@ -87,7 +87,8 @@ test('exec.run - rejects on non-zero exit and surfaces stderr', async () => {
     });
 });
 
-// Import service tests
+// Import service / util tests
+require('./src/utils/podHealth.test');
 require('./src/services/helmService.test');
 require('./src/services/k8sService.test');
 

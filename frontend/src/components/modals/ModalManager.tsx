@@ -1,11 +1,11 @@
 import React from 'react';
 import Editor from '@monaco-editor/react';
 import { X, FileText, Terminal, Radio, Activity, SlidersHorizontal, Key, Copy, Save, ArrowDown, RefreshCw, Search, Microscope, FolderOpen } from 'lucide-react';
-import { SecretDecoderPanel } from './SecretDecoderPanel';
-import { PodFilesExplorer } from './PodFilesExplorer';
-import { InteractiveTerminal } from './InteractiveTerminal';
-import { PvcExplorerView } from './PvcExplorerView';
-import { useAppContext } from '../contexts/AppContext';
+import { SecretDecoderPanel } from '../panels/SecretDecoderPanel';
+import { PodFilesExplorer } from '../panels/PodFilesExplorer';
+import { InteractiveTerminal } from '../panels/InteractiveTerminal';
+import { PvcExplorerView } from '../views/PvcExplorerView';
+import { useAppContext } from '../../contexts/AppContext';
 
 interface ModalManagerProps {
   modal: any;
