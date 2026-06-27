@@ -4,9 +4,6 @@ Web-based Kubernetes control plane for visualizing and managing cluster state, s
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
----
-
-## Screenshots
 
 ### Dashboard
 
