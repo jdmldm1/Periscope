@@ -1,6 +1,6 @@
 # Periscope
 
-A web-based Kubernetes control plane for visualizing and managing cluster state, security, workloads, Helm releases, and Zarf packages.
+Web-based Kubernetes control plane for visualizing and managing cluster state, security, workloads, Helm releases, and Zarf packages.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
@@ -10,20 +10,19 @@ A web-based Kubernetes control plane for visualizing and managing cluster state,
 
 ### Dashboard
 
-Cluster-health score with an actionable issues feed; clicking an issue opens a drill-down with container states, conditions, and crash logs.
+Cluster-health score with an actionable issues feed
 
 ![Dashboard](docs/screenshots/dashboard.png)
-![Issue drill-down](docs/screenshots/issue-drawer.png)
 
 ### Resource Management
 
-Browse workloads with live status, metrics, and inline actions.
+Resource management, status and metrics.
 
 ![Resource management](docs/screenshots/resources.png)
 
 ### Security & Compliance
 
-Kubescape NSA-CISA / MITRE / CIS scoring with per-control remediation, plus image vulnerability scanning.
+Kubescape NSA-CISA / MITRE / CIS scoring with per-control remediation, and image vulnerability scanning.
 
 ![Security and compliance](docs/screenshots/security.png)
 
@@ -35,7 +34,7 @@ Live packet capture rendered as a pod-to-pod traffic graph.
 
 ### Web Terminal
 
-A browser-based operator console into the cluster host.
+Browser-based console into the cluster host.
 
 ![Web terminal](docs/screenshots/terminal.png)
 
