@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, FileText, Terminal, Code, Power, SlidersHorizontal, Info, Settings, Trash2, Globe, ExternalLink, FolderOpen, Key, Square, Play } from 'lucide-react';
-import { parseCpu, parseMem } from '../utils/helpers';
+import { parseCpu, parseMem } from '../../utils/helpers';
 
 interface ResourceListViewProps {
   activeTab: string;
