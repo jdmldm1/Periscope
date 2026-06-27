@@ -1,6 +1,6 @@
 # Periscope
 
-A web-based Kubernetes control plane for managing cluster state, workloads, Helm releases, and Zarf packages.
+A web-based Kubernetes control plane for visualizing and managing cluster state,security, workloads, Helm releases, and Zarf packages.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
