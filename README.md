@@ -8,13 +8,43 @@ A web-based Kubernetes control plane for visualizing and managing cluster state,
 
 ## Screenshots
 
-The dashboard leads with a cluster-health score and an actionable issues feed, alongside pod-health, resource utilization, recent deployments, and security panels.
+### Dashboard
 
-![Periscope cluster health dashboard](docs/screenshots/dashboard.png)
+Cluster-health score with an actionable issues feed; clicking an issue opens a drill-down with container states, conditions, and crash logs.
 
-Clicking an issue opens a drill-down drawer with container states, conditions, recent events, and the previous container's crash logs — the evidence you need to resolve it.
+![Dashboard](docs/screenshots/dashboard.png)
+![Issue drill-down](docs/screenshots/issue-drawer.png)
 
-![Issue drill-down drawer](docs/screenshots/issue-drawer.png)
+### Resource Management
+
+Browse workloads with live status, metrics, and inline actions.
+
+![Resource management](docs/screenshots/resources.png)
+
+### Security & Compliance
+
+Kubescape NSA-CISA / MITRE / CIS scoring with per-control remediation, plus image vulnerability scanning.
+
+![Security and compliance](docs/screenshots/security.png)
+
+### Traffic Inspector
+
+Live packet capture rendered as a pod-to-pod traffic graph.
+
+![Traffic inspector](docs/screenshots/traffic.png)
+
+### Web Terminal
+
+A browser-based operator console into the cluster host.
+
+![Web terminal](docs/screenshots/terminal.png)
+
+### Helm & Zarf Management
+
+Manage Helm releases and deploy / inspect Zarf packages.
+
+![Helm releases](docs/screenshots/helm.png)
+![Zarf packages](docs/screenshots/zarf.png)
 
 > Screenshots show representative sample data.
 
