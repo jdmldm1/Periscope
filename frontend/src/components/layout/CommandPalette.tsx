@@ -60,7 +60,6 @@ export const CommandPalette = ({
     { name: 'Zarf Packages (:zarf)', aliases: ['zarf', 'zarf-packages'], category: 'Views', action: () => { setActiveTab('zarf'); setIsOpen(false); } },
     { name: 'Image SBOM Scanner (:scanner)', aliases: ['scanner', 'image-scanner'], category: 'Views', action: () => { setActiveTab('image-scanner'); setIsOpen(false); } },
     { name: 'Kubescape Compliance Audit (:security)', aliases: ['security', 'kubescape'], category: 'Views', action: () => { setActiveTab('kubescape'); setIsOpen(false); } },
-    { name: 'Gitea Git Server (:gitea)', aliases: ['gitea'], category: 'Views', action: () => { setActiveTab('gitea'); setIsOpen(false); } },
     ...(namespaces || []).filter(ns => typeof ns === 'string' && ns.trim() !== '').map(ns => ({ name: `Switch Namespace: ${ns === 'all' ? 'All Namespaces' : ns}`, aliases: [ns, ns === 'all' ? 'all' : ''], category: 'Namespaces', action: () => { setSelectedNs(ns); setIsOpen(false); } })),
     ...(contexts || []).filter(c => c && typeof c.name === 'string' && c.name.trim() !== '').map(c => ({ name: `Switch Context: ${c.name}`, aliases: [c.name], category: 'Contexts', action: () => { handleContextChange(c.name); setIsOpen(false); } })),
     { name: 'Scan All Running Images', aliases: ['scan-images', 'scan-all'], category: 'Security', action: () => { fetchRunningImagesAndScan(); setIsOpen(false); } },
