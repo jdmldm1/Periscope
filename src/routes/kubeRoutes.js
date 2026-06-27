@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const k8sService = require('../services/k8sService');
+const workloadService = require('../services/workloadService');
+const diagnoseService = require('../services/diagnoseService');
 const logger = require('../utils/logger');
-const stream = require('stream');
 const yaml = require('js-yaml');
 const { run } = require('../utils/exec');
 const { assertNamespace, assertName, assertKind } = require('../utils/validators');
@@ -106,53 +107,18 @@ router.post('/resource/:kind/:namespace/:name/save', async (req, res) => {
     if (!yamlContent) return res.status(400).json({ error: 'yaml content is required' });
 
     try {
-        const { spawn } = require('child_process');
-        const args = ['apply', '-f', '-'];
-        if (namespace && namespace !== 'all' && namespace !== 'undefined') {
-            args.push('-n', namespace);
-        }
-        
-        const cp = spawn('kubectl', args);
-        cp.stdin.write(yamlContent);
-        cp.stdin.end();
-
-        let stdout = '';
-        let stderr = '';
-        cp.stdout.on('data', chunk => stdout += chunk.toString());
-        cp.stderr.on('data', chunk => stderr += chunk.toString());
-
-        cp.on('close', (code) => {
-            if (code === 0) {
-                if (typeof k8sService.clearCache === 'function') {
-                    k8sService.clearCache(kind, namespace);
-                }
-                res.json({ success: true, message: stdout.trim() || 'Resource saved successfully' });
-            } else {
-                res.status(500).json({ error: stderr.trim() || `Failed to apply resource with exit code ${code}` });
-            }
-        });
-        
-        cp.on('error', (err) => {
-            if (!res.headersSent) {
-                res.status(500).json({ error: err.message });
-            }
-        });
+        const { message } = await workloadService.applyYaml(kind, namespace, yamlContent);
+        res.json({ success: true, message });
     } catch (err) {
-        if (!res.headersSent) {
-            res.status(500).json({ error: err.message });
-        }
+        if (!res.headersSent) res.status(500).json({ error: err.message });
     }
 });
 
 router.put('/resource/deployments/:namespace/:name/restart', async (req, res) => {
     const { namespace, name } = req.params;
     try {
-        const { stdout } = await run('kubectl', ['rollout', 'restart', `deployment/${name}`, '-n', namespace]);
-        if (typeof k8sService.clearCache === 'function') {
-            k8sService.clearCache('deployments', namespace);
-            k8sService.clearCache('pods', namespace);
-        }
-        res.json({ success: true, message: stdout.trim() });
+        const { message } = await workloadService.restart(namespace, name);
+        res.json({ success: true, message });
     } catch (err) {
         res.status(500).json({ error: err.stderr || err.message });
     }
@@ -165,63 +131,28 @@ router.put('/resource/deployments/:namespace/:name/scale', async (req, res) => {
         return res.status(400).json({ error: 'Valid replicas count is required' });
     }
     try {
-        const { stdout } = await run('kubectl', ['scale', `deployment/${name}`, `--replicas=${Number(replicas)}`, '-n', namespace]);
-        if (typeof k8sService.clearCache === 'function') {
-            k8sService.clearCache('deployments', namespace);
-        }
-        res.json({ success: true, message: stdout.trim() });
+        const { message } = await workloadService.scale(namespace, name, replicas);
+        res.json({ success: true, message });
     } catch (err) {
         res.status(500).json({ error: err.stderr || err.message });
     }
 });
 
-// Stop a deployment by scaling it to 0 replicas. The current replica count is
-// stashed in an annotation so that "start" can restore it later.
 router.put('/resource/deployments/:namespace/:name/stop', async (req, res) => {
     const { namespace, name } = req.params;
     try {
-        let previous = 1;
-        try {
-            const { stdout: getOut } = await run('kubectl', ['get', `deployment/${name}`, '-n', namespace, '-o', 'jsonpath={.spec.replicas}']);
-            const current = parseInt((getOut || '').trim(), 10);
-            if (!isNaN(current) && current > 0) previous = current;
-        } catch (_) { /* default to 1 */ }
-
-        await run('kubectl', ['annotate', `deployment/${name}`, '-n', namespace, `periscope-previous-replicas=${previous}`, '--overwrite']);
-        await run('kubectl', ['scale', `deployment/${name}`, '--replicas=0', '-n', namespace]);
-
-        if (typeof k8sService.clearCache === 'function') {
-            k8sService.clearCache('deployments', namespace);
-            k8sService.clearCache('pods', namespace);
-        }
-        res.json({ success: true, message: `Deployment ${name} stopped (scaled to 0)`, previousReplicas: previous });
+        const { message, previousReplicas } = await workloadService.stop(namespace, name);
+        res.json({ success: true, message, previousReplicas });
     } catch (err) {
         res.status(500).json({ error: err.stderr || err.message });
     }
 });
 
-// Start a previously-stopped deployment by restoring the replica count saved
-// when it was stopped (falling back to 1 if none was recorded).
 router.put('/resource/deployments/:namespace/:name/start', async (req, res) => {
     const { namespace, name } = req.params;
     try {
-        let saved = NaN;
-        try {
-            const { stdout: getOut } = await run('kubectl', ['get', `deployment/${name}`, '-n', namespace, '-o', 'jsonpath={.metadata.annotations.periscope-previous-replicas}']);
-            saved = parseInt((getOut || '').trim(), 10);
-        } catch (_) { /* fall through to body/default */ }
-
-        const bodyReplicas = Number(req.body && req.body.replicas);
-        const target = (!isNaN(saved) && saved > 0)
-            ? saved
-            : (!isNaN(bodyReplicas) && bodyReplicas > 0 ? bodyReplicas : 1);
-
-        await run('kubectl', ['scale', `deployment/${name}`, `--replicas=${target}`, '-n', namespace]);
-        if (typeof k8sService.clearCache === 'function') {
-            k8sService.clearCache('deployments', namespace);
-            k8sService.clearCache('pods', namespace);
-        }
-        res.json({ success: true, message: `Deployment ${name} started (scaled to ${target})`, replicas: target });
+        const { message, replicas } = await workloadService.start(namespace, name, req.body && req.body.replicas);
+        res.json({ success: true, message, replicas });
     } catch (err) {
         res.status(500).json({ error: err.stderr || err.message });
     }
@@ -230,11 +161,8 @@ router.put('/resource/deployments/:namespace/:name/start', async (req, res) => {
 router.delete('/resource/:kind/:namespace/:name', async (req, res) => {
     const { kind, namespace, name } = req.params;
     try {
-        const { stdout } = await run('kubectl', ['delete', kind, name, '-n', namespace]);
-        if (typeof k8sService.clearCache === 'function') {
-            k8sService.clearCache(kind, namespace);
-        }
-        res.json({ success: true, message: stdout.trim() });
+        const { message } = await workloadService.deleteResource(kind, namespace, name);
+        res.json({ success: true, message });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -263,227 +191,10 @@ router.get('/resource/:kind/:namespace/:name/events', async (req, res) => {
     }
 });
 
-async function findTrueWorkloadOwner(namespace, pod) {
-    const ownerReferences = pod.metadata?.ownerReferences || [];
-    if (ownerReferences.length === 0) {
-        return null;
-    }
-    const primaryOwner = ownerReferences[0];
-    const { kind, name } = primaryOwner;
-    
-    if (kind === 'ReplicaSet') {
-        try {
-            const rs = await k8sService.apps.readNamespacedReplicaSet({ name, namespace });
-            const rsBody = rs.body || rs;
-            const rsOwner = (rsBody.metadata?.ownerReferences || [])[0];
-            if (rsOwner) {
-                return { kind: rsOwner.kind, name: rsOwner.name };
-            }
-        } catch (err) {
-            logger.error({ name, namespace, error: err.message }, 'Failed to resolve ReplicaSet parent');
-        }
-    }
-    return { kind, name };
-}
-
 router.get('/diagnose/:namespace/:podName', async (req, res) => {
     const { namespace, podName } = req.params;
     try {
-        const podRes = await k8sService.core.readNamespacedPod({ name: podName, namespace });
-        const pod = podRes.body || podRes;
-        const eventsResponse = await k8sService.core.listNamespacedEvent({ namespace });
-        const allEvents = eventsResponse.items || eventsResponse.body?.items || [];
-        const events = allEvents.filter(e => e.involvedObject && e.involvedObject.uid === pod.metadata.uid);
-        
-        let targetContainer = null;
-        if (pod.status?.containerStatuses) {
-            const failing = pod.status.containerStatuses.find(cs => cs.state?.waiting || (cs.state?.terminated && cs.state.terminated.exitCode !== 0));
-            if (failing) {
-                targetContainer = failing.name;
-            }
-        }
-        if (!targetContainer && pod.spec?.containers?.length > 0) {
-            targetContainer = pod.spec.containers[0].name;
-        }
-
-        let logTail = '';
-        if (targetContainer) {
-            try {
-                const logRes = await k8sService.core.readNamespacedPodLog({
-                    name: podName,
-                    namespace,
-                    container: targetContainer,
-                    tailLines: 50
-                });
-                logTail = logRes.body || logRes;
-            } catch (logErr) {
-                logTail = `Could not fetch logs for container ${targetContainer}: ${logErr.message}`;
-            }
-        } else {
-            logTail = 'No containers found in pod spec.';
-        }
-
-        let diagnosis = {
-            status: 'Healthy',
-            summary: 'No issues detected. The pod is running normally.',
-            details: [],
-            suggestedFixes: [],
-            events: events.map(e => ({
-                type: e.type,
-                reason: e.reason,
-                message: e.message,
-                firstTimestamp: e.firstTimestamp || e.metadata.creationTimestamp,
-                count: e.count
-            })),
-            logTail: logTail
-        };
-
-        const containerStatuses = [
-            ...(pod.status?.containerStatuses || []),
-            ...(pod.status?.initContainerStatuses || [])
-        ];
-
-        let hasIssue = false;
-        let oomKilledContainer = null;
-        let pullFailureContainer = null;
-        
-        let ownerWorkload = null;
-        try {
-            ownerWorkload = await findTrueWorkloadOwner(namespace, pod);
-        } catch (e) {
-            logger.error(e, 'Error resolving workload owner in diagnose');
-        }
-
-        containerStatuses.forEach(cs => {
-            const name = cs.name;
-            const state = cs.state || {};
-            const lastState = cs.lastState || {};
-            
-            if (state.waiting) {
-                hasIssue = true;
-                const reason = state.waiting.reason;
-                const message = state.waiting.message || '';
-                
-                if (reason === 'CrashLoopBackOff') {
-                    diagnosis.status = 'Critical';
-                    const exitCode = lastState.terminated?.exitCode;
-                    const termReason = lastState.terminated?.reason;
-                    let detail = `Container '${name}' is in CrashLoopBackOff.`;
-                    if (exitCode !== undefined) {
-                        detail += ` It terminated with exit code ${exitCode} (${termReason || 'unknown reason'}).`;
-                    }
-                    if (exitCode === 137 || termReason === 'OOMKilled') {
-                        detail += ` Root cause: Out Of Memory (OOMKilled). The container exceeded its memory limit.`;
-                        oomKilledContainer = name;
-                    } else if (exitCode === 1) {
-                        detail += ` This usually indicates an application crash or misconfiguration.`;
-                    } else if (exitCode === 127) {
-                        detail += ` Command or entrypoint binary not found.`;
-                    }
-                    diagnosis.details.push(detail);
-                } else if (reason === 'ErrImagePull' || reason === 'ImagePullBackOff') {
-                    diagnosis.status = 'Critical';
-                    diagnosis.details.push(`Container '${name}' failed to pull image. Reason: ${reason}. Check if the image reference is correct, the registry exists, and credentials are correct.`);
-                    pullFailureContainer = name;
-                } else if (reason === 'CreateContainerConfigError' || reason === 'CreateContainerError') {
-                    diagnosis.status = 'Critical';
-                    diagnosis.details.push(`Container '${name}' failed to create. Reason: ${reason}. This is often caused by a missing ConfigMap, Secret, or invalid command arguments.`);
-                } else {
-                    diagnosis.status = 'Warning';
-                    diagnosis.details.push(`Container '${name}' is waiting. Reason: ${reason}. Message: ${message}`);
-                }
-            }
-            
-            if (state.terminated && state.terminated.exitCode !== 0) {
-                hasIssue = true;
-                const term = state.terminated;
-                let detail = `Container '${name}' terminated with non-zero exit code ${term.exitCode}. Reason: ${term.reason}.`;
-                if (term.reason === 'OOMKilled') {
-                    diagnosis.status = 'Critical';
-                    detail += ` The container was terminated because it ran out of memory. Try increasing the memory limits in the deployment spec.`;
-                    oomKilledContainer = name;
-                } else {
-                    if (diagnosis.status !== 'Critical') diagnosis.status = 'Warning';
-                }
-                diagnosis.details.push(detail);
-            }
-        });
-
-        if (pod.status?.phase === 'Pending') {
-            hasIssue = true;
-            diagnosis.status = 'Critical';
-            let unschedulable = false;
-            (pod.status.conditions || []).forEach(cond => {
-                if (cond.type === 'PodScheduled' && cond.status === 'False' && cond.reason === 'Unschedulable') {
-                    unschedulable = true;
-                    diagnosis.details.push(`Pod scheduling failed. Reason: Unschedulable. Message: ${cond.message || 'No resources available.'}`);
-                }
-            });
-            if (!unschedulable) {
-                diagnosis.details.push(`Pod is pending. Current conditions: ${(pod.status.conditions || []).map(c => `${c.type}=${c.status}`).join(', ')}`);
-            }
-        }
-
-        const warnings = events.filter(e => e.type === 'Warning');
-        warnings.forEach(w => {
-            if (w.reason === 'Unhealthy') {
-                hasIssue = true;
-                if (diagnosis.status !== 'Critical') diagnosis.status = 'Warning';
-                diagnosis.details.push(`Probe failure: ${w.message} (Reason: ${w.reason}, Count: ${w.count})`);
-            } else if (w.reason === 'FailedScheduling') {
-                hasIssue = true;
-                diagnosis.status = 'Critical';
-                diagnosis.details.push(`Scheduling issue: ${w.message}`);
-            } else if (w.reason === 'FailedMount') {
-                hasIssue = true;
-                diagnosis.status = 'Critical';
-                diagnosis.details.push(`Volume mount failure: ${w.message}`);
-            }
-        });
-
-        if (hasIssue) {
-            if (diagnosis.status === 'Critical') {
-                diagnosis.summary = `Critical issues detected in pod '${podName}'. Actions are required to restore service.`;
-            } else {
-                diagnosis.summary = `Warnings detected in pod '${podName}'. The resource may be unstable or misconfigured.`;
-            }
-        }
-
-        // Build dynamically suggested fixes
-        if (oomKilledContainer && ownerWorkload && ['Deployment', 'StatefulSet', 'DaemonSet'].includes(ownerWorkload.kind)) {
-            diagnosis.suggestedFixes.push({
-                type: 'ScaleResources',
-                title: `Double Memory limits for '${oomKilledContainer}'`,
-                description: `Automatically scale resources for container '${oomKilledContainer}' in the parent ${ownerWorkload.kind} '${ownerWorkload.name}' by doubling its memory limits/requests.`,
-                params: {
-                    containerName: oomKilledContainer,
-                    workloadKind: ownerWorkload.kind,
-                    workloadName: ownerWorkload.name
-                }
-            });
-        }
-
-        if (ownerWorkload && ['Deployment', 'StatefulSet', 'DaemonSet'].includes(ownerWorkload.kind)) {
-            diagnosis.suggestedFixes.push({
-                type: 'RolloutRestart',
-                title: `Rollout Restart Workload`,
-                description: `Trigger a rollout restart on parent ${ownerWorkload.kind} '${ownerWorkload.name}' to clean up failed containers or re-pull images.`,
-                params: {
-                    workloadKind: ownerWorkload.kind,
-                    workloadName: ownerWorkload.name
-                }
-            });
-        }
-
-        // Secondary fallback is always to recreate the pod directly
-        diagnosis.suggestedFixes.push({
-            type: 'RecreatePod',
-            title: 'Recreate Pod',
-            description: `Forcefully delete pod '${podName}' and let the controller spin up a clean replica.`,
-            params: {}
-        });
-
-        res.json(diagnosis);
+        res.json(await diagnoseService.diagnosePod(namespace, podName));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -492,117 +203,13 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
 router.post('/resource/pods/:namespace/:name/remediate', async (req, res) => {
     const { namespace, name } = req.params;
     const { type, params } = req.body;
-    
     try {
-        // workloadKind / workloadName / containerName come from the request body,
-        // so validate them as strict Kubernetes identifiers before they reach
-        // kubectl (argv-based; no shell interpolation either way).
-        const validateWorkload = (kind, wname, container) => {
-            assertKind(kind, 'workloadKind');
-            assertName(wname, 'workloadName');
-            if (container !== undefined) assertName(container, 'containerName');
-        };
-
-        if (type === 'RecreatePod') {
-            await run('kubectl', ['delete', 'pod', name, '-n', namespace]);
-            if (typeof k8sService.clearCache === 'function') {
-                k8sService.clearCache('pods', namespace);
-            }
-            return res.json({ success: true, message: `Pod '${name}' deleted and will be recreated.` });
-        }
-
-        if (type === 'RolloutRestart') {
-            const { workloadKind, workloadName } = params;
-            if (!workloadKind || !workloadName) {
-                return res.status(400).json({ error: 'workloadKind and workloadName are required for RolloutRestart' });
-            }
-            validateWorkload(workloadKind, workloadName);
-            await run('kubectl', ['rollout', 'restart', `${workloadKind.toLowerCase()}/${workloadName}`, '-n', namespace]);
-            if (typeof k8sService.clearCache === 'function') {
-                k8sService.clearCache(workloadKind.toLowerCase() + 's', namespace);
-                k8sService.clearCache('pods', namespace);
-            }
-            return res.json({ success: true, message: `Rollout restart triggered for ${workloadKind} '${workloadName}'.` });
-        }
-
-        if (type === 'ScaleResources') {
-            const { workloadKind, workloadName, containerName } = params;
-            if (!workloadKind || !workloadName || !containerName) {
-                return res.status(400).json({ error: 'workloadKind, workloadName, and containerName are required for ScaleResources' });
-            }
-            validateWorkload(workloadKind, workloadName, containerName);
-
-            // 1. Get current resources of the workload
-            const { stdout } = await run('kubectl', ['get', workloadKind.toLowerCase(), workloadName, '-n', namespace, '-o', 'json']);
-            const workload = JSON.parse(stdout);
-            
-            // 2. Find container and double memory
-            const containers = workload.spec?.template?.spec?.containers || [];
-            const containerIdx = containers.findIndex(c => c.name === containerName);
-            if (containerIdx === -1) {
-                return res.status(404).json({ error: `Container '${containerName}' not found in workload` });
-            }
-            
-            const container = containers[containerIdx];
-            const resources = container.resources || {};
-            const requests = resources.requests || {};
-            const limits = resources.limits || {};
-            
-            const doubleMemory = (memStr, defaultVal) => {
-                if (!memStr) return defaultVal;
-                const val = parseFloat(memStr);
-                const unit = memStr.replace(/[0-9.]/g, '');
-                return `${Math.ceil(val * 2)}${unit || 'Mi'}`;
-            };
-            
-            const newMemRequest = doubleMemory(requests.memory, '256Mi');
-            const newMemLimit = doubleMemory(limits.memory, '512Mi');
-            
-            // Construct a patch object
-            const patchObj = {
-                spec: {
-                    template: {
-                        spec: {
-                            containers: [{
-                                name: containerName,
-                                resources: {
-                                    requests: { ...requests, memory: newMemRequest },
-                                    limits: { ...limits, memory: newMemLimit }
-                                }
-                            }]
-                        }
-                    }
-                }
-            };
-            
-            const os = require('os');
-            const fs = require('fs');
-            const path = require('path');
-            const tempFileName = `patch-${name}-${Date.now()}.json`;
-            const tempFilePath = path.join(os.tmpdir(), tempFileName);
-            fs.writeFileSync(tempFilePath, JSON.stringify(patchObj), 'utf8');
-
-            try {
-                await run('kubectl', ['patch', workloadKind.toLowerCase(), workloadName, '-n', namespace, '--type=merge', '--patch-file', tempFilePath]);
-            } finally {
-                try { fs.unlinkSync(tempFilePath); } catch (_) {}
-            }
-            
-            if (typeof k8sService.clearCache === 'function') {
-                k8sService.clearCache(workloadKind.toLowerCase() + 's', namespace);
-                k8sService.clearCache('pods', namespace);
-            }
-            
-            return res.json({ 
-                success: true, 
-                message: `Successfully doubled memory for container '${containerName}' in ${workloadKind} '${workloadName}' (Request: ${newMemRequest}, Limit: ${newMemLimit}).` 
-            });
-        }
-        
-        return res.status(400).json({ error: `Unsupported remediation action: ${type}` });
+        const { message } = await diagnoseService.remediate(namespace, name, type, params);
+        res.json({ success: true, message });
     } catch (err) {
-        logger.error({ namespace, name, type, error: err.message }, 'Failed to apply remediation');
-        res.status(500).json({ error: err.message });
+        const status = err.statusCode || 500;
+        if (status === 500) logger.error({ namespace, name, type, error: err.message }, 'Failed to apply remediation');
+        res.status(status).json({ error: err.message });
     }
 });
 
@@ -624,12 +231,7 @@ router.post('/resource/pods/:namespace/:name/exec', async (req, res) => {
     const { namespace, name } = req.params;
     const { command, container } = req.body;
     try {
-        let containerName = container;
-        if (!containerName) {
-            const podRes = await k8sService.core.readNamespacedPod({ name, namespace });
-            const pod = podRes.body || podRes;
-            containerName = pod.spec.containers[0].name;
-        }
+        const containerName = await k8sService.resolveContainerName(namespace, name, container);
         // `command` runs inside the target pod via `sh -c` (the intended
         // "exec into pod" feature); namespace/name/container are argv elements,
         // so nothing is interpreted by a shell on the server itself.
@@ -651,12 +253,7 @@ router.get('/resource/pods/:namespace/:name/files/download', async (req, res) =>
     if (!filePath) return res.status(400).json({ error: 'path is required' });
     
     try {
-        let containerName = container;
-        if (!containerName) {
-            const podRes = await k8sService.core.readNamespacedPod({ name, namespace });
-            const pod = podRes.body || podRes;
-            containerName = pod.spec.containers[0].name;
-        }
+        const containerName = await k8sService.resolveContainerName(namespace, name, container);
         
         const { spawn } = require('child_process');
         let cp;
@@ -724,12 +321,7 @@ router.post('/resource/pods/:namespace/:name/files/upload', async (req, res) => 
     }
     
     try {
-        let containerName = container;
-        if (!containerName) {
-            const podRes = await k8sService.core.readNamespacedPod({ name, namespace });
-            const pod = podRes.body || podRes;
-            containerName = pod.spec.containers[0].name;
-        }
+        const containerName = await k8sService.resolveContainerName(namespace, name, container);
         
         const dirPath = destDir.endsWith('/') ? destDir : destDir + '/';
         const destPath = dirPath + filename;
@@ -778,12 +370,7 @@ router.get('/resource/pods/:namespace/:name/files/view', async (req, res) => {
     if (!filePath) return res.status(400).json({ error: 'path is required' });
     
     try {
-        let containerName = container;
-        if (!containerName) {
-            const podRes = await k8sService.core.readNamespacedPod({ name, namespace });
-            const pod = podRes.body || podRes;
-            containerName = pod.spec.containers[0].name;
-        }
+        const containerName = await k8sService.resolveContainerName(namespace, name, container);
         
         // filePath is passed straight to `cat` as a single argv element, so no
         // quoting/escaping is needed and shell metacharacters are inert.
@@ -807,12 +394,7 @@ router.post('/resource/pods/:namespace/:name/files/save', async (req, res) => {
     if (content === undefined) return res.status(400).json({ error: 'content is required' });
     
     try {
-        let containerName = container;
-        if (!containerName) {
-            const podRes = await k8sService.core.readNamespacedPod({ name, namespace });
-            const pod = podRes.body || podRes;
-            containerName = pod.spec.containers[0].name;
-        }
+        const containerName = await k8sService.resolveContainerName(namespace, name, container);
         
         const cmd = `cat > "${filePath.replace(/"/g, '\\"')}"`;
         const { spawn } = require('child_process');
@@ -859,12 +441,7 @@ router.delete('/resource/pods/:namespace/:name/files', async (req, res) => {
     if (!filePath) return res.status(400).json({ error: 'path is required' });
     
     try {
-        let containerName = container;
-        if (!containerName) {
-            const podRes = await k8sService.core.readNamespacedPod({ name, namespace });
-            const pod = podRes.body || podRes;
-            containerName = pod.spec.containers[0].name;
-        }
+        const containerName = await k8sService.resolveContainerName(namespace, name, container);
         
         // `rm` receives filePath as a single argv element; no shell on the
         // server side, and `--` stops kubectl/rm from treating it as a flag.
