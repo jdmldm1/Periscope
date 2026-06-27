@@ -4,7 +4,7 @@ import {
   AlertTriangle, AlertCircle, CheckCircle2, ShieldAlert, Cpu, MemoryStick, ChevronRight,
   X, FileText, Image as ImageIcon, Database, ExternalLink, RefreshCw
 } from 'lucide-react';
-import { useIssueDetail, useIntegrationReadiness } from '../utils/kubeHooks';
+import { useIssueDetail, useIntegrationReadiness } from '../../utils/kubeHooks';
 
 interface DashboardViewProps {
   dashboardData: any;

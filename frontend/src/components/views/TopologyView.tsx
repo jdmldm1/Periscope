@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Network, type Options } from 'vis-network';
 import { Globe } from 'lucide-react';
-import { parseCpu, parseMem, matchesSelector } from '../utils/helpers';
+import { parseCpu, parseMem, matchesSelector } from '../../utils/helpers';
 
 interface TopologyViewProps {
   topologyMode: 'graph' | 'columns';
