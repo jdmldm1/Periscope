@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, RefreshCw, Search, Download, AlertTriangle } from 'lucide-react';
 import { SbomDiffView } from './SbomDiffView';
+import {
+  getRemediationList,
+  getFilteredRemediations,
+  getFilteredVulnerabilities,
+  getFilteredPackages,
+  exportVulnerabilitiesJson,
+  exportVulnerabilitiesCsv,
+  exportPackagesJson,
+  exportPackagesCsv,
+} from '../../utils/imageScan';
 
 interface ImageScannerViewProps {
   runningImages: string[];
@@ -97,239 +107,17 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
   }, [imageScannerActiveTab]);
   const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
 
-  interface RemediationItem {
-    packageName: string;
-    currentVersion: string;
-    fixedVersions: string[];
-    vulnerabilities: {
-      id: string;
-      severity: string;
-    }[];
-    imageRef: string;
-  }
-
-  const getHighestSeverity = (vulns: { id: string; severity: string }[]): number => {
-    let maxVal = 0;
-    vulns.forEach(v => {
-      const s = v.severity.toLowerCase();
-      let val = 1;
-      if (s === 'critical') val = 5;
-      else if (s === 'high') val = 4;
-      else if (s === 'medium') val = 3;
-      else if (s === 'low') val = 2;
-      if (val > maxVal) maxVal = val;
-    });
-    return maxVal;
-  };
-
-  const getRemediationList = (): RemediationItem[] => {
-    const map = new Map<string, RemediationItem>();
-
-    Object.keys(runningImagesScanResults).forEach(imgRef => {
-      if (selectedScanFilterImage !== 'all' && selectedScanFilterImage !== imgRef) return;
-      const res = runningImagesScanResults[imgRef];
-      if (res && res.status === 'success' && res.vulnerabilities && res.vulnerabilities.matches) {
-        res.vulnerabilities.matches.forEach((m: any) => {
-          const vuln = m.vulnerability || {};
-          const art = m.artifact || {};
-          const fixVersions = vuln.fix?.versions || [];
-
-          if (fixVersions.length > 0) {
-            const key = `${imgRef}::${art.name}::${art.version}`;
-            if (!map.has(key)) {
-              map.set(key, {
-                packageName: art.name,
-                currentVersion: art.version,
-                fixedVersions: [...fixVersions],
-                vulnerabilities: [],
-                imageRef: imgRef
-              });
-            }
-            const item = map.get(key)!;
-            if (!item.vulnerabilities.some(v => v.id === vuln.id)) {
-              item.vulnerabilities.push({
-                id: vuln.id,
-                severity: vuln.severity || 'Unknown'
-              });
-            }
-            fixVersions.forEach((fv: string) => {
-              if (!item.fixedVersions.includes(fv)) {
-                item.fixedVersions.push(fv);
-              }
-            });
-          }
-        });
-      }
-    });
-
-    return Array.from(map.values()).sort((a, b) => {
-      const aMax = getHighestSeverity(a.vulnerabilities);
-      const bMax = getHighestSeverity(b.vulnerabilities);
-      return bMax - aMax;
-    });
-  };
-
-  const getFilteredRemediations = () => {
-    const list = getRemediationList();
-    return list.filter(item => {
-      if (imageScanSearchQuery.trim()) {
-        const q = imageScanSearchQuery.toLowerCase();
-        return (
-          item.packageName.toLowerCase().includes(q) ||
-          item.currentVersion.toLowerCase().includes(q) ||
-          item.vulnerabilities.some(v => v.id.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    });
-  };
-
-  const getFilteredVulnerabilities = () => {
-    const list: any[] = [];
-    Object.keys(runningImagesScanResults).forEach(imgRef => {
-      if (selectedScanFilterImage !== 'all' && selectedScanFilterImage !== imgRef) return;
-      const res = runningImagesScanResults[imgRef];
-      if (res && res.status === 'success' && res.vulnerabilities && res.vulnerabilities.matches) {
-        res.vulnerabilities.matches.forEach((m: any) => {
-          list.push({ ...m, imageRef: imgRef });
-        });
-      }
-    });
-
-    return list.filter((m: any) => {
-      const vuln = m.vulnerability || {};
-      const art = m.artifact || {};
-      const severity = vuln.severity || 'Unknown';
-      const imageRef = m.imageRef || '';
-
-      if (imageScanSeverityFilter !== 'all' && severity.toLowerCase() !== imageScanSeverityFilter.toLowerCase()) {
-        return false;
-      }
-
-      if (imageScanSearchQuery.trim()) {
-        const q = imageScanSearchQuery.toLowerCase();
-        return (
-          (vuln.id || '').toLowerCase().includes(q) ||
-          (severity || '').toLowerCase().includes(q) ||
-          (art.name || '').toLowerCase().includes(q) ||
-          (imageRef || '').toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  };
-
-  const getFilteredPackages = () => {
-    const list: any[] = [];
-    Object.keys(runningImagesScanResults).forEach(imgRef => {
-      if (selectedScanFilterImage !== 'all' && selectedScanFilterImage !== imgRef) return;
-      const res = runningImagesScanResults[imgRef];
-      if (res && res.status === 'success' && res.sbom && res.sbom.artifacts) {
-        res.sbom.artifacts.forEach((art: any) => {
-          list.push({ ...art, imageRef: imgRef });
-        });
-      }
-    });
-
-    return list.filter((art: any) => {
-      if (imageScanSearchQuery.trim()) {
-        const q = imageScanSearchQuery.toLowerCase();
-        const name = (art.name || '').toLowerCase();
-        const ver = (art.version || '').toLowerCase();
-        const type = (art.type || '').toLowerCase();
-        const imageRef = (art.imageRef || '').toLowerCase();
-        const licenses = Array.isArray(art.licenses)
-          ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || '')).join(' ').toLowerCase()
-          : '';
-        return name.includes(q) || ver.includes(q) || type.includes(q) || licenses.includes(q) || imageRef.includes(q);
-      }
-      return true;
-    });
-  };
-
-  const exportImageScannerVulnerabilitiesJson = () => {
-    const data = getFilteredVulnerabilities();
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `security-vulnerabilities-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const exportImageScannerVulnerabilitiesCsv = () => {
-    const data = getFilteredVulnerabilities();
-    const headers = ['Image', 'Vulnerability ID', 'Severity', 'Package', 'Installed Version', 'Fixed In'];
-    const rows = data.map((m: any) => {
-      const vuln = m.vulnerability || {};
-      const art = m.artifact || {};
-      const fixedIn = vuln.fix?.versions?.join(', ') || 'Not Fixed';
-      return [
-        `"${m.imageRef}"`,
-        `"${vuln.id}"`,
-        `"${vuln.severity}"`,
-        `"${art.name}"`,
-        `"${art.version}"`,
-        `"${fixedIn}"`
-      ];
-    });
-    const csvContent = [headers.join(','), ...rows.map((r: any) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", url);
-    downloadAnchor.setAttribute("download", `security-vulnerabilities-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.csv`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const exportImageScannerPackagesJson = () => {
-    const data = getFilteredPackages();
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `security-packages-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const exportImageScannerPackagesCsv = () => {
-    const data = getFilteredPackages();
-    const headers = ['Image', 'Package Name', 'Version', 'Type', 'Licenses', 'Language'];
-    const rows = data.map((art: any) => {
-      const licenseStrs = Array.isArray(art.licenses)
-        ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || ''))
-        : [];
-      return [
-        `"${art.imageRef}"`,
-        `"${art.name}"`,
-        `"${art.version}"`,
-        `"${art.type}"`,
-        `"${licenseStrs.join(', ')}"`,
-        `"${art.language || 'N/A'}"`
-      ];
-    });
-    const csvContent = [headers.join(','), ...rows.map((r: any) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", url);
-    downloadAnchor.setAttribute("download", `security-packages-report-${selectedScanFilterImage.replace(/[:/]/g, '-')}.csv`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
+  // Active filters, bundled so the derivation/export helpers in utils/imageScan
+  // take a single argument.
+  const filters = { image: selectedScanFilterImage, severity: imageScanSeverityFilter, search: imageScanSearchQuery };
 
   const totalCount = runningImages.length;
   const scannedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'success').length;
   const scanningCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'scanning').length;
   const failedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'failed').length;
 
-  const filteredVulns = getFilteredVulnerabilities();
-  const filteredPkgs = getFilteredPackages();
+  const filteredVulns = getFilteredVulnerabilities(runningImagesScanResults, filters);
+  const filteredPkgs = getFilteredPackages(runningImagesScanResults, filters);
 
   const criticalCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'critical').length;
   const highCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'high').length;
@@ -553,7 +341,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             fontSize: '0.9rem'
           }}
         >
-          💡 Remediation Advisor ({getRemediationList().length})
+          💡 Remediation Advisor ({getRemediationList(runningImagesScanResults, filters.image).length})
         </button>
         <button 
           className={`tab-btn ${imageScannerActiveTab === 'drift' ? 'active' : ''}`}
@@ -646,14 +434,14 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             <div style={{ display: 'flex', gap: 8 }}>
               <button 
                 className="btn btn-primary" 
-                onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesCsv : exportImageScannerPackagesCsv}
+                onClick={() => imageScannerActiveTab === 'vulnerabilities' ? exportVulnerabilitiesCsv(runningImagesScanResults, filters) : exportPackagesCsv(runningImagesScanResults, filters)}
                 style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 <Download size={14} /> Export CSV
               </button>
               <button 
                 className="btn" 
-                onClick={imageScannerActiveTab === 'vulnerabilities' ? exportImageScannerVulnerabilitiesJson : exportImageScannerPackagesJson}
+                onClick={() => imageScannerActiveTab === 'vulnerabilities' ? exportVulnerabilitiesJson(runningImagesScanResults, filters) : exportPackagesJson(runningImagesScanResults, filters)}
                 style={{ fontSize: '0.8rem', padding: '6px 12px', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 <Download size={14} /> Export JSON
@@ -789,7 +577,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
       )}
 
       {imageScannerActiveTab === 'remediation' && (
-        getFilteredRemediations().length === 0 ? (
+        getFilteredRemediations(runningImagesScanResults, filters).length === 0 ? (
           <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             No remediation suggestions found matching current filters.
           </div>
@@ -802,7 +590,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
-              {getFilteredRemediations().map((item, idx) => {
+              {getFilteredRemediations(runningImagesScanResults, filters).map((item, idx) => {
                 const maxSeverity = item.vulnerabilities.reduce((acc, v) => {
                   const s = v.severity.toLowerCase();
                   if (s === 'critical') return 'Critical';
