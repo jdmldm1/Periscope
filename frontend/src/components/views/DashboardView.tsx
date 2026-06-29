@@ -15,7 +15,6 @@ import { SecuritySection } from './dashboard/SecuritySection';
 interface DashboardViewProps {
   dashboardData: any;
   namespace: string;
-  pods: any[];
   cpuHistory: number[];
   memHistory: number[];
   setActiveTab: (tab: any) => void;
@@ -29,7 +28,6 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   dashboardData,
   namespace,
-  pods = [],
   setActiveTab,
   setSearch,
   setIsCmdPaletteOpen,
@@ -109,33 +107,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setMemHistoryState(prev => [...prev.slice(-14), currentMem]);
   }, [dashboardData]);
 
-  const getPodStatusInfo = (pod: any) => {
-    if (pod.metadata?.deletionTimestamp) {
-      return { status: 'Terminating', color: 'var(--accent-warning)' };
-    }
-    const phase = pod.status?.phase || 'Unknown';
-    if (phase === 'Succeeded') return { status: 'Succeeded', color: 'var(--accent-blue)' };
-    if (phase === 'Failed') return { status: 'Failed', color: 'var(--accent-error)' };
-    
-    const containerStatuses = pod.status?.containerStatuses || [];
-    const waitingErr = containerStatuses.find((s: any) => s.state?.waiting && !['ContainerCreating', 'PodInitializing', 'AlwaysPullImages'].includes(s.state.waiting.reason));
-    const termErr = containerStatuses.find((s: any) => s.state?.terminated && s.state.terminated.exitCode !== 0);
-    
-    if (waitingErr) {
-      return { status: waitingErr.state.waiting.reason, color: 'var(--accent-error)' };
-    }
-    if (termErr) {
-      return { status: termErr.state.terminated.reason || 'Error', color: 'var(--accent-error)' };
-    }
-    
-    if (phase === 'Pending') return { status: 'Pending', color: 'var(--accent-warning)' };
-    if (phase === 'Running') {
-      const notReady = containerStatuses.some((s: any) => !s.ready);
-      if (notReady) return { status: 'Not Ready', color: 'var(--accent-cyan)' };
-      return { status: 'Running', color: 'var(--accent-green)' };
-    }
-    return { status: phase, color: 'var(--text-muted)' };
-  };
+
 
   if (!dashboardData || Object.keys(dashboardData).length === 0) return <div className="loader-container"><div className="loader"></div></div>;
   if ('error' in (dashboardData as any)) {
@@ -274,7 +246,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Live Event Ticker Stream */}
-      {recentWarnings.length > 0 ? (
+      {recentWarnings.length > 0 && (
         <div className="event-ticker-container">
           <div className="event-ticker-label">
             <AlertTriangle size={14} /> Warning Ticker:
@@ -293,19 +265,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
         </div>
-      ) : (
-        <div className="event-ticker-container">
-          <div className="event-ticker-label" style={{ color: 'var(--accent-green)' }}>
-            <CheckCircle2 size={14} /> Status Ticker:
-          </div>
-          <div className="event-ticker-wrapper">
-            <div className="event-ticker-scroll" style={{ animationDuration: '40s' }}>
-              <span className="event-ticker-item" style={{ cursor: 'default' }}>
-                All systems functional. No warnings detected in namespace "{namespace || 'all'}" in the last hour.
-              </span>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Active issues & deployments — primary top row */}
@@ -318,62 +277,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           style={{ gridColumn: 'auto' }}
         />
         <DeploymentsPanel deployments={recentDeployments} onViewHelm={() => setActiveTab('helm')} />
-      </div>
-
-      {/* High-Density Pod Status Heatmap Grid */}
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontSize: '1.1rem', marginBottom: 12, letterSpacing: 0.5 }}>POD STATUS HEATMAP</h2>
-        <div className="pod-heatmap-grid">
-          {pods.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', gridColumn: '1 / -1', textAlign: 'center', padding: '10px' }}>
-              No pods active in this namespace.
-            </div>
-          ) : (
-            pods.map((pod, idx) => {
-              const info = getPodStatusInfo(pod);
-              const restarts = (pod.status?.containerStatuses || []).reduce((s: number, c: any) => s + (c.restartCount || 0), 0);
-              return (
-                <div 
-                  key={idx} 
-                  className="pod-heatmap-block"
-                  style={{ backgroundColor: info.color, color: info.color }}
-                  onClick={() => goToResource('Pod', pod.metadata?.name || '')}
-                >
-                  <div className="pod-heatmap-tooltip">
-                    <strong>{pod.metadata?.name}</strong><br/>
-                    Status: {info.status}<br/>
-                    Restarts: {restarts}<br/>
-                    <span style={{ color: 'var(--accent-cyan)', fontSize: '0.65rem' }}>Click to inspect</span>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-        {pods.length > 0 && (
-          <div className="heatmap-legend">
-            <div className="legend-item">
-              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-green)' }} />
-              Running/Ready
-            </div>
-            <div className="legend-item">
-              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-cyan)' }} />
-              Not Ready
-            </div>
-            <div className="legend-item">
-              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-warning)' }} />
-              Pending/Terminating
-            </div>
-            <div className="legend-item">
-              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-error)' }} />
-              Failing/Error
-            </div>
-            <div className="legend-item">
-              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-blue)' }} />
-              Succeeded/Completed
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Cluster state overview: health (healthy vs unhealthy) + resource utilization */}
@@ -414,48 +317,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       <SecuritySection scanResults={runningImagesScanResults} kubescapeReport={kubescapeReport} onNavigate={setActiveTab} />
 
-      {/* Diagnostic Automations & Console */}
-      <div style={{ marginTop: 24, marginBottom: 24 }}>
-        <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>DIAGNOSTIC AUTOMATIONS</h2>
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-          <button className="btn btn-sm" onClick={() => executeDiagnostic('restarts')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Box size={13} style={{ color: 'var(--accent-pink)' }} /> Find Restarting Pods
-          </button>
-          <button className="btn btn-sm" onClick={() => executeDiagnostic('pvcs')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <HardDrive size={13} style={{ color: 'var(--accent-warning)' }} /> Check PVC bindings
-          </button>
-          <button className="btn btn-sm" onClick={() => executeDiagnostic('network')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Network size={13} style={{ color: 'var(--accent-cyan)' }} /> Inspect Network selectors
-          </button>
-        </div>
-
-        {isDiagConsoleOpen && (
-          <div className="dashboard-chart-card animate-fade-in" style={{ padding: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Diagnostic Console Output: <span style={{ color: 'var(--accent-cyan)' }}>{diagAction}</span>
-              </span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn btn-sm" onClick={() => {
-                  navigator.clipboard.writeText(diagConsole);
-                }} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Copy Output</button>
-                <button className="btn btn-sm btn-danger" onClick={() => setIsDiagConsoleOpen(false)} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Close Console</button>
-              </div>
-            </div>
-            <div className="console-panel" style={{ minHeight: 180, whiteSpace: 'pre-wrap', maxHeight: 300 }}>
-              {diagLoading ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
-                  <div className="loader" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing cluster state...
-                </div>
-              ) : diagConsole}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Quick Action Console */}
-      <div>
-        <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>QUICK ACTION CONSOLE</h2>
+      {/* Quick Action & Diagnostic Console */}
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>QUICK ACTION & DIAGNOSTIC CONSOLE</h2>
         <div className="dashboard-quick-actions">
           <div className="quick-action-btn" onClick={() => setActiveTab('pods')}>
             <Box size={24} style={{ color: 'var(--accent-green)' }} />
@@ -467,20 +331,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="quick-action-btn" onClick={() => setActiveTab('helm')}>
             <Package size={24} style={{ color: 'var(--accent-pink)' }} />
-            <span>Helm</span>
+            <span>Helm Releases</span>
           </div>
           {zarfStatus.installed && (
             <div className="quick-action-btn" onClick={() => setActiveTab('zarf')}>
               <Package size={24} style={{ color: 'var(--accent-warning)' }} />
-              <span>Zarf</span>
+              <span>Zarf Packages</span>
             </div>
           )}
           <div className="quick-action-btn" onClick={() => setIsCmdPaletteOpen(true)}>
             <Command size={24} style={{ color: 'var(--accent-purple)' }} />
             <span>Command Palette</span>
           </div>
+          <div className="quick-action-btn" onClick={() => executeDiagnostic('restarts')}>
+            <AlertTriangle size={24} style={{ color: 'var(--accent-error)' }} />
+            <span>Scan Restarts</span>
+          </div>
+          <div className="quick-action-btn" onClick={() => executeDiagnostic('pvcs')}>
+            <HardDrive size={24} style={{ color: 'var(--accent-warning)' }} />
+            <span>Check PVCs</span>
+          </div>
+          <div className="quick-action-btn" onClick={() => executeDiagnostic('network')}>
+            <Network size={24} style={{ color: 'var(--accent-cyan)' }} />
+            <span>Scan Network</span>
+          </div>
         </div>
       </div>
+
+      {isDiagConsoleOpen && (
+        <div className="dashboard-chart-card animate-fade-in" style={{ padding: 16, marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Diagnostic Console Output: <span style={{ color: 'var(--accent-cyan)' }}>{diagAction}</span>
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-sm" onClick={() => {
+                navigator.clipboard.writeText(diagConsole);
+              }} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Copy Output</button>
+              <button className="btn btn-sm btn-danger" onClick={() => setIsDiagConsoleOpen(false)} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Close Console</button>
+            </div>
+          </div>
+          <div className="console-panel" style={{ minHeight: 180, whiteSpace: 'pre-wrap', maxHeight: 300 }}>
+            {diagLoading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
+                <div className="loader" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing cluster state...
+              </div>
+            ) : diagConsole}
+          </div>
+        </div>
+      )}
 
       {selectedIssue && (
         <IssueDrawer
