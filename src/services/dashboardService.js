@@ -530,8 +530,152 @@ async function getIntegrationReadiness(ns) {
     };
 }
 
+async function runDiagnostic(action, ns) {
+    const scoped = ns && ns !== 'all';
+    
+    if (action === 'restarts') {
+        const podsRaw = scoped 
+            ? await k8sService.core.listNamespacedPod({ namespace: ns }) 
+            : await k8sService.core.listPodForAllNamespaces();
+        const pods = getItems(podsRaw);
+        
+        const restarting = [];
+        pods.forEach(p => {
+            const containerStatuses = p.status?.containerStatuses || [];
+            const initContainerStatuses = p.status?.initContainerStatuses || [];
+            const allStatuses = [...containerStatuses, ...initContainerStatuses];
+            
+            const hasRestarts = allStatuses.some(s => s.restartCount > 0);
+            if (hasRestarts) {
+                const containers = allStatuses.map(s => {
+                    let details = `${s.name}: ${s.restartCount} restarts`;
+                    if (s.lastState?.terminated) {
+                        const term = s.lastState.terminated;
+                        details += ` (last terminated exitCode=${term.exitCode} reason=${term.reason || 'unknown'})`;
+                    }
+                    return details;
+                });
+                restarting.push({
+                    name: p.metadata.name,
+                    namespace: p.metadata.namespace,
+                    status: p.status.phase,
+                    containers
+                });
+            }
+        });
+        
+        if (restarting.length === 0) {
+            return `SUCCESS: No pods with container restart history detected in namespace "${ns || 'all'}".`;
+        }
+        
+        let output = `DIAGNOSTIC REPORT: POD CONTAINER RESTARTS\n`;
+        output += `Namespace Scope: ${ns || 'all'}\n`;
+        output += `Found ${restarting.length} pod(s) with restart history:\n\n`;
+        restarting.forEach((p, idx) => {
+            output += `[${idx + 1}] ${p.namespace}/${p.name} (Status: ${p.status})\n`;
+            p.containers.forEach(c => {
+                output += `    - ${c}\n`;
+            });
+            output += `\n`;
+        });
+        return output;
+    }
+    
+    if (action === 'pvcs') {
+        const pvcRaw = scoped
+            ? await k8sService.core.listNamespacedPersistentVolumeClaim({ namespace: ns })
+            : await k8sService.core.listPersistentVolumeClaimForAllNamespaces();
+        const pvcs = getItems(pvcRaw);
+        
+        if (pvcs.length === 0) {
+            return `INFO: No Persistent Volume Claims (PVCs) found in namespace "${ns || 'all'}".`;
+        }
+        
+        let output = `DIAGNOSTIC REPORT: PERSISTENT VOLUME CLAIMS (PVCs)\n`;
+        output += `Namespace Scope: ${ns || 'all'}\n`;
+        output += `Found ${pvcs.length} PVC(s):\n\n`;
+        
+        pvcs.forEach((pvc, idx) => {
+            const name = pvc.metadata.name;
+            const namespace = pvc.metadata.namespace;
+            const phase = pvc.status?.phase || 'Unknown';
+            const storageClass = pvc.spec?.storageClassName || 'default';
+            const capacity = pvc.status?.capacity?.storage || pvc.spec?.resources?.requests?.storage || 'unknown';
+            const volume = pvc.spec?.volumeName || 'unbound';
+            
+            output += `[${idx + 1}] ${namespace}/${name}\n`;
+            output += `    - Status:        ${phase}\n`;
+            output += `    - Capacity:      ${capacity}\n`;
+            output += `    - StorageClass:  ${storageClass}\n`;
+            output += `    - Volume:        ${volume}\n\n`;
+        });
+        return output;
+    }
+    
+    if (action === 'network') {
+        const [servicesRaw, podsRaw] = await Promise.all([
+            scoped ? k8sService.core.listNamespacedService({ namespace: ns }) : k8sService.core.listServiceForAllNamespaces(),
+            scoped ? k8sService.core.listNamespacedPod({ namespace: ns }) : k8sService.core.listPodForAllNamespaces()
+        ]);
+        
+        const services = getItems(servicesRaw);
+        const pods = getItems(podsRaw);
+        
+        if (services.length === 0) {
+            return `INFO: No Services found in namespace "${ns || 'all'}".`;
+        }
+        
+        let output = `DIAGNOSTIC REPORT: SERVICES & NETWORK SELECTORS\n`;
+        output += `Namespace Scope: ${ns || 'all'}\n`;
+        output += `Found ${services.length} Service(s):\n\n`;
+        
+        services.forEach((svc, idx) => {
+            const name = svc.metadata.name;
+            const namespace = svc.metadata.namespace;
+            const selector = svc.spec?.selector;
+            const type = svc.spec?.type || 'ClusterIP';
+            const clusterIP = svc.spec?.clusterIP || 'None';
+            const ports = (svc.spec?.ports || []).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(', ');
+            
+            output += `[${idx + 1}] ${namespace}/${name} (Type: ${type}, IP: ${clusterIP})\n`;
+            output += `    - Ports:     ${ports}\n`;
+            
+            if (!selector || Object.keys(selector).length === 0) {
+                if (type === 'ExternalName') {
+                    output += `    - Target:    ExternalName (${svc.spec.externalName})\n\n`;
+                } else {
+                    output += `    - Selector:  None (No selector configured)\n\n`;
+                }
+                return;
+            }
+            
+            const selectorStr = Object.entries(selector).map(([k, v]) => `${k}=${v}`).join(', ');
+            output += `    - Selector:  ${selectorStr}\n`;
+            
+            // Find pods in same namespace matching selector
+            const svcPods = pods.filter(p => {
+                if (p.metadata?.namespace !== namespace) return false;
+                const labels = p.metadata?.labels || {};
+                return Object.entries(selector).every(([k, v]) => labels[k] === v);
+            });
+            
+            if (svcPods.length === 0) {
+                output += `    - WARNING:   No matching pods found! Traffic sent to this service will fail.\n\n`;
+            } else {
+                const runningCount = svcPods.filter(p => p.status?.phase === 'Running').length;
+                output += `    - Endpoints: ${runningCount}/${svcPods.length} matching pods are Running/Healthy\n`;
+                output += `                 [Pods: ${svcPods.map(p => p.metadata.name).slice(0, 3).join(', ')}${svcPods.length > 3 ? '...' : ''}]\n\n`;
+            }
+        });
+        return output;
+    }
+    
+    return `ERROR: Unknown diagnostic action: ${action}`;
+}
+
 module.exports = {
     getStats,
     getIssueDetail,
     getIntegrationReadiness,
+    runDiagnostic,
 };
