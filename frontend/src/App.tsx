@@ -410,7 +410,6 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
               <DashboardView
                 dashboardData={dashboardData || {}}
                 namespace={selectedNs}
-                pods={allPods || []}
                 cpuHistory={[]}
                 memHistory={[]}
                 setActiveTab={setActiveTab}
