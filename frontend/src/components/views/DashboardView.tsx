@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Activity, Command, Box, Package, Server, Layers,
-  AlertTriangle, AlertCircle, CheckCircle2, Cpu, MemoryStick,
-  HardDrive, Network
+  AlertTriangle, AlertCircle, CheckCircle2, Cpu, MemoryStick
 } from 'lucide-react';
 import { useIssueDetail, useIntegrationReadiness } from '../../utils/kubeHooks';
 import { type Issue, type RecentWarning } from './dashboard/types';
@@ -49,12 +48,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [cpuHistoryState, setCpuHistoryState] = useState<number[]>([]);
   const [memHistoryState, setMemHistoryState] = useState<number[]>([]);
 
-  // Diagnostics state
-  const [diagAction, setDiagAction] = useState<string | null>(null);
-  const [diagConsole, setDiagConsole] = useState<string>('');
-  const [diagLoading, setDiagLoading] = useState<boolean>(false);
-  const [isDiagConsoleOpen, setIsDiagConsoleOpen] = useState<boolean>(false);
-
   const goToResource = (kind: string, name: string) => {
     const tab = kind === 'Node' ? 'nodes'
       : kind === 'Deployment' ? 'deployments'
@@ -67,26 +60,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const goToPod = (name: string) => {
     setSearch(name);
     setActiveTab('pods');
-  };
-
-  const executeDiagnostic = async (action: string) => {
-    setDiagAction(action);
-    setDiagLoading(true);
-    setIsDiagConsoleOpen(true);
-    setDiagConsole(`Running ${action} diagnostics for namespace "${namespace || 'all'}"...\n`);
-    try {
-      const response = await fetch(`/api/dashboard/diagnose?action=${action}&namespace=${namespace}`);
-      const data = await response.json();
-      if (response.ok) {
-        setDiagConsole(data.result);
-      } else {
-        setDiagConsole(`ERROR: ${data.error || 'Failed to run diagnostic'}`);
-      }
-    } catch (err: any) {
-      setDiagConsole(`CONNECTION ERROR: ${err.message || err}`);
-    } finally {
-      setDiagLoading(false);
-    }
   };
 
   useEffect(() => {
@@ -317,9 +290,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       <SecuritySection scanResults={runningImagesScanResults} kubescapeReport={kubescapeReport} onNavigate={setActiveTab} />
 
-      {/* Quick Action & Diagnostic Console */}
+      {/* Quick Action Console */}
       <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>QUICK ACTION & DIAGNOSTIC CONSOLE</h2>
+        <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>QUICK ACTION CONSOLE</h2>
         <div className="dashboard-quick-actions">
           <div className="quick-action-btn" onClick={() => setActiveTab('pods')}>
             <Box size={24} style={{ color: 'var(--accent-green)' }} />
@@ -343,43 +316,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <Command size={24} style={{ color: 'var(--accent-purple)' }} />
             <span>Command Palette</span>
           </div>
-          <div className="quick-action-btn" onClick={() => executeDiagnostic('restarts')}>
-            <AlertTriangle size={24} style={{ color: 'var(--accent-error)' }} />
-            <span>Scan Restarts</span>
-          </div>
-          <div className="quick-action-btn" onClick={() => executeDiagnostic('pvcs')}>
-            <HardDrive size={24} style={{ color: 'var(--accent-warning)' }} />
-            <span>Check PVCs</span>
-          </div>
-          <div className="quick-action-btn" onClick={() => executeDiagnostic('network')}>
-            <Network size={24} style={{ color: 'var(--accent-cyan)' }} />
-            <span>Scan Network</span>
-          </div>
         </div>
       </div>
-
-      {isDiagConsoleOpen && (
-        <div className="dashboard-chart-card animate-fade-in" style={{ padding: 16, marginBottom: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Diagnostic Console Output: <span style={{ color: 'var(--accent-cyan)' }}>{diagAction}</span>
-            </span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-sm" onClick={() => {
-                navigator.clipboard.writeText(diagConsole);
-              }} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Copy Output</button>
-              <button className="btn btn-sm btn-danger" onClick={() => setIsDiagConsoleOpen(false)} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Close Console</button>
-            </div>
-          </div>
-          <div className="console-panel" style={{ minHeight: 180, whiteSpace: 'pre-wrap', maxHeight: 300 }}>
-            {diagLoading ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
-                <div className="loader" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing cluster state...
-              </div>
-            ) : diagConsole}
-          </div>
-        </div>
-      )}
 
       {selectedIssue && (
         <IssueDrawer
