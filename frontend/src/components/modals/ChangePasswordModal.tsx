@@ -73,7 +73,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
   return (
     <div className="modal-overlay" style={{ zIndex: 9999 }}>
-      <div className="modal-content animate-fade-in" style={{ maxWidth: 440, padding: 28 }}>
+      <div className="modal-content animate-fade-in" style={{ maxWidth: 440, height: 'auto', maxHeight: 'none', padding: 28 }}>
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
           <div style={{
             display: 'inline-flex',
