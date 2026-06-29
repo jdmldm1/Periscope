@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const logger = require('../utils/logger');
+const authService = require('../services/authService');
 
 const API_KEY = process.env.PERISCOPE_API_KEY;
 
@@ -14,27 +15,50 @@ function safeEqual(a, b) {
 }
 
 function authMiddleware(req, res, next) {
-    // If no API key configured, auth is disabled (backward compatible)
-    if (!API_KEY) return next();
+    const path = req.path;
+    // Whitelisted routes that don't need authentication
+    if (path === '/auth/login' || path === '/auth/status') {
+        return next();
+    }
 
+    const authEnabled = authService.isAuthEnabled();
+
+    // Check Authorization header
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'Unauthorized: Missing or invalid Authorization header' });
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.slice(7);
+        // Verify against active session tokens
+        if (authEnabled && authService.verifySession(token)) {
+            return next();
+        }
+        // Verify against API key if configured
+        if (API_KEY && safeEqual(token, API_KEY)) {
+            return next();
+        }
     }
 
-    const token = authHeader.slice(7);
-    if (!safeEqual(token, API_KEY)) {
-        logger.warn({ ip: req.ip }, 'Unauthorized API access attempt');
-        return res.status(403).json({ error: 'Forbidden: Invalid API key' });
+    // If auth is disabled and no API key is configured, allow it (backward compatible)
+    if (!authEnabled && !API_KEY) {
+        return next();
     }
 
-    next();
+    // Otherwise, unauthorized
+    logger.warn({ ip: req.ip, path: req.originalUrl }, 'Unauthorized API access attempt');
+    return res.status(401).json({ error: 'Unauthorized: Access token is invalid or missing' });
 }
 
 function wsAuthCheck(request) {
-    if (!API_KEY) return true;
     const url = new URL(request.url, `http://${request.headers.host}`);
     const token = url.searchParams.get('token');
+    
+    const authEnabled = authService.isAuthEnabled();
+    if (authEnabled) {
+        if (token && authService.verifySession(token)) return true;
+        if (API_KEY && token && safeEqual(token, API_KEY)) return true;
+        return false;
+    }
+
+    if (!API_KEY) return true;
     return safeEqual(token || '', API_KEY);
 }
 

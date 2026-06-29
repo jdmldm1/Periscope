@@ -9,9 +9,11 @@ interface SidebarProps {
   setCustomCrd: (crd: any) => void;
   isOpen?: boolean;
   onNavigate?: () => void;
+  onLogout?: () => void;
+  onChangePassword?: () => void;
 }
 
-export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections, toggleSection, setCustomCrd, isOpen, onNavigate }: SidebarProps) => {
+export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections, toggleSection, setCustomCrd, isOpen, onNavigate, onLogout, onChangePassword }: SidebarProps) => {
   const NavItem = ({ id, icon: Icon, label, color, onClick }: { id: string, icon: any, label: string, color?: string, onClick?: () => void }) => (
     <a
       className={`nav-item ${activeTab === id ? 'active' : ''}`}
@@ -135,6 +137,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
             <NavItem id="helm-repos" icon={Database} label="Repo Manager" />
             <NavItem id="zarf" icon={Package} label="Zarf Packages" />
             <NavItem id="zarf-registry" icon={Database} label="Zarf Registry" />
+            <NavItem id="oras" icon={Package} label="ORAS Manager" color="var(--accent-cyan)" />
             <NavItem 
               id="custom" 
               icon={Code} 
@@ -173,7 +176,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
         )}
       </div>
 
-      <div className="nav-section">
+      <div className="nav-section" style={{ marginBottom: 20 }}>
         <div className="nav-section-title" onClick={() => toggleSection('operations')}>
           <span>Operations</span>
           <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['operations'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
@@ -185,6 +188,28 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
           </nav>
         )}
       </div>
+
+      {onLogout && (
+        <div className="sidebar-user">
+          <div className="user-info">
+            <div className="user-avatar">A</div>
+            <div className="user-details">
+              <span className="user-name">admin</span>
+              <span className="user-role">Administrator</span>
+            </div>
+          </div>
+          <nav className="nav-menu" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {onChangePassword && (
+              <a className="nav-item" onClick={onChangePassword} style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
+                <Key size={14} /> Change Password
+              </a>
+            )}
+            <a className="nav-item" onClick={onLogout} style={{ fontSize: '0.8rem', padding: '6px 12px', color: 'var(--accent-error)' }}>
+              <Package size={14} style={{ color: 'var(--accent-error)' }} /> Logout
+            </a>
+          </nav>
+        </div>
+      )}
     </aside>
   );
 };

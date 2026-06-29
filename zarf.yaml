@@ -5,6 +5,11 @@ metadata:
   description: A Periscope web console for exploring and managing Kubernetes resources
   version: 1.2.0
 
+variables:
+  - name: AUTH_ENABLED
+    description: "Enable username/password authentication"
+    default: "true"
+
 components:
   - name: periscope
     required: true
@@ -21,3 +26,6 @@ components:
         valuesFiles:
           - ./charts/periscope/values.yaml
           - ./charts/periscope/values-connected.yaml
+        variables:
+          - name: AUTH_ENABLED
+            path: auth.enabled
