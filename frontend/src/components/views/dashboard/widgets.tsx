@@ -1,8 +1,36 @@
 import React from 'react';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
 
-// Pure presentational widgets for the dashboard's cluster-state overview. Each
-// is driven entirely by its props (no cluster/state access).
+export const Sparkline: React.FC<{ data: number[]; color?: string; min?: number; max?: number }> = ({ data, color = 'var(--accent-primary)', min, max }) => {
+  if (data.length < 2) return null;
+  
+  const minVal = min !== undefined ? min : Math.min(...data);
+  const maxVal = max !== undefined ? max : Math.max(...data);
+  const range = maxVal - minVal || 1;
+  
+  const width = 80;
+  const height = 24;
+  const padding = 2;
+  
+  const points = data.map((val, index) => {
+    const x = padding + (index / (data.length - 1)) * (width - 2 * padding);
+    const y = padding + (1 - (val - minVal) / range) * (height - 2 * padding);
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <svg width={width} height={height} style={{ overflow: 'visible' }}>
+      <polyline
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+    </svg>
+  );
+};
 
 // Health-focused summary card (healthy vs unhealthy).
 export const HealthStat: React.FC<{
@@ -13,7 +41,8 @@ export const HealthStat: React.FC<{
   badLabel: string;
   bad: number;
   onClick?: () => void;
-}> = ({ icon, label, healthy, total, badLabel, bad, onClick }) => {
+  history?: number[];
+}> = ({ icon, label, healthy, total, badLabel, bad, onClick, history }) => {
   const ok = bad === 0;
   const pct = total > 0 ? Math.round((healthy / total) * 100) : 100;
   const accent = ok ? 'var(--accent-green)' : (badLabel.toLowerCase().includes('critical') || bad > 0 && label === 'Nodes' ? 'var(--accent-error)' : 'var(--accent-warning)');
@@ -31,9 +60,14 @@ export const HealthStat: React.FC<{
           ? <CheckCircle2 size={18} style={{ color: 'var(--accent-green)' }} />
           : <AlertTriangle size={18} style={{ color: accent }} />}
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ fontSize: '1.9rem', fontWeight: 800, color: 'var(--text-main)' }}>{healthy}</span>
-        <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>/ {total} healthy</span>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', width: '100%', minHeight: 35 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: '1.9rem', fontWeight: 800, color: 'var(--text-main)' }}>{healthy}</span>
+          <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>/ {total} healthy</span>
+        </div>
+        {history && history.length >= 2 && (
+          <Sparkline data={history} color={accent} />
+        )}
       </div>
       <div className="metric-bar-wrapper" style={{ height: 6 }}>
         <div className={`metric-bar-fill ${ok ? 'normal' : (accent === 'var(--accent-error)' ? 'critical' : 'warning')}`} style={{ width: `${pct}%` }} />
@@ -46,7 +80,7 @@ export const HealthStat: React.FC<{
 };
 
 // Compact resource utilization bar (single source of truth).
-export const UtilBar: React.FC<{ pct: number; title: string; sub: string; icon: React.ReactNode; available: boolean }> = ({ pct, title, sub, icon, available }) => {
+export const UtilBar: React.FC<{ pct: number; title: string; sub: string; icon: React.ReactNode; available: boolean; history?: number[] }> = ({ pct, title, sub, icon, available, history }) => {
   const color = pct >= 90 ? 'var(--accent-error)' : pct >= 75 ? 'var(--accent-warning)' : 'var(--accent-green)';
   const cls = pct >= 90 ? 'critical' : pct >= 75 ? 'warning' : 'normal';
   return (
@@ -55,9 +89,14 @@ export const UtilBar: React.FC<{ pct: number; title: string; sub: string; icon: 
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: 0.4 }}>
           {icon} {title}
         </span>
-        {available
-          ? <span style={{ fontSize: '0.95rem', fontWeight: 800, color }}>{pct}%</span>
-          : <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>metrics-server unavailable</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {available && history && history.length >= 2 && (
+            <Sparkline data={history} color={color} />
+          )}
+          {available
+            ? <span style={{ fontSize: '0.95rem', fontWeight: 800, color }}>{pct}%</span>
+            : <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>metrics-server unavailable</span>}
+        </div>
       </div>
       <div className="metric-bar-wrapper" style={{ height: 8 }}>
         <div className={`metric-bar-fill ${cls}`} style={{ width: available ? `${pct}%` : '0%' }} />
