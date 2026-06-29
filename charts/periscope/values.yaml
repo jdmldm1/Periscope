@@ -60,3 +60,8 @@ auth:
   # Set an API key to require authentication for all API requests.
   # When empty, authentication is disabled (default for backward compatibility).
   apiKey: ""
+  # Enable username/password authentication layer
+  enabled: true
+
+# Set to true for airgapped deployments, preventing dynamic binary downloads
+airgap: false
