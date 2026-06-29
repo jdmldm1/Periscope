@@ -106,6 +106,16 @@ class AuthService {
     isAuthEnabled() {
         return process.env.AUTH_ENABLED !== 'false';
     }
+
+    resetConfig() {
+        if (fs.existsSync(this.configPath)) {
+            try {
+                fs.unlinkSync(this.configPath);
+            } catch (e) {}
+        }
+        this.config = this._loadConfig();
+        this.activeTokens.clear();
+    }
 }
 
 module.exports = new AuthService();

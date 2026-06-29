@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Activity, Command, Box, Package, Server, Layers,
   AlertTriangle, AlertCircle, CheckCircle2, Cpu, MemoryStick,
+  HardDrive, Network
 } from 'lucide-react';
 import { useIssueDetail, useIntegrationReadiness } from '../../utils/kubeHooks';
 import { type Issue, type RecentWarning } from './dashboard/types';
-import { HealthStat, UtilBar, PodHealthDoughnut, ResourceBarChart } from './dashboard/widgets';
+import { HealthStat, UtilBar, PodHealthDoughnut, ResourceBarChart, Sparkline } from './dashboard/widgets';
 import { IssuesPanel, WarningsPanel, DeploymentsPanel } from './dashboard/panels';
 import { IssueDrawer } from './dashboard/IssueDrawer';
 import { IntegrationSection } from './dashboard/IntegrationSection';
@@ -14,6 +15,7 @@ import { SecuritySection } from './dashboard/SecuritySection';
 interface DashboardViewProps {
   dashboardData: any;
   namespace: string;
+  pods: any[];
   cpuHistory: number[];
   memHistory: number[];
   setActiveTab: (tab: any) => void;
@@ -27,6 +29,7 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   dashboardData,
   namespace,
+  pods = [],
   setActiveTab,
   setSearch,
   setIsCmdPaletteOpen,
@@ -41,6 +44,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     : null;
   const { data: issueDetail, isLoading: issueLoading } = useIssueDetail(issueDetailParams);
 
+  // History tracking state
+  const [scoreHistory, setScoreHistory] = useState<number[]>([]);
+  const [podUnhealthyHistory, setPodUnhealthyHistory] = useState<number[]>([]);
+  const [deploymentDegradedHistory, setDeploymentDegradedHistory] = useState<number[]>([]);
+  const [cpuHistoryState, setCpuHistoryState] = useState<number[]>([]);
+  const [memHistoryState, setMemHistoryState] = useState<number[]>([]);
+
+  // Diagnostics state
+  const [diagAction, setDiagAction] = useState<string | null>(null);
+  const [diagConsole, setDiagConsole] = useState<string>('');
+  const [diagLoading, setDiagLoading] = useState<boolean>(false);
+  const [isDiagConsoleOpen, setIsDiagConsoleOpen] = useState<boolean>(false);
+
   const goToResource = (kind: string, name: string) => {
     const tab = kind === 'Node' ? 'nodes'
       : kind === 'Deployment' ? 'deployments'
@@ -53,6 +69,72 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const goToPod = (name: string) => {
     setSearch(name);
     setActiveTab('pods');
+  };
+
+  const executeDiagnostic = async (action: string) => {
+    setDiagAction(action);
+    setDiagLoading(true);
+    setIsDiagConsoleOpen(true);
+    setDiagConsole(`Running ${action} diagnostics for namespace "${namespace || 'all'}"...\n`);
+    try {
+      const response = await fetch(`/api/dashboard/diagnose?action=${action}&namespace=${namespace}`);
+      const data = await response.json();
+      if (response.ok) {
+        setDiagConsole(data.result);
+      } else {
+        setDiagConsole(`ERROR: ${data.error || 'Failed to run diagnostic'}`);
+      }
+    } catch (err: any) {
+      setDiagConsole(`CONNECTION ERROR: ${err.message || err}`);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!dashboardData || Object.keys(dashboardData).length === 0 || 'error' in dashboardData) return;
+    
+    const currentScore = dashboardData.health?.score ?? 100;
+    const currentUnhealthy = dashboardData.health?.pods?.unhealthy ?? 0;
+    const currentDegraded = dashboardData.health?.workloads?.degraded ?? 0;
+    
+    const dashboardRes = dashboardData.resources || {};
+    const currentCpu = dashboardRes.cpuPct ?? 0;
+    const currentMem = dashboardRes.memPct ?? 0;
+
+    setScoreHistory(prev => [...prev.slice(-14), currentScore]);
+    setPodUnhealthyHistory(prev => [...prev.slice(-14), currentUnhealthy]);
+    setDeploymentDegradedHistory(prev => [...prev.slice(-14), currentDegraded]);
+    setCpuHistoryState(prev => [...prev.slice(-14), currentCpu]);
+    setMemHistoryState(prev => [...prev.slice(-14), currentMem]);
+  }, [dashboardData]);
+
+  const getPodStatusInfo = (pod: any) => {
+    if (pod.metadata?.deletionTimestamp) {
+      return { status: 'Terminating', color: 'var(--accent-warning)' };
+    }
+    const phase = pod.status?.phase || 'Unknown';
+    if (phase === 'Succeeded') return { status: 'Succeeded', color: 'var(--accent-blue)' };
+    if (phase === 'Failed') return { status: 'Failed', color: 'var(--accent-error)' };
+    
+    const containerStatuses = pod.status?.containerStatuses || [];
+    const waitingErr = containerStatuses.find((s: any) => s.state?.waiting && !['ContainerCreating', 'PodInitializing', 'AlwaysPullImages'].includes(s.state.waiting.reason));
+    const termErr = containerStatuses.find((s: any) => s.state?.terminated && s.state.terminated.exitCode !== 0);
+    
+    if (waitingErr) {
+      return { status: waitingErr.state.waiting.reason, color: 'var(--accent-error)' };
+    }
+    if (termErr) {
+      return { status: termErr.state.terminated.reason || 'Error', color: 'var(--accent-error)' };
+    }
+    
+    if (phase === 'Pending') return { status: 'Pending', color: 'var(--accent-warning)' };
+    if (phase === 'Running') {
+      const notReady = containerStatuses.some((s: any) => !s.ready);
+      if (notReady) return { status: 'Not Ready', color: 'var(--accent-cyan)' };
+      return { status: 'Running', color: 'var(--accent-green)' };
+    }
+    return { status: phase, color: 'var(--text-muted)' };
   };
 
   if (!dashboardData || Object.keys(dashboardData).length === 0) return <div className="loader-container"><div className="loader"></div></div>;
@@ -77,12 +159,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const cpuPct = dashboardRes?.cpuPct || 0;
   const memPct = dashboardRes?.memPct || 0;
-  // cpuUse/cpuCap are millicores; memUse/memCap are Ki
   const cpuUseCores = (dashboardRes?.cpuUse || 0) / 1000;
   const cpuCapCores = (dashboardRes?.cpuCap || 0) / 1000;
   const memUseGiB = (dashboardRes?.memUse || 0) / (1024 * 1024);
   const memCapGiB = (dashboardRes?.memCap || 0) / (1024 * 1024);
-  // Usage is only populated when metrics-server is installed
   const metricsAvailable = (dashboardRes?.cpuUse || 0) > 0 || (dashboardRes?.memUse || 0) > 0;
 
   const overall = health.overall || 'healthy';
@@ -117,6 +197,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <svg width="62" height="62" viewBox="0 0 60 60">
               <circle cx="30" cy="30" r="26" fill="transparent" stroke="rgba(255, 255, 255, 0.05)" strokeWidth="4" />
               <circle
+                className="health-score-ring"
                 cx="30"
                 cy="30"
                 r="26"
@@ -127,7 +208,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 strokeDashoffset={`${2 * Math.PI * 26 * (1 - (health.score ?? 100) / 100)}`}
                 strokeLinecap="round"
                 transform="rotate(-90 30 30)"
-                style={{ transition: 'stroke-dashoffset 1s ease-in-out' }}
+                style={{ 
+                  transition: 'stroke-dashoffset 1s ease-in-out',
+                  // @ts-ignore
+                  '--pulse-color': overallMeta.color 
+                }}
+              />
+              <line 
+                x1="30" y1="30" x2="30" y2="4" 
+                stroke={overallMeta.color} 
+                strokeWidth="1.5" 
+                strokeLinecap="round"
+                className="health-radar-line"
               />
             </svg>
             <div style={{
@@ -153,6 +245,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span style={{ background: overallMeta.color, color: '#000', fontWeight: 800, fontSize: '0.72rem', padding: '3px 10px', borderRadius: 20, letterSpacing: 0.5 }}>
                 {overallMeta.label}
               </span>
+              {scoreHistory.length >= 2 && (
+                <div style={{ marginLeft: 12, display: 'inline-flex', opacity: 0.6 }}>
+                  <Sparkline data={scoreHistory} color={overallMeta.color} min={0} max={100} />
+                </div>
+              )}
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '6px 0 0' }}>
               {issues.length === 0
@@ -176,6 +273,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
+      {/* Live Event Ticker Stream */}
+      {recentWarnings.length > 0 ? (
+        <div className="event-ticker-container">
+          <div className="event-ticker-label">
+            <AlertTriangle size={14} /> Warning Ticker:
+          </div>
+          <div className="event-ticker-wrapper">
+            <div className="event-ticker-scroll">
+              {recentWarnings.map((w, idx) => (
+                <span 
+                  key={idx} 
+                  className="event-ticker-item"
+                  onClick={() => goToResource(w.kind || 'Pod', w.name)}
+                >
+                  [{w.kind}] <strong>{w.name}</strong>: {w.message} ({w.count}x)
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="event-ticker-container">
+          <div className="event-ticker-label" style={{ color: 'var(--accent-green)' }}>
+            <CheckCircle2 size={14} /> Status Ticker:
+          </div>
+          <div className="event-ticker-wrapper">
+            <div className="event-ticker-scroll" style={{ animationDuration: '40s' }}>
+              <span className="event-ticker-item" style={{ cursor: 'default' }}>
+                All systems functional. No warnings detected in namespace "{namespace || 'all'}" in the last hour.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Active issues & deployments — primary top row */}
       <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))' }}>
         <IssuesPanel
@@ -188,15 +320,71 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <DeploymentsPanel deployments={recentDeployments} onViewHelm={() => setActiveTab('helm')} />
       </div>
 
-      {/* Cluster state overview: health (healthy vs unhealthy) + resource utilization, once */}
+      {/* High-Density Pod Status Heatmap Grid */}
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: '1.1rem', marginBottom: 12, letterSpacing: 0.5 }}>POD STATUS HEATMAP</h2>
+        <div className="pod-heatmap-grid">
+          {pods.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', gridColumn: '1 / -1', textAlign: 'center', padding: '10px' }}>
+              No pods active in this namespace.
+            </div>
+          ) : (
+            pods.map((pod, idx) => {
+              const info = getPodStatusInfo(pod);
+              const restarts = (pod.status?.containerStatuses || []).reduce((s: number, c: any) => s + (c.restartCount || 0), 0);
+              return (
+                <div 
+                  key={idx} 
+                  className="pod-heatmap-block"
+                  style={{ backgroundColor: info.color, color: info.color }}
+                  onClick={() => goToResource('Pod', pod.metadata?.name || '')}
+                >
+                  <div className="pod-heatmap-tooltip">
+                    <strong>{pod.metadata?.name}</strong><br/>
+                    Status: {info.status}<br/>
+                    Restarts: {restarts}<br/>
+                    <span style={{ color: 'var(--accent-cyan)', fontSize: '0.65rem' }}>Click to inspect</span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        {pods.length > 0 && (
+          <div className="heatmap-legend">
+            <div className="legend-item">
+              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-green)' }} />
+              Running/Ready
+            </div>
+            <div className="legend-item">
+              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-cyan)' }} />
+              Not Ready
+            </div>
+            <div className="legend-item">
+              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-warning)' }} />
+              Pending/Terminating
+            </div>
+            <div className="legend-item">
+              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-error)' }} />
+              Failing/Error
+            </div>
+            <div className="legend-item">
+              <span className="legend-dot" style={{ backgroundColor: 'var(--accent-blue)' }} />
+              Succeeded/Completed
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Cluster state overview: health (healthy vs unhealthy) + resource utilization */}
       <h2 style={{ fontSize: '1.1rem', margin: '4px 0 0', letterSpacing: 0.5 }}>CLUSTER STATE OVERVIEW</h2>
       <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
         <HealthStat icon={<Server size={14} />} label="Nodes" healthy={nodes.ready} total={nodes.total} bad={nodes.notReady} badLabel="not ready" onClick={() => setActiveTab('nodes')} />
-        <HealthStat icon={<Box size={14} />} label="Pods" healthy={podsH.healthy} total={podsH.total} bad={podsH.unhealthy} badLabel="unhealthy" onClick={() => setActiveTab('pods')} />
-        <HealthStat icon={<Layers size={14} />} label="Deployments" healthy={workloads.healthy} total={workloads.total} bad={workloads.degraded} badLabel="degraded" onClick={() => setActiveTab('deployments')} />
+        <HealthStat icon={<Box size={14} />} label="Pods" healthy={podsH.healthy} total={podsH.total} bad={podsH.unhealthy} badLabel="unhealthy" onClick={() => setActiveTab('pods')} history={podUnhealthyHistory} />
+        <HealthStat icon={<Layers size={14} />} label="Deployments" healthy={workloads.healthy} total={workloads.total} bad={workloads.degraded} badLabel="degraded" onClick={() => setActiveTab('deployments')} history={deploymentDegradedHistory} />
         <div className="dashboard-chart-card" style={{ display: 'flex', flexDirection: 'column', gap: 16, justifyContent: 'center' }}>
-          <UtilBar pct={cpuPct} title="CPU" sub={`${cpuUseCores.toFixed(1)} / ${cpuCapCores.toFixed(0)} cores`} icon={<Cpu size={13} />} available={metricsAvailable} />
-          <UtilBar pct={memPct} title="MEMORY" sub={`${memUseGiB.toFixed(1)} / ${memCapGiB.toFixed(1)} GiB`} icon={<MemoryStick size={13} />} available={metricsAvailable} />
+          <UtilBar pct={cpuPct} title="CPU" sub={`${cpuUseCores.toFixed(1)} / ${cpuCapCores.toFixed(0)} cores`} icon={<Cpu size={13} />} available={metricsAvailable} history={cpuHistoryState} />
+          <UtilBar pct={memPct} title="MEMORY" sub={`${memUseGiB.toFixed(1)} / ${memCapGiB.toFixed(1)} GiB`} icon={<MemoryStick size={13} />} available={metricsAvailable} history={memHistoryState} />
         </div>
       </div>
 
@@ -226,6 +414,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       <SecuritySection scanResults={runningImagesScanResults} kubescapeReport={kubescapeReport} onNavigate={setActiveTab} />
 
+      {/* Diagnostic Automations & Console */}
+      <div style={{ marginTop: 24, marginBottom: 24 }}>
+        <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>DIAGNOSTIC AUTOMATIONS</h2>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <button className="btn btn-sm" onClick={() => executeDiagnostic('restarts')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Box size={13} style={{ color: 'var(--accent-pink)' }} /> Find Restarting Pods
+          </button>
+          <button className="btn btn-sm" onClick={() => executeDiagnostic('pvcs')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <HardDrive size={13} style={{ color: 'var(--accent-warning)' }} /> Check PVC bindings
+          </button>
+          <button className="btn btn-sm" onClick={() => executeDiagnostic('network')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Network size={13} style={{ color: 'var(--accent-cyan)' }} /> Inspect Network selectors
+          </button>
+        </div>
+
+        {isDiagConsoleOpen && (
+          <div className="dashboard-chart-card animate-fade-in" style={{ padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Diagnostic Console Output: <span style={{ color: 'var(--accent-cyan)' }}>{diagAction}</span>
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-sm" onClick={() => {
+                  navigator.clipboard.writeText(diagConsole);
+                }} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Copy Output</button>
+                <button className="btn btn-sm btn-danger" onClick={() => setIsDiagConsoleOpen(false)} style={{ padding: '2px 8px', fontSize: '0.7rem' }}>Close Console</button>
+              </div>
+            </div>
+            <div className="console-panel" style={{ minHeight: 180, whiteSpace: 'pre-wrap', maxHeight: 300 }}>
+              {diagLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
+                  <div className="loader" style={{ width: 14, height: 14, borderWidth: 2 }} /> Analyzing cluster state...
+                </div>
+              ) : diagConsole}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Quick Action Console */}
       <div>
         <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>QUICK ACTION CONSOLE</h2>
         <div className="dashboard-quick-actions">
