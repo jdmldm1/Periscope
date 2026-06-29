@@ -40,11 +40,15 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if .Values.auth.apiKey }}
           env:
+            {{- if .Values.auth.apiKey }}
             - name: PERISCOPE_API_KEY
               value: {{ .Values.auth.apiKey | quote }}
-          {{- end }}
+            {{- end }}
+            - name: AUTH_ENABLED
+              value: {{ .Values.auth.enabled | quote }}
+            - name: AIRGAP
+              value: {{ .Values.airgap | quote }}
           {{- if .Values.persistence.enabled }}
           volumeMounts:
             - name: cache-volume

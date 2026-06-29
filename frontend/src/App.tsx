@@ -38,8 +38,12 @@ import { ChevronRight, Columns, Network as NetworkIcon } from 'lucide-react';
 import { AppProvider, useAppContext } from './contexts/AppContext';
 import { ScannerProvider, useScannerContext } from './contexts/ScannerContext';
 import { ModalProvider, useModalContext } from './contexts/ModalContext';
+import axios from 'axios';
+import { LoginView } from './components/views/LoginView';
+import { ChangePasswordModal } from './components/modals/ChangePasswordModal';
+import { OrasView } from './components/views/OrasView';
 
-function AppContent() {
+function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onChangePassword: () => void }) {
   useResourceWatcher();
   const {
     activeTab, setActiveTab,
@@ -244,6 +248,8 @@ function AppContent() {
         setCustomCrd={setCustomCrd}
         isOpen={mobileNavOpen}
         onNavigate={() => setMobileNavOpen(false)}
+        onLogout={onLogout}
+        onChangePassword={onChangePassword}
       />
 
       <main className="main-content">
@@ -322,6 +328,8 @@ function AppContent() {
                 setActiveTab={setActiveTab}
                 zarfStatus={zarfStatusData || { installed: true }}
               />
+            ) : activeTab === 'oras' ? (
+              <OrasView />
             ) : activeTab === 'logs' ? (
               <LogsView namespaces={namespaces} initialNamespace={selectedNs} />
             ) : activeTab === 'image-scanner' ? (
@@ -522,19 +530,148 @@ function AppContent() {
 }
 
 function App() {
+  const [authState, setAuthState] = useState<{
+    checked: boolean;
+    enabled: boolean;
+    authenticated: boolean;
+    isDefault: boolean;
+  }>({
+    checked: false,
+    enabled: true,
+    authenticated: false,
+    isDefault: false
+  });
+
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+
+  useEffect(() => {
+    const checkAuthStatus = async () => {
+      try {
+        const { data } = await axios.get('/api/auth/status');
+        const token = localStorage.getItem('periscope_token');
+        if (data.enabled) {
+          if (token) {
+            setAuthState({
+              checked: true,
+              enabled: true,
+              authenticated: true,
+              isDefault: !!data.isDefault
+            });
+            if (data.isDefault) {
+              setIsChangePasswordOpen(true);
+            }
+          } else {
+            setAuthState({
+              checked: true,
+              enabled: true,
+              authenticated: false,
+              isDefault: !!data.isDefault
+            });
+          }
+        } else {
+          setAuthState({
+            checked: true,
+            enabled: false,
+            authenticated: true,
+            isDefault: false
+          });
+        }
+      } catch (err) {
+        console.error('Failed to check auth status:', err);
+        const token = localStorage.getItem('periscope_token');
+        setAuthState({
+          checked: true,
+          enabled: true,
+          authenticated: !!token,
+          isDefault: false
+        });
+      }
+    };
+
+    checkAuthStatus();
+  }, []);
+
+  const handleLoginSuccess = (token: string, isDefault: boolean) => {
+    localStorage.setItem('periscope_token', token);
+    setAuthState({
+      checked: true,
+      enabled: true,
+      authenticated: true,
+      isDefault: isDefault
+    });
+    if (isDefault) {
+      setIsChangePasswordOpen(true);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await axios.post('/api/auth/logout');
+    } catch (e) {}
+    localStorage.removeItem('periscope_token');
+    setAuthState(prev => ({
+      ...prev,
+      authenticated: false
+    }));
+    setIsChangePasswordOpen(false);
+  };
+
+  const handlePasswordChanged = () => {
+    setIsChangePasswordOpen(false);
+    setAuthState(prev => ({
+      ...prev,
+      isDefault: false
+    }));
+  };
+
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      response => response,
+      error => {
+        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+          if (!error.config.url.includes('/auth/status') && !error.config.url.includes('/auth/login')) {
+            localStorage.removeItem('periscope_token');
+            setAuthState(prev => ({
+              ...prev,
+              authenticated: false
+            }));
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => {
+      axios.interceptors.response.eject(interceptor);
+    };
+  }, []);
+
+  if (!authState.checked) {
+    return <div className="loader-container"><div className="loader"></div></div>;
+  }
+
+  if (authState.enabled && !authState.authenticated) {
+    return <LoginView onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <AppProvider>
-      <AppProvidersInner />
+      <AppProvidersInner onLogout={handleLogout} onChangePassword={() => setIsChangePasswordOpen(true)} />
+      <ChangePasswordModal 
+        isOpen={isChangePasswordOpen} 
+        forced={authState.isDefault} 
+        onPasswordChanged={handlePasswordChanged}
+        onClose={() => setIsChangePasswordOpen(false)}
+      />
     </AppProvider>
   );
 }
 
-function AppProvidersInner() {
+function AppProvidersInner({ onLogout, onChangePassword }: { onLogout: () => void; onChangePassword: () => void }) {
   const { selectedNs } = useAppContext();
   return (
     <ScannerProvider>
       <ModalProvider selectedNs={selectedNs}>
-        <AppContent />
+        <AppContent onLogout={onLogout} onChangePassword={onChangePassword} />
       </ModalProvider>
     </ScannerProvider>
   );

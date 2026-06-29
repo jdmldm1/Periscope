@@ -33,6 +33,8 @@ const dashboardRoutes = require('./src/routes/dashboardRoutes');
 const autoscaleRoutes = require('./src/routes/autoscaleRoutes');
 const backupRoutes = require('./src/routes/backupRoutes');
 const cronJobRoutes = require('./src/routes/cronJobRoutes');
+const authRoutes = require('./src/routes/authRoutes');
+const orasRoutes = require('./src/routes/orasRoutes');
 
 const app = express();
 app.use(compression());
@@ -140,6 +142,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/autoscale', autoscaleRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/cronjob', cronJobRoutes);
+app.use('/api', authRoutes);
+app.use('/api', orasRoutes);
 
 // Static frontend
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
