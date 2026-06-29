@@ -9,8 +9,9 @@ export const IssuesPanel: React.FC<{
   criticalCount: number;
   warningCount: number;
   onSelectIssue: (issue: Issue) => void;
-}> = ({ issues, criticalCount, warningCount, onSelectIssue }) => (
-  <div className="dashboard-chart-card" style={{ gridColumn: '1 / -1' }}>
+  style?: React.CSSProperties;
+}> = ({ issues, criticalCount, warningCount, onSelectIssue, style }) => (
+  <div className="dashboard-chart-card" style={{ gridColumn: '1 / -1', ...style }}>
     <div className="dashboard-chart-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <ShieldAlert size={15} /> ISSUES

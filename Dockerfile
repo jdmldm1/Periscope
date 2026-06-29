@@ -37,6 +37,17 @@ RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump && \
         zstd -T0 -q --rm /app/.cache/grype/*/vulnerability.db; \
     fi
 
+# Install ORAS conditionally if building the airgapped image
+ARG AIRGAP=false
+RUN if [ "$AIRGAP" = "true" ]; then \
+        ARCH=$(uname -m) && \
+        if [ "$ARCH" = "x86_64" ]; then ORAS_ARCH="amd64"; else ORAS_ARCH="arm64"; fi && \
+        curl -sSL "https://github.com/oras-project/oras/releases/download/v1.2.0/oras_1.2.0_linux_${ORAS_ARCH}.tar.gz" -o oras.tar.gz && \
+        tar -zxf oras.tar.gz -C /usr/local/bin oras && \
+        rm -f oras.tar.gz && \
+        oras version; \
+    fi
+
 COPY server.js ./
 COPY src/ ./src/
 COPY --from=builder /app/frontend/dist ./frontend/dist
