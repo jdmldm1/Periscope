@@ -6,11 +6,35 @@ const logger = require('../utils/logger');
 const AUTH_DIR = '/app/.cache';
 const AUTH_FILE = path.join(AUTH_DIR, 'auth-config.json');
 
+const ENCRYPTION_KEY = crypto.scryptSync(process.env.PERISCOPE_API_KEY || 'periscope-auth-salt-key-9988', 'salt-key', 32);
+const IV_LENGTH = 16;
+
 class AuthService {
     constructor() {
         this.configPath = this._getAuthFilePath();
         this.activeTokens = new Set();
         this.config = this._loadConfig();
+    }
+
+    _encrypt(text) {
+        const iv = crypto.randomBytes(IV_LENGTH);
+        const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+        let encrypted = cipher.update(text, 'utf8', 'hex');
+        encrypted += cipher.final('hex');
+        return iv.toString('hex') + ':' + encrypted;
+    }
+
+    _decrypt(text) {
+        const textParts = text.split(':');
+        if (textParts.length < 2) {
+            throw new Error('Invalid encrypted format');
+        }
+        const iv = Buffer.from(textParts.shift(), 'hex');
+        const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+        const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+        let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
     }
 
     _getAuthFilePath() {
@@ -32,7 +56,15 @@ class AuthService {
     _loadConfig() {
         if (fs.existsSync(this.configPath)) {
             try {
-                const data = JSON.parse(fs.readFileSync(this.configPath, 'utf8'));
+                const fileData = fs.readFileSync(this.configPath, 'utf8');
+                let decryptedData;
+                if (fileData.startsWith('{')) {
+                    // Legacy unencrypted configuration format fallback
+                    decryptedData = fileData;
+                } else {
+                    decryptedData = this._decrypt(fileData);
+                }
+                const data = JSON.parse(decryptedData);
                 if (data && data.username && data.passwordHash && data.salt) {
                     return data;
                 }
@@ -54,7 +86,9 @@ class AuthService {
 
     _saveConfig() {
         try {
-            fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf8');
+            const rawData = JSON.stringify(this.config);
+            const encryptedData = this._encrypt(rawData);
+            fs.writeFileSync(this.configPath, encryptedData, 'utf8');
         } catch (e) {
             logger.error(e, 'Failed to write auth config file');
         }

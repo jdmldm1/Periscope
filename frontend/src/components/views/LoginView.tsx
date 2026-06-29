@@ -149,10 +149,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             )}
           </button>
         </form>
-
-        <div style={{ marginTop: 24, textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          Default Username: <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>admin</span> · Default Password: <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>periscope</span>
-        </div>
       </div>
     </div>
   );
