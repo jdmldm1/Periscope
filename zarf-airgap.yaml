@@ -28,4 +28,5 @@ components:
           - ./charts/periscope/values-airgap.yaml
         variables:
           - name: AUTH_ENABLED
+            description: "Enable username/password authentication"
             path: auth.enabled
