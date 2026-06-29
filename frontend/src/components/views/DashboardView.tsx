@@ -176,14 +176,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Active issues — primary error-resolution panel */}
-      <div className="dashboard-charts-grid" style={{ gridTemplateColumns: '1fr' }}>
+      {/* Active issues & deployments — primary top row */}
+      <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))' }}>
         <IssuesPanel
           issues={issues}
           criticalCount={health.criticalCount || 0}
           warningCount={health.warningCount || 0}
           onSelectIssue={setSelectedIssue}
+          style={{ gridColumn: 'auto' }}
         />
+        <DeploymentsPanel deployments={recentDeployments} onViewHelm={() => setActiveTab('helm')} />
       </div>
 
       {/* Cluster state overview: health (healthy vs unhealthy) + resource utilization, once */}
@@ -199,7 +201,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Pod health + recent warnings */}
-      <div className="dashboard-charts-grid">
+      <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))' }}>
         <div className="dashboard-chart-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('pods')}
           onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)')}
           onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
@@ -210,7 +212,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <PodHealthDoughnut ph={podHealth} />
         </div>
         <WarningsPanel warnings={recentWarnings} onViewEvents={() => setActiveTab('events')} />
-        <DeploymentsPanel deployments={recentDeployments} onViewHelm={() => setActiveTab('helm')} />
       </div>
 
       {/* Inventory + security */}
