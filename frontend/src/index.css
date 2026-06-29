@@ -1644,4 +1644,164 @@ div.vis-tooltip {
   box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
 }
 
+/* Dashboard enhancements */
+@keyframes health-pulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px var(--pulse-color, #10b981));
+  }
+  50% {
+    filter: drop-shadow(0 0 8px var(--pulse-color, #10b981));
+  }
+}
+
+.health-score-ring {
+  animation: health-pulse 2s infinite ease-in-out;
+}
+
+@keyframes radar-sweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.health-radar-line {
+  transform-origin: 30px 30px;
+  animation: radar-sweep 4s linear infinite;
+  opacity: 0.4;
+}
+
+.event-ticker-container {
+  background: rgba(245, 158, 11, 0.03);
+  border: 1px dashed rgba(245, 158, 11, 0.18);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  margin-bottom: 20px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.event-ticker-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--accent-warning);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.event-ticker-wrapper {
+  overflow: hidden;
+  flex: 1;
+}
+
+.event-ticker-scroll {
+  white-space: nowrap;
+  animation: ticker-slide 25s linear infinite;
+  display: inline-block;
+  padding-left: 100%;
+}
+
+.event-ticker-scroll:hover {
+  animation-play-state: paused;
+}
+
+@keyframes ticker-slide {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-100%, 0, 0); }
+}
+
+.event-ticker-item {
+  display: inline-block;
+  margin-right: 48px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.event-ticker-item:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+/* Heatmap Grid */
+.pod-heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  margin-bottom: 20px;
+}
+
+.pod-heatmap-block {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease;
+  position: relative;
+}
+
+.pod-heatmap-block:hover {
+  transform: scale(1.2);
+  filter: brightness(1.2) drop-shadow(0 0 4px currentColor);
+  z-index: 5;
+}
+
+.pod-heatmap-tooltip {
+  visibility: hidden;
+  background-color: #0b0f19;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  text-align: left;
+  border-radius: 6px;
+  padding: 8px 12px;
+  position: absolute;
+  z-index: 100;
+  bottom: 125%;
+  left: 50%;
+  margin-left: -80px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  box-shadow: var(--shadow-shadow-card);
+  pointer-events: none;
+  font-size: 0.72rem;
+  min-width: 160px;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.pod-heatmap-block:hover .pod-heatmap-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+.heatmap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
 

@@ -26,12 +26,16 @@ router.get('/issue-detail', async (req, res) => {
     }
 });
 
-// Integration readiness: quotas, image-pull failures, restarts, and OOM risk.
-router.get('/integration', async (req, res) => {
+// Run targeted diagnostic script for the active namespace.
+router.get('/diagnose', async (req, res) => {
+    const { action, namespace } = req.query;
+    if (!action) return res.status(400).json({ error: 'action query param is required' });
+
     try {
-        res.json(await dashboardService.getIntegrationReadiness(req.query.namespace));
+        const result = await dashboardService.runDiagnostic(action, namespace);
+        res.json({ result });
     } catch (err) {
-        logger.error(err, 'Error getting integration readiness');
+        logger.error({ error: err.message, action, namespace }, 'Error running dashboard diagnostic');
         res.status(500).json({ error: err.message });
     }
 });

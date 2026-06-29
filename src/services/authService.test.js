@@ -1,10 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
 const authService = require('./authService');
 
 test('authService - verifies default credentials', () => {
+    authService.resetConfig();
     // Default username and password
     assert.strictEqual(authService.isDefaultPassword(), true);
     assert.ok(authService.verifyCredentials('admin', 'periscope'));
@@ -13,6 +12,7 @@ test('authService - verifies default credentials', () => {
 });
 
 test('authService - allows changing password', () => {
+    authService.resetConfig();
     // Change password to 'secret'
     authService.changePassword('secret');
     
@@ -30,10 +30,16 @@ test('authService - allows changing password', () => {
 });
 
 test('authService - manages sessions', () => {
+    authService.resetConfig();
     const token = authService.createSession();
     assert.ok(token);
     assert.strictEqual(authService.verifySession(token), true);
     
     authService.destroySession(token);
     assert.strictEqual(authService.verifySession(token), false);
+});
+
+// Clean up after all tests
+test('authService - clean up disk config', () => {
+    authService.resetConfig();
 });
