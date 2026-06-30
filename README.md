@@ -52,8 +52,10 @@ Manage Helm releases and deploy / inspect Zarf packages.
 - Pod terminal and real-time log streaming with regex filtering
 - Helm release management with revision history and upgrade support
 - Zarf package management and registry browser
+- ORAS artifact manager — push, pull, and download OCI registry artifacts directly from the interface
 - Image vulnerability scanning via Anchore Grype (SBOM + CVE, air-gap capable)
 - Kubernetes security auditing via Kubescape — RBAC, pod hardening, network policy coverage, secrets exposure
+- Authentication layer — AES-256-CBC configuration encryption, session management, and forced default password change
 - CRD explorer, event alerts, autoscale manager, backup/restore, cluster pruner
 
 ---
@@ -86,16 +88,25 @@ kubectl port-forward -n periscope svc/periscope 8080:3001
 # then open http://localhost:8080
 ```
 
+### Authentication Credentials
+
+By default, the authentication layer is enabled. 
+- **Default Username:** `admin`
+- **Default Password:** `periscope`
+
+When you first log in using the default credentials, you will be prompted to choose a new password. The password configuration is stored symmetrically encrypted (AES-256-CBC) inside `/app/.cache/auth-config.json` on the persistent volume.
+
 ### Common values
 
 | Flag | Default | Description |
 |---|---|---|
 | `service.type` | `NodePort` | `ClusterIP`, `NodePort`, or `LoadBalancer` |
 | `service.nodePort` | `30080` | NodePort host port |
-| `persistence.enabled` | `true` | PVC for Grype DB cache |
+| `persistence.enabled` | `true` | PVC for database, credentials, and scan cache |
 | `persistence.size` | `5Gi` | PVC size |
 | `persistence.storageClass` | `""` | Leave blank to use cluster default |
-| `auth.apiKey` | `""` | Set to require API key auth; empty = no auth |
+| `auth.enabled` | `true` | Enable username and password login layer |
+| `auth.apiKey` | `""` | Require apiKey header auth (empty = disabled) |
 | `ingress.enabled` | `false` | Enable ingress |
 
 Example with ingress and auth:
