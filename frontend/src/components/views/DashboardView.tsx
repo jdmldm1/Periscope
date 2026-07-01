@@ -218,27 +218,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Live Event Ticker Stream */}
-      {recentWarnings.length > 0 && (
-        <div className="event-ticker-container">
-          <div className="event-ticker-label">
-            <AlertTriangle size={14} /> Warning Ticker:
-          </div>
-          <div className="event-ticker-wrapper">
-            <div className="event-ticker-scroll">
-              {recentWarnings.map((w, idx) => (
-                <span 
-                  key={idx} 
-                  className="event-ticker-item"
-                  onClick={() => goToResource(w.kind || 'Pod', w.name)}
-                >
-                  [{w.kind}] <strong>{w.name}</strong>: {w.message} ({w.count}x)
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Active issues & deployments — primary top row */}
       <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))' }}>
