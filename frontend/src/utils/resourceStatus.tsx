@@ -87,7 +87,7 @@ function cronJobStatus(res: any): { status: string; type: BadgeType } {
 
 // Resolve a resource into a human-readable status string plus the badge color
 // category to render it with, given the tab it's being shown under.
-function resolveStatus(res: any, activeTab: ResourceKind): { status: string; type: BadgeType } {
+export function resolveStatus(res: any, activeTab: any): { status: string; type: 'success' | 'warning' | 'error' | 'info' } {
   const inferred = inferKind(res);
   const isJob = activeTab === 'jobs' || inferred === 'jobs';
   const isCronJob = activeTab === 'cronjobs' || inferred === 'cronjobs';
