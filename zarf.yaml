@@ -3,7 +3,7 @@ kind: ZarfPackageConfig
 metadata:
   name: periscope
   description: A Periscope web console for exploring and managing Kubernetes resources
-  version: 1.3.1
+  version: 1.3.2
 
 variables:
   - name: AUTH_ENABLED
@@ -16,7 +16,7 @@ components:
     required: true
 
     images:
-      - ghcr.io/jdmldm1/periscope:1.3.1-connected
+      - ghcr.io/jdmldm1/periscope:1.3.2-connected
       - alpine:latest
 
     charts:
