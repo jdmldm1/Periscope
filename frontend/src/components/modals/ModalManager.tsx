@@ -426,7 +426,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                 {modalData.suggestedFixes && modalData.suggestedFixes.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      🩺 Suggested Remediation Actions (Smart Doctor)
+                      Suggested Remediation Actions
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {modalData.suggestedFixes.map((fix: any, idx: number) => (
