@@ -160,10 +160,10 @@ node server.js
 
 ```bash
 # Zarf connected package
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.1
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.2
 
 # Zarf air-gap package
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.1
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.2
 ```
 
 ---
