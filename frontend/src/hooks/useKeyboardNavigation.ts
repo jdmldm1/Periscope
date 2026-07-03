@@ -108,7 +108,7 @@ export const useKeyboardNavigation = ({ openCommandPalette }: Options) => {
           return nextIdx;
         });
       } else if (e.key === 'd' && focused) {
-        // k9s-style 'describe' → Periscope's Smart Doctor. Pods and workloads get
+        // k9s-style 'describe' → Periscope's Diagnose screen. Pods and workloads get
         // the diagnose modal; other kinds fall back to the YAML (describe) view.
         if (activeTab === 'pods' || ['deployments', 'statefulsets', 'daemonsets'].includes(activeTab)) {
           setModal({ type: 'diagnose', kind: activeTab, name: focused.metadata.name, namespace: focused.metadata.namespace, uid: focused.metadata.uid });
