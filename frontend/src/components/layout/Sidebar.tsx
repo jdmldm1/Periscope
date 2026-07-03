@@ -75,6 +75,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
             <NavItem id="events" icon={List} label="Events" />
             <NavItem id="logs" icon={Terminal} label="Logs" />
             <NavItem id="cluster-terminal" icon={Code} label="Cluster Terminal" color="var(--accent-cyan)" />
+            <NavItem id="k9s" icon={Terminal} label="K9s" color="var(--accent-cyan)" />
             <NavItem id="crds" icon={Code} label="CRD Explorer" />
           </nav>
         )}

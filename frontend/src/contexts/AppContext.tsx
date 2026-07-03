@@ -7,7 +7,7 @@ import axios from 'axios';
 const api = axios.create({ baseURL: '/api' });
 
 export type ResourceKind = 
-  'dashboard' | 'topology' | 'nodes' | 'events' | 'logs' | 'cluster-terminal' | 'crds' | 
+  'dashboard' | 'topology' | 'nodes' | 'events' | 'logs' | 'cluster-terminal' | 'k9s' | 'crds' |
   'namespaces' | 'pods' | 'deployments' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' |
   'services' | 'ingresses' | 'traffic' | 'configmaps' | 'secrets' | 'persistentvolumes' | 
   'persistentvolumeclaims' | 'helm' | 'helm-repos' | 'zarf' | 'zarf-registry' | 'image-scanner' | 'kubescape' | 'custom' |

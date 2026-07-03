@@ -4,7 +4,22 @@ import { FitAddon } from 'xterm-addon-fit';
 import { Terminal as TerminalIcon, RotateCcw, Trash2, Cpu, CheckCircle, AlertTriangle } from 'lucide-react';
 import 'xterm/css/xterm.css';
 
-export const ClusterTerminalView: React.FC = () => {
+interface ClusterTerminalViewProps {
+  wsPath?: string;
+  title?: string;
+  subtitle?: string;
+  stripReports?: boolean;
+}
+
+
+const TERMINAL_REPORT_RE = /\x1b\[[0-9;]*R/g;
+
+export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
+  wsPath = '/api/cluster-terminal/ws',
+  title = 'Cluster Operator Console',
+  subtitle = 'Alpine Host Environment',
+  stripReports = false,
+}) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const termInstanceRef = useRef<Terminal | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
@@ -58,7 +73,7 @@ export const ClusterTerminalView: React.FC = () => {
     // Setup WebSocket URL
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/api/cluster-terminal/ws`;
+    const wsUrl = `${protocol}//${host}${wsPath}`;
 
     const socket = new WebSocket(wsUrl);
     // Decode output synchronously and in order (see InteractiveTerminal): a
@@ -109,9 +124,13 @@ export const ClusterTerminalView: React.FC = () => {
 
     // Forward terminal inputs (keystrokes and pastes) to WebSocket
     const dataDisposable = term.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(data);
+      if (socket.readyState !== WebSocket.OPEN) return;
+      if (stripReports) {
+        const cleaned = data.replace(TERMINAL_REPORT_RE, '');
+        if (cleaned) socket.send(cleaned);
+        return;
       }
+      socket.send(data);
     });
 
     // Handle standard browser paste (Ctrl+V)
@@ -185,10 +204,10 @@ export const ClusterTerminalView: React.FC = () => {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <TerminalIcon size={18} style={{ color: 'var(--accent-cyan)' }} />
-          <h2 style={{ fontSize: '1.05rem', margin: 0, fontWeight: 600 }}>Cluster Operator Console</h2>
+          <h2 style={{ fontSize: '1.05rem', margin: 0, fontWeight: 600 }}>{title}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', padding: '2px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.05)', marginLeft: 8 }}>
             <Cpu size={12} style={{ color: 'var(--text-muted)' }} />
-            <span style={{ color: 'var(--text-muted)' }}>Alpine Host Environment</span>
+            <span style={{ color: 'var(--text-muted)' }}>{subtitle}</span>
           </div>
         </div>
 

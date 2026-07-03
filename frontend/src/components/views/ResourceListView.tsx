@@ -36,6 +36,18 @@ interface ResourceListViewProps {
   renderSmallSparkline: (points: number[], color: string) => React.ReactNode | null;
 }
 
+
+const EVENT_KIND_TO_TAB: Record<string, string> = {
+  Pod: 'pods', Deployment: 'deployments', StatefulSet: 'statefulsets', DaemonSet: 'daemonsets',
+  Job: 'jobs', CronJob: 'cronjobs', Service: 'services', Ingress: 'ingresses',
+  ConfigMap: 'configmaps', Secret: 'secrets', PersistentVolumeClaim: 'persistentvolumeclaims',
+  PersistentVolume: 'persistentvolumes', Node: 'nodes', Namespace: 'namespaces',
+};
+
+
+const isBadEventReason = (type: string, reason: string) =>
+  type === 'Warning' || /fail|error|back-?off|unhealthy|oom|evict|kill|invalid|exceeded|denied/i.test(reason || '');
+
 export const ResourceListView = ({
   activeTab, filteredResources, focusedRowIndex, setFocusedRowIndex,
   setSearch, setSelectedContainer, setModal,
@@ -89,19 +101,26 @@ export const ResourceListView = ({
             <div className="row-main">
               <div className="row-header">
                 <div className="row-title">
-                  {activeTab === 'events' ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div style={{ 
-                        fontWeight: res.type === 'Warning' ? 700 : 600, 
-                        color: res.type === 'Warning' ? 'var(--accent-error)' : 'var(--text-main)' 
-                      }}>
-                        {res.involvedObject?.kind}: {res.involvedObject?.name} ({res.reason})
+                  {activeTab === 'events' ? (() => {
+                    const isBad = isBadEventReason(res.type, res.reason);
+                    const accent = isBad ? 'var(--accent-error)' : '#60a5fa';
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderLeft: `3px solid ${accent}`, paddingLeft: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', color: accent, background: isBad ? 'rgba(239,68,68,0.1)' : 'rgba(96,165,250,0.1)', border: `1px solid ${accent}33`, borderRadius: 4, padding: '1px 6px' }}>
+                            {res.reason || res.type}
+                          </span>
+                          <span style={{ fontWeight: isBad ? 700 : 600, color: isBad ? 'var(--accent-error)' : 'var(--text-main)' }}>
+                            {res.involvedObject?.kind}: {res.involvedObject?.name}
+                          </span>
+                          {res.count > 1 && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>×{res.count}</span>}
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                          {res.message}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'normal', wordBreak: 'break-all' }}>
-                        {res.message}
-                      </div>
-                    </div>
-                  ) : (
+                    );
+                  })() : (
                     <div style={{ display: 'flex', alignItems: 'center' }}>
                       <span style={{ 
                         color: statusInfo.type === 'error' ? 'var(--accent-error)' : 'var(--text-main)',
@@ -227,6 +246,49 @@ export const ResourceListView = ({
                       ))}
                     </div>
                   )}
+                  {['deployments', 'statefulsets', 'daemonsets'].includes(activeTab) && (() => {
+                    const sel = res.spec?.selector?.matchLabels;
+                    if (!sel) return null;
+                    const pods = (associatedPods || []).filter((p: any) => matchesSelector(p.metadata?.labels, sel));
+                    if (pods.length === 0) return null;
+                    return (
+                      <div className="container-badge-group">
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Pods ({pods.length}):</span>
+                        {pods.slice(0, 8).map((p: any) => {
+                          const phase = (p.status?.phase || 'Unknown').toLowerCase();
+                          const statusColor = phase === 'running' ? 'var(--accent-success)' : phase === 'pending' ? 'var(--accent-warning)' : phase === 'failed' ? 'var(--accent-error)' : phase === 'succeeded' ? '#10b981' : 'var(--text-muted)';
+                          const firstContainer = p.spec?.containers?.[0]?.name || '';
+                          return (
+                            <div key={p.metadata.uid} className="container-badge">
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+                              <span
+                                onClick={(e) => { e.stopPropagation(); setActiveTab('pods'); setSearch(p.metadata.name); }}
+                                title={`Go to pod ${p.metadata.name}`}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                {p.metadata.name.length > 26 ? p.metadata.name.slice(0, 23) + '…' : p.metadata.name}
+                              </span>
+                              <span
+                                className="container-badge-action logs"
+                                title={`View logs: ${p.metadata.name}`}
+                                onClick={(e) => { e.stopPropagation(); setSelectedContainer(firstContainer); setModal({ type: 'logs', name: p.metadata.name, namespace: p.metadata.namespace, kind: 'pods', uid: p.metadata.uid }); }}
+                              >
+                                <FileText size={12} />
+                              </span>
+                              <span
+                                className="container-badge-action console"
+                                title={`Open a console: ${p.metadata.name}`}
+                                onClick={(e) => { e.stopPropagation(); setSelectedContainer(firstContainer); setModal({ type: 'terminal', name: p.metadata.name, namespace: p.metadata.namespace, kind: 'pods', uid: p.metadata.uid }); }}
+                              >
+                                <Terminal size={12} />
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {pods.length > 8 && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>+{pods.length - 8} more</span>}
+                      </div>
+                    );
+                  })()}
                   {activeTab === 'services' && (() => {
                     const privateIp = res.spec?.clusterIP;
                     const publicIps: string[] = [];
@@ -549,6 +611,14 @@ export const ResourceListView = ({
               </div>
 
               <div className="row-actions">
+                {activeTab === 'events' && res.involvedObject?.kind && EVENT_KIND_TO_TAB[res.involvedObject.kind] && (
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={(e) => { e.stopPropagation(); setActiveTab(EVENT_KIND_TO_TAB[res.involvedObject.kind]); setSearch(res.involvedObject.name); }}
+                  >
+                    <ExternalLink size={12} /> View {res.involvedObject.kind}
+                  </button>
+                )}
                 {activeTab === 'persistentvolumeclaims' && (
                   <button 
                     className="btn btn-sm btn-primary" 
