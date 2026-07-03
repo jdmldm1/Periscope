@@ -9,16 +9,24 @@ interface ClusterTerminalViewProps {
   title?: string;
   subtitle?: string;
   stripReports?: boolean;
+  // Show a "starting…" overlay until the TUI enters the alternate screen buffer.
+  // Used for k9s, which takes a few seconds to launch after the socket connects.
+  awaitTui?: boolean;
+  bootLabel?: string;
 }
 
 
 const TERMINAL_REPORT_RE = /\x1b\[[0-9;]*R/g;
+// Alternate-screen-buffer enter — emitted by a full-screen TUI once it's up.
+const ALT_SCREEN_RE = /\x1b\[\?(?:1049|1047|47)h/;
 
 export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
   wsPath = '/api/cluster-terminal/ws',
   title = 'Cluster Operator Console',
   subtitle = 'Alpine Host Environment',
   stripReports = false,
+  awaitTui = false,
+  bootLabel = 'Starting…',
 }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const termInstanceRef = useRef<Terminal | null>(null);
@@ -26,11 +34,16 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [booting, setBooting] = useState<boolean>(awaitTui);
+  const bootingRef = useRef<boolean>(awaitTui);
+  const bootTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setBootingState = (v: boolean) => { bootingRef.current = v; setBooting(v); };
 
   const initTerminal = () => {
     if (!terminalRef.current) return;
     setStatus('connecting');
     setErrorMsg(null);
+    if (awaitTui) setBootingState(true);
 
     // Initialize xterm
     const term = new Terminal({
@@ -99,26 +112,35 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
 
     socket.onopen = () => {
       setStatus('connected');
-      term.write('\r\n\x1b[1;36m=== Terminal ===\x1b[0m\r\n');
+      if (!awaitTui) term.write('\r\n\x1b[1;36m=== Terminal ===\x1b[0m\r\n');
       sendResize();
+      // Safety net: never leave the overlay stuck if the TUI signal is missed.
+      if (awaitTui) {
+        if (bootTimerRef.current) clearTimeout(bootTimerRef.current);
+        bootTimerRef.current = setTimeout(() => setBootingState(false), 25000);
+      }
      };
 
     socket.onmessage = (event) => {
-      if (typeof event.data === 'string') {
-        term.write(event.data);
-      } else if (event.data instanceof ArrayBuffer) {
-        term.write(decoder.decode(event.data, { stream: true }));
-      }
+      let text: string;
+      if (typeof event.data === 'string') text = event.data;
+      else if (event.data instanceof ArrayBuffer) text = decoder.decode(event.data, { stream: true });
+      else return;
+      term.write(text);
+      // Drop the "starting…" overlay once the TUI enters its alternate screen.
+      if (bootingRef.current && ALT_SCREEN_RE.test(text)) setBootingState(false);
     };
 
     socket.onerror = (err) => {
       console.error('Cluster terminal WebSocket error:', err);
       setErrorMsg('Failed to connect to cluster terminal backend.');
       setStatus('disconnected');
+      setBootingState(false);
     };
 
     socket.onclose = (e) => {
       setStatus('disconnected');
+      setBootingState(false);
       term.write(`\r\n\x1b[1;31m[Connection Closed: code=${e.code} reason=${e.reason || 'None'}]\x1b[0m\r\n`);
     };
 
@@ -155,6 +177,7 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
 
     return () => {
       clearTimeout(resizeTimer);
+      if (bootTimerRef.current) clearTimeout(bootTimerRef.current);
       window.removeEventListener('resize', scheduleResize);
       resizeObserver.disconnect();
       terminalRef.current?.removeEventListener('paste', handlePaste);
@@ -262,6 +285,13 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
         }}
       >
         <div ref={terminalRef} style={{ width: '100%', height: '100%' }} />
+        {booting && (
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,13,26,0.9)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, zIndex: 5, borderRadius: 8 }}>
+            <div style={{ width: 46, height: 46, border: '3px solid rgba(0,188,212,0.15)', borderTopColor: 'var(--accent-cyan)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            <div style={{ color: 'var(--text-main)', fontWeight: 600, fontSize: '1rem' }}>{bootLabel}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Launching the cluster TUI — this takes a few seconds.</div>
+          </div>
+        )}
       </div>
     </div>
   );

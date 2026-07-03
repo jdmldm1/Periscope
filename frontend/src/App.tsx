@@ -405,7 +405,7 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
             ) : activeTab === 'cluster-terminal' ? (
               <ClusterTerminalView key="cluster-terminal" />
             ) : activeTab === 'k9s' ? (
-              <ClusterTerminalView key="k9s" wsPath="/api/k9s/ws" title="K9s" subtitle="zarf tools k9s" stripReports />
+              <ClusterTerminalView key="k9s" wsPath="/api/k9s/ws" title="K9s" subtitle="zarf tools k9s" stripReports awaitTui bootLabel="Starting k9s…" />
             ) : activeTab === 'traffic' ? (
               <TrafficInspectorView selectedNs={selectedNs} />
             ) : activeTab === 'dashboard' ? (
