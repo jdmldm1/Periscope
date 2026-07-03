@@ -31,24 +31,31 @@ affinity: {}
 
 # Pod- and container-level security hardening. Defaults run Periscope as the
 # unprivileged `node` user (uid 1000) baked into the image, with all Linux
-# capabilities dropped and privilege escalation disabled.
+# capabilities dropped except CAP_NET_RAW.
 #
-# NOTE: the live network capture (Traffic Inspector / tcpdump) feature needs
-# CAP_NET_RAW. If you use it, add the capability back:
+# CAP_NET_RAW is required by the live network capture (Traffic Inspector /
+# tcpdump) feature. Because the container is non-root, the capability is granted
+# to the tcpdump binary as a file capability in the image (see Dockerfile
+# `setcap`); for that file capability to take effect the pod must also keep
+# NET_RAW in its bounding set (below) AND allow privilege escalation (otherwise
+# no_new_privs suppresses file capabilities). If you do NOT use the Traffic
+# Inspector and prefer a stricter posture, set:
 #   containerSecurityContext:
+#     allowPrivilegeEscalation: false
 #     capabilities:
 #       drop: ["ALL"]
-#       add: ["NET_RAW"]
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
   fsGroup: 1000
 
 containerSecurityContext:
-  allowPrivilegeEscalation: false
+  allowPrivilegeEscalation: true
   capabilities:
     drop:
       - ALL
+    add:
+      - NET_RAW
 
 persistence:
   enabled: true
@@ -65,3 +72,25 @@ auth:
 
 # Set to true for airgapped deployments, preventing dynamic binary downloads
 airgap: false
+
+# Optional: Microsoft Retina eBPF network-flow observability. When enabled, a
+# host-network DaemonSet with CAP_SYS_ADMIN/NET_ADMIN/IPC_LOCK runs on every
+# Linux node and exports flow/drop/TCP metrics that the Traffic Inspector's
+# "eBPF Flows" tab reads (via /api/network/flows). OFF by default — it is a
+# meaningful privilege increase over the rest of Periscope.
+#
+# NOTE: the "dns" plugin needs debugfs/tracefs mounted on the node; some
+# environments (e.g. k3d) don't provide it, so it is left out of the default
+# plugin set. Add "dns" back on clusters that support it.
+retina:
+  enabled: false
+  image:
+    repository: ghcr.io/microsoft/retina/retina-agent
+    tag: v0.0.2
+    pullPolicy: IfNotPresent
+  metricsPort: 10093
+  metricsIntervalSeconds: 10
+  plugins:
+    - dropreason
+    - packetforward
+    - linuxutil

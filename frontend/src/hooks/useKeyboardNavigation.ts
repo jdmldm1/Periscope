@@ -108,6 +108,14 @@ export const useKeyboardNavigation = ({ openCommandPalette }: Options) => {
           return nextIdx;
         });
       } else if (e.key === 'd' && focused) {
+        // k9s-style 'describe' → Periscope's Smart Doctor. Pods and workloads get
+        // the diagnose modal; other kinds fall back to the YAML (describe) view.
+        if (activeTab === 'pods' || ['deployments', 'statefulsets', 'daemonsets'].includes(activeTab)) {
+          setModal({ type: 'diagnose', kind: activeTab, name: focused.metadata.name, namespace: focused.metadata.namespace, uid: focused.metadata.uid });
+        } else {
+          openYamlModal(focused, false);
+        }
+      } else if (e.key === 'y' && focused) {
         openYamlModal(focused, false);
       } else if (e.key === 'e' && focused) {
         openYamlModal(focused, true);

@@ -153,8 +153,8 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
 
   const { handleRestart, handleScale, handleStop, handleStart, handleDelete } = useClusterActions(refreshResources);
 
-  const handleOpenDiagnostics = (name: string, namespace: string) => {
-    setModal({ type: 'diagnose', kind: 'pods', name, namespace });
+  const handleOpenDiagnostics = (name: string, namespace: string, kind: string = 'pods') => {
+    setModal({ type: 'diagnose', kind, name, namespace });
   };
 
   const fetchHelmInspect = async (name: string, namespace: string) => {

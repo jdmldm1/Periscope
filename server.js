@@ -35,6 +35,7 @@ const backupRoutes = require('./src/routes/backupRoutes');
 const cronJobRoutes = require('./src/routes/cronJobRoutes');
 const authRoutes = require('./src/routes/authRoutes');
 const orasRoutes = require('./src/routes/orasRoutes');
+const networkRoutes = require('./src/routes/networkRoutes');
 
 const app = express();
 app.use(compression());
@@ -142,6 +143,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/autoscale', autoscaleRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/cronjob', cronJobRoutes);
+app.use('/api/network', networkRoutes.router);
 app.use('/api', authRoutes);
 app.use('/api', orasRoutes);
 
@@ -246,6 +248,20 @@ wss.on('connection', (ws, request) => {
     if (pathname === '/api/network/sniff/ws') {
         logger.info('Establishing live network packet capture session');
         const { spawn } = require('child_process');
+        const { listInterfaces } = require('./src/routes/networkRoutes');
+
+        // Pick the capture interface from the query (defaulting to "any"), and
+        // only accept a value the pod actually exposes so a bogus/hostile string
+        // can never reach tcpdump.
+        const requestedIface = params.get('iface') || 'any';
+        const iface = listInterfaces().includes(requestedIface) ? requestedIface : 'any';
+
+        // When a pod is supplied, capture THAT pod (via an ephemeral container)
+        // instead of periscope's own pod. `pod`/`namespace` come from the shared
+        // query parsing above.
+        const targetPod = pod;
+        const targetNs = namespace;
+
         let ipMap = {};
         const refreshIpMap = async () => {
             try {
@@ -261,21 +277,87 @@ wss.on('connection', (ws, request) => {
         };
         refreshIpMap();
         const refreshInterval = setInterval(refreshIpMap, 15000);
-        const tcpdump = spawn('tcpdump', ['-l', '-nn', '-i', 'any'], { env: { ...process.env } });
+
+        // Shared line parser: turns a tcpdump text line into a packet object and
+        // sends it over the websocket. Used for both the local capture and the
+        // any-pod (ephemeral container) capture.
         let lineBuffer = '';
-        tcpdump.stdout.on('data', (data) => {
+        const handleData = (data) => {
             lineBuffer += data.toString('utf8');
             const lines = lineBuffer.split('\n');
             lineBuffer = lines.pop() || '';
             lines.forEach(line => {
                 const match = line.match(/^(\d{2}:\d{2}:\d{2}\.\d+)\s+(?:.*\s+)?IP\s+([\d.]+)\.(\d+)\s+>\s+([\d.]+)\.(\d+):\s+(.*)/);
-                if (match) {
-                    const [_, timestamp, srcIp, srcPort, destIp, destPort, info] = match;
-                    const packet = { timestamp, srcIp, srcPort: parseInt(srcPort), srcRes: ipMap[srcIp] || { type: 'external', name: srcIp }, destIp, destPort: parseInt(destPort), destRes: ipMap[destIp] || { type: 'external', name: destIp }, protocol: info.includes('UDP') ? 'UDP' : 'TCP', info: info.trim() };
-                    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(packet));
-                }
+                if (!match) return;
+                const [_, timestamp, srcIp, srcPortStr, destIp, destPortStr, info] = match;
+                const srcPort = parseInt(srcPortStr, 10);
+                const destPort = parseInt(destPortStr, 10);
+                const lenMatch = info.match(/length (\d+)/);
+
+                // tcpdump prints "Flags [..]" only for TCP segments; UDP-based
+                // traffic (DNS, NTP, QUIC, ...) never does — the old check for
+                // the literal string "UDP" mislabelled decoded UDP as TCP. Use
+                // the flags marker to split TCP vs UDP, then refine well-known
+                // ports so the UI can colour DNS/HTTP/HTTPS distinctly.
+                const isTcp = info.includes('Flags [');
+                const onPort = (p) => srcPort === p || destPort === p;
+                let protocol;
+                if (onPort(53)) protocol = 'DNS';
+                else if (!isTcp) protocol = 'UDP';
+                else if (onPort(443) || onPort(8443)) protocol = 'HTTPS';
+                else if (onPort(80) || onPort(8080)) protocol = 'HTTP';
+                else protocol = 'TCP';
+
+                const packet = { timestamp, srcIp, srcPort, srcRes: ipMap[srcIp] || { type: 'external', name: srcIp }, destIp, destPort, destRes: ipMap[destIp] || { type: 'external', name: destIp }, protocol, length: lenMatch ? parseInt(lenMatch[1], 10) : 0, info: info.trim() };
+                if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(packet));
             });
+        };
+
+        // Any-pod capture: sniff a *different* pod via an ephemeral debug
+        // container. Falls back to a clear error frame if it can't be started.
+        if (targetPod) {
+            const podCaptureService = require('./src/services/podCaptureService');
+            let capture = null;
+            podCaptureService.startEphemeralCapture({ ns: targetNs, pod: targetPod, iface, onData: handleData })
+                .then((c) => {
+                    capture = c;
+                    if (ws.readyState !== WebSocket.OPEN) c.stop();
+                })
+                .catch((err) => {
+                    logger.error({ targetNs, targetPod, error: err.message }, 'Ephemeral capture failed');
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ error: `Could not capture ${targetNs}/${targetPod}: ${err.body?.message || err.message}` }));
+                    }
+                });
+            ws.on('close', () => { clearInterval(refreshInterval); if (capture) capture.stop(); });
+            return;
+        }
+
+        // Local capture: sniff periscope's own pod (the original behaviour).
+        const tcpdump = spawn('tcpdump', ['-l', '-nn', '-i', iface], { env: { ...process.env } });
+        tcpdump.stdout.on('data', handleData);
+
+        // Surface capture problems (missing CAP_NET_RAW, bad interface, etc.) to
+        // the UI instead of failing silently. tcpdump prints a normal
+        // "listening on ..." line to stderr on success, so only forward text
+        // that looks like an actual error.
+        let stderrBuf = '';
+        tcpdump.stderr.on('data', (data) => {
+            stderrBuf += data.toString('utf8');
+            const low = stderrBuf.toLowerCase();
+            if (/(permission|denied|can't|cannot|no such device|failed|error)/.test(low) && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ error: stderrBuf.trim() }));
+            }
         });
+        tcpdump.on('error', (err) => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ error: `Failed to start tcpdump: ${err.message}` }));
+        });
+        tcpdump.on('exit', (code) => {
+            if (code && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ error: stderrBuf.trim() || `tcpdump exited with code ${code}` }));
+            }
+        });
+
         ws.on('close', () => { clearInterval(refreshInterval); tcpdump.kill('SIGKILL'); });
         return;
     }

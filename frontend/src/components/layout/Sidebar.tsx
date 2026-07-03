@@ -87,6 +87,7 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
         </div>
         {!collapsedSections['workloads'] && (
           <nav className="nav-menu">
+            <NavItem id="namespaces" icon={Layers} label="Namespaces" />
             <NavItem id="pods" icon={Box} label="Pods" />
             <NavItem id="deployments" icon={Layers} label="Deployments" />
             <NavItem id="statefulsets" icon={Layers} label="StatefulSets" />

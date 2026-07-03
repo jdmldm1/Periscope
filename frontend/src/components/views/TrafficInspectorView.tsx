@@ -59,6 +59,124 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
   const [searchFilter, setSearchFilter] = useState<string>('');
   const socketRef = useRef<WebSocket | null>(null);
 
+  // Capture interface selection + capture-level error surfacing
+  const [interfaces, setInterfaces] = useState<string[]>(['any']);
+  const [selectedIface, setSelectedIface] = useState<string>('any');
+  const [captureError, setCaptureError] = useState<string | null>(null);
+
+  // Load the interfaces the pod can capture on (tcpdump's "any" is always first)
+  useEffect(() => {
+    fetch('/api/network/interfaces')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data.interfaces) && data.interfaces.length) {
+          setInterfaces(data.interfaces);
+          setSelectedIface(prev => (data.interfaces.includes(prev) ? prev : (data.default || data.interfaces[0])));
+        }
+      })
+      .catch(err => console.error('Failed to load capture interfaces:', err));
+  }, []);
+
+  // Capture target: periscope's own pod ('self') or another pod ('ns/pod')
+  const [captureTarget, setCaptureTarget] = useState<string>('self');
+  const [podList, setPodList] = useState<{ ns: string; name: string }[]>([]);
+
+  useEffect(() => {
+    fetch('/api/kube/resource/pods?namespace=all')
+      .then(r => r.json())
+      .then((items) => {
+        if (Array.isArray(items)) {
+          setPodList(items
+            .map((p: any) => ({ ns: p.metadata?.namespace, name: p.metadata?.name }))
+            .filter((p) => p.ns && p.name)
+            .sort((a, b) => (a.ns + a.name).localeCompare(b.ns + b.name)));
+        }
+      })
+      .catch(err => console.error('Failed to load pod list:', err));
+  }, []);
+
+  // Top-level tab: live packet capture, top talkers, DNS insights, or eBPF flows
+  const [topTab, setTopTab] = useState<'capture' | 'talkers' | 'dns' | 'flows'>('capture');
+  const [talkers, setTalkers] = useState<any[]>([]);
+  const [talkersHasRates, setTalkersHasRates] = useState<boolean>(false);
+  const [dns, setDns] = useState<any>(null);
+  const [flows, setFlows] = useState<any>(null);
+  const [pcapBusy, setPcapBusy] = useState<boolean>(false);
+
+  // Poll cluster-wide top talkers (per-pod bandwidth from cAdvisor) while the tab is open
+  useEffect(() => {
+    if (topTab !== 'talkers') return;
+    let stop = false;
+    const load = async () => {
+      try {
+        const r = await fetch('/api/network/top-talkers');
+        const d = await r.json();
+        if (!stop && Array.isArray(d.talkers)) { setTalkers(d.talkers); setTalkersHasRates(!!d.hasRates); }
+      } catch (e) { /* transient */ }
+    };
+    load();
+    const id = setInterval(load, 4000);
+    return () => { stop = true; clearInterval(id); };
+  }, [topTab]);
+
+  // Poll CoreDNS insights while the DNS tab is open
+  useEffect(() => {
+    if (topTab !== 'dns') return;
+    let stop = false;
+    const load = async () => {
+      try { const r = await fetch('/api/network/dns'); const d = await r.json(); if (!stop) setDns(d); }
+      catch (e) { /* transient */ }
+    };
+    load();
+    const id = setInterval(load, 5000);
+    return () => { stop = true; clearInterval(id); };
+  }, [topTab]);
+
+  // Poll eBPF flow metrics (Microsoft Retina) while the Flows tab is open
+  useEffect(() => {
+    if (topTab !== 'flows') return;
+    let stop = false;
+    const load = async () => {
+      try { const r = await fetch('/api/network/flows'); const d = await r.json(); if (!stop) setFlows(d); }
+      catch (e) { /* transient */ }
+    };
+    load();
+    const id = setInterval(load, 5000);
+    return () => { stop = true; clearInterval(id); };
+  }, [topTab]);
+
+  // Download a real .pcap (openable in Wireshark). Goes through fetch so the
+  // auth token is attached; captures for up to ~30s or 5000 packets.
+  const downloadPcap = async () => {
+    setPcapBusy(true);
+    try {
+      const r = await fetch(`/api/network/pcap?iface=${encodeURIComponent(selectedIface)}&count=5000&seconds=30`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `periscope-${selectedIface}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pcap`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert('pcap capture failed: ' + e.message);
+    } finally {
+      setPcapBusy(false);
+    }
+  };
+
+  const fmtBytes = (n: number) => {
+    if (!n || n < 0) return '0 B';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0; let v = n;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+  };
+  const fmtRate = (bps: number | null) => (bps === null || bps === undefined) ? '—' : `${fmtBytes(bps)}/s`;
+
   // Graph states
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
@@ -339,19 +457,33 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
 
   const startCapture = () => {
     if (capturing) return;
+    setCaptureError(null);
     setCapturing(true);
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/api/network/sniff/ws`;
+    let wsUrl = `${protocol}//${host}/api/network/sniff/ws?iface=${encodeURIComponent(selectedIface)}`;
+    // Capture another pod (via an ephemeral debug container) when a target is chosen.
+    if (captureTarget !== 'self') {
+      const [ns, ...rest] = captureTarget.split('/');
+      wsUrl += `&namespace=${encodeURIComponent(ns)}&pod=${encodeURIComponent(rest.join('/'))}`;
+    }
 
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
 
     socket.onmessage = (event) => {
       try {
-        const packet: Packet = JSON.parse(event.data);
-        handleNewPacket(packet);
+        const msg = JSON.parse(event.data);
+        // The server sends {error} frames when tcpdump can't capture (e.g.
+        // missing CAP_NET_RAW) instead of failing silently.
+        if (msg && msg.error) {
+          setCaptureError(String(msg.error));
+          setCapturing(false);
+          socket.close();
+          return;
+        }
+        handleNewPacket(msg as Packet);
       } catch (e) {
         console.error('Failed to parse sniffed packet:', e);
       }
@@ -449,8 +581,35 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', padding: '2px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.05)' }}>
+            <Server size={12} style={{ color: 'var(--text-muted)' }} />
+            <span style={{ color: 'var(--text-muted)' }}>Target</span>
+            <select
+              value={captureTarget}
+              onChange={e => setCaptureTarget(e.target.value)}
+              disabled={capturing}
+              title={capturing ? 'Stop the capture to change target' : 'Capture this pod, or any other pod via an ephemeral debug container'}
+              style={{ background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: 4, fontSize: '0.78rem', padding: '2px 6px', maxWidth: 260, cursor: capturing ? 'not-allowed' : 'pointer' }}
+            >
+              <option value="self">This pod (periscope)</option>
+              {podList.map(p => (
+                <option key={`${p.ns}/${p.name}`} value={`${p.ns}/${p.name}`}>{p.ns}/{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', padding: '2px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.05)' }}>
             <Cpu size={12} style={{ color: 'var(--text-muted)' }} />
-            <span style={{ color: 'var(--text-muted)' }}>tcpdump active on eth0</span>
+            <span style={{ color: 'var(--text-muted)' }}>Interface</span>
+            <select
+              value={selectedIface}
+              onChange={e => setSelectedIface(e.target.value)}
+              disabled={capturing}
+              title={capturing ? 'Stop the capture to change interface' : 'Select capture interface'}
+              style={{ background: 'var(--bg-main)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: 4, fontSize: '0.78rem', padding: '2px 6px', cursor: capturing ? 'not-allowed' : 'pointer' }}
+            >
+              {interfaces.map(iface => (
+                <option key={iface} value={iface}>{iface === 'any' ? 'any (all interfaces)' : iface}</option>
+              ))}
+            </select>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {capturing ? (
@@ -465,12 +624,44 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
             <button className="btn" onClick={saveCapture} disabled={packets.length === 0} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem' }}>
               <Download size={12} /> Save
             </button>
+            <button className="btn" onClick={downloadPcap} disabled={pcapBusy} title="Capture ~30s (or 5000 packets) as a .pcap for Wireshark" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem' }}>
+              <Download size={12} /> {pcapBusy ? 'Capturing…' : '.pcap'}
+            </button>
             <button className="btn" onClick={clearPackets} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem' }}>
               <Trash2 size={12} /> Clear
             </button>
           </div>
         </div>
       </div>
+
+      {/* Top-level view tabs */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-color)' }}>
+        {([['capture', 'Live Capture'], ['talkers', 'Top Talkers'], ['dns', 'DNS Insights'], ['flows', 'eBPF Flows']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setTopTab(id)}
+            style={{
+              padding: '8px 18px', background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: '0.88rem', fontWeight: 600,
+              color: topTab === id ? 'var(--text-main)' : 'var(--text-muted)',
+              borderBottom: topTab === id ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {topTab === 'capture' && (<>
+      {/* Capture error banner (e.g. tcpdump lacking CAP_NET_RAW) */}
+      {captureError && (
+        <div style={{ background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <AlertCircle size={16} style={{ color: '#ef4444', flexShrink: 0, marginTop: 2 }} />
+          <div style={{ color: '#fca5a5', fontSize: '0.82rem' }}>
+            <strong style={{ color: '#ef4444' }}>Capture failed:</strong> {captureError}
+          </div>
+        </div>
+      )}
 
       {/* Real-time Network Traffic Node Graph Panel */}
       <div 
@@ -819,6 +1010,161 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
           </div>
         </div>
       </div>
+      </>)}
+
+      {/* ---- Top Talkers (cluster-wide per-pod bandwidth from cAdvisor) ---- */}
+      {topTab === 'talkers' && (
+        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Zap size={16} style={{ color: 'var(--accent-cyan)' }} />
+              <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 600 }}>Cluster Top Talkers</h3>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Per-pod bandwidth (kubelet / cAdvisor){!talkersHasRates ? ' · sampling rates…' : ''}
+            </span>
+          </div>
+          <div style={{ maxHeight: 460, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 6, background: '#040711' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+              <thead style={{ position: 'sticky', top: 0, background: '#0a0d1a', zIndex: 1 }}>
+                <tr style={{ color: 'var(--text-muted)' }}>
+                  <th style={{ padding: '8px 12px' }}>Namespace</th>
+                  <th style={{ padding: '8px 12px' }}>Pod</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>↓ Rate</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>↑ Rate</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>↓ Total</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>↑ Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {talkers.length === 0 ? (
+                  <tr><td colSpan={6} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontStyle: 'italic' }}>Collecting per-pod network counters…</td></tr>
+                ) : talkers.map((t, i) => (
+                  <tr key={`${t.namespace}/${t.pod}`} style={{ borderTop: '1px solid rgba(255,255,255,0.03)', background: i % 2 ? 'rgba(255,255,255,0.01)' : 'transparent' }}>
+                    <td style={{ padding: '7px 12px', color: 'var(--text-muted)' }}>{t.namespace}</td>
+                    <td style={{ padding: '7px 12px', color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)' }}>{t.pod}</td>
+                    <td style={{ padding: '7px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: (t.rxBps || 0) > 0 ? '#10b981' : 'var(--text-muted)' }}>{fmtRate(t.rxBps)}</td>
+                    <td style={{ padding: '7px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: (t.txBps || 0) > 0 ? '#38bdf8' : 'var(--text-muted)' }}>{fmtRate(t.txBps)}</td>
+                    <td style={{ padding: '7px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{fmtBytes(t.rxBytes)}</td>
+                    <td style={{ padding: '7px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{fmtBytes(t.txBytes)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ---- DNS Insights (CoreDNS :9153 metrics) ---- */}
+      {topTab === 'dns' && (
+        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Globe size={16} style={{ color: 'var(--accent-cyan)' }} />
+            <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 600 }}>CoreDNS Insights</h3>
+          </div>
+          {dns === null ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>Loading DNS metrics…</div>
+          ) : dns.available === false ? (
+            <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, padding: '12px 16px', color: '#fcd34d', fontSize: '0.85rem', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <Info size={16} /> DNS insights unavailable: {dns.reason}
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                {[
+                  { label: 'Total Requests', value: Math.round(dns.requestsTotal).toLocaleString(), color: 'var(--text-main)' },
+                  { label: 'NXDOMAIN Rate', value: `${(dns.nxdomainRate * 100).toFixed(1)}%`, color: dns.nxdomainRate > 0.2 ? '#ef4444' : '#fbbf24' },
+                  { label: 'Cache Hit Ratio', value: `${(dns.cache.hitRatio * 100).toFixed(1)}%`, color: '#10b981' },
+                  { label: 'Avg Latency', value: dns.avgLatencyMs === null ? '—' : `${dns.avgLatencyMs.toFixed(2)} ms`, color: 'var(--accent-cyan)' },
+                ].map(c => (
+                  <div key={c.label} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: c.color, lineHeight: 1.2 }}>{c.value}</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>{c.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Requests by Type</div>
+                  {Object.entries(dns.byType || {}).sort((a: any, b: any) => b[1] - a[1]).map(([type, n]: any) => (
+                    <div key={type} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '3px 0', fontFamily: 'var(--font-mono)' }}>
+                      <span style={{ color: 'var(--accent-cyan)' }}>{type}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{Math.round(n).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Responses</div>
+                  {[['NOERROR', dns.responses.noerror, '#10b981'], ['NXDOMAIN', dns.responses.nxdomain, '#fbbf24'], ['SERVFAIL', dns.responses.servfail, '#ef4444']].map(([k, v, c]: any) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '3px 0', fontFamily: 'var(--font-mono)' }}>
+                      <span style={{ color: c }}>{k}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{Math.round(v).toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 10, fontStyle: 'italic' }}>{dns.note}</div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ---- eBPF Flows (Microsoft Retina) ---- */}
+      {topTab === 'flows' && (
+        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Zap size={16} style={{ color: 'var(--accent-cyan)' }} />
+            <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 600 }}>eBPF Flow Metrics</h3>
+            {flows?.available && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>· {flows.agents} Retina agent(s)</span>}
+          </div>
+          {flows === null ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>Loading flow metrics…</div>
+          ) : flows.available === false ? (
+            <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, padding: '12px 16px', color: '#fcd34d', fontSize: '0.85rem', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <Info size={16} /> {flows.reason}
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                {[
+                  { label: 'Forwarded ↓ (ingress)', value: fmtBytes(flows.forward?.bytes?.ingress || 0), sub: `${Math.round(flows.forward?.count?.ingress || 0).toLocaleString()} pkts`, color: '#10b981' },
+                  { label: 'Forwarded ↑ (egress)', value: fmtBytes(flows.forward?.bytes?.egress || 0), sub: `${Math.round(flows.forward?.count?.egress || 0).toLocaleString()} pkts`, color: '#38bdf8' },
+                  { label: 'Dropped', value: fmtBytes(Object.values(flows.drop?.bytes || {}).reduce((a: number, b: any) => a + b, 0)), sub: `${Math.round(Object.values(flows.drop?.count || {}).reduce((a: number, b: any) => a + b, 0)).toLocaleString()} pkts`, color: '#ef4444' },
+                  { label: 'TCP Established', value: (flows.tcpState?.ESTABLISHED || 0).toLocaleString(), sub: `${flows.tcpState?.TIME_WAIT || 0} time-wait`, color: 'var(--accent-cyan)' },
+                ].map(c => (
+                  <div key={c.label} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: c.color, lineHeight: 1.2 }}>{c.value}</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>{c.label}</div>
+                    <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>{c.sub}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Drops by direction / reason</div>
+                  {Object.keys(flows.drop?.count || {}).length === 0 ? (
+                    <div style={{ fontSize: '0.8rem', color: '#10b981' }}>No packet drops observed 🎉</div>
+                  ) : Object.entries(flows.drop.count).sort((a: any, b: any) => b[1] - a[1]).map(([k, n]: any) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '3px 0', fontFamily: 'var(--font-mono)' }}>
+                      <span style={{ color: '#ef4444' }}>{k}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{Math.round(n).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>TCP connection states</div>
+                  {Object.entries(flows.tcpState || {}).sort((a: any, b: any) => b[1] - a[1]).map(([k, n]: any) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '3px 0', fontFamily: 'var(--font-mono)' }}>
+                      <span style={{ color: 'var(--accent-cyan)' }}>{k}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{Math.round(n).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };

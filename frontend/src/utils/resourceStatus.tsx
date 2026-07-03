@@ -105,6 +105,11 @@ export function resolveStatus(res: any, activeTab: any): { status: string; type:
   if (isJob) return jobStatus(res);
   if (isCronJob) return cronJobStatus(res);
 
+  if (activeTab === 'namespaces') {
+    const phase = res.status?.phase || 'Active';
+    return { status: phase, type: phase === 'Active' ? 'success' : 'warning' };
+  }
+
   if (['services', 'configmaps', 'secrets', 'ingresses', 'networkpolicies', 'persistentvolumes', 'persistentvolumeclaims', 'crds', 'custom', 'helm', 'zarf', 'zarf-registry'].includes(activeTab)) {
     let status = res.status?.phase || 'Active';
     if (activeTab === 'zarf' || activeTab === 'helm' || activeTab === 'zarf-registry') status = res.status?.phase || 'deployed';

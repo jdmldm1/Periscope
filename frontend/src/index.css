@@ -603,27 +603,50 @@ body {
 .container-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border-color);
-  padding: 2px 6px;
-  border-radius: 4px;
+  gap: 8px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  padding: 3px 6px 3px 9px;
+  border-radius: 5px;
   font-size: 0.75rem;
   color: var(--text-main);
   text-transform: none;
+  transition: border-color 0.15s, background 0.15s;
 }
+.container-badge:hover {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.45);
+}
+/* Action icons read as buttons: colored by default (not just on hover) with a
+   pill hover state, so it's obvious each container has quick log/console actions. */
 .container-badge-action {
   cursor: pointer;
-  color: var(--text-muted);
-  transition: color 0.15s;
+  transition: color 0.15s, background 0.15s;
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid transparent;
 }
-.container-badge-action:hover.logs {
+.container-badge-action.logs {
   color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.3);
 }
-.container-badge-action:hover.console {
+.container-badge-action.console {
   color: var(--accent-purple);
+  background: rgba(192, 132, 252, 0.12);
+  border-color: rgba(192, 132, 252, 0.3);
+}
+.container-badge-action.logs:hover {
+  color: #fff;
+  background: var(--accent-cyan);
+}
+.container-badge-action.console:hover {
+  color: #fff;
+  background: var(--accent-purple);
 }
 
 /* Modals */

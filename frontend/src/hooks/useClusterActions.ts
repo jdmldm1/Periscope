@@ -62,6 +62,10 @@ export const useClusterActions = (refresh: () => void) => {
       ? `Delete pod ${name}?\n\nThe pod will be terminated immediately. If it is managed by a ` +
         `Deployment, StatefulSet, or other controller, a replacement pod will be created ` +
         `automatically — to keep the workload stopped, Stop the controlling Deployment instead.`
+      : kind === 'namespaces'
+      ? `Delete namespace "${name}"?\n\n⚠️ This deletes the namespace AND EVERYTHING inside it — ` +
+        `all deployments, pods, services, config, secrets, and PVCs in "${name}". ` +
+        `This cannot be undone.`
       : `Are you sure you want to delete ${kind} ${name}?`;
     if (!window.confirm(confirmMsg)) return;
     try {
