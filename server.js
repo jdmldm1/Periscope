@@ -178,11 +178,57 @@ function safeClose(ws, code, reason) {
     }
 }
 
+let cachedKubeconfigPath = null;
+function inClusterKubeconfigPath() {
+    if (cachedKubeconfigPath !== null) return cachedKubeconfigPath;
+    const saDir = '/var/run/secrets/kubernetes.io/serviceaccount';
+    const host = process.env.KUBERNETES_SERVICE_HOST;
+    const port = process.env.KUBERNETES_SERVICE_PORT || '443';
+    if (!host || !fs.existsSync(path.join(saDir, 'token'))) {
+        cachedKubeconfigPath = ''; // not in-cluster
+        return cachedKubeconfigPath;
+    }
+    const target = '/app/.cache/incluster-kubeconfig.yaml';
+    try {
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, `apiVersion: v1
+kind: Config
+clusters:
+- name: in-cluster
+  cluster:
+    server: https://${host}:${port}
+    certificate-authority: ${saDir}/ca.crt
+contexts:
+- name: in-cluster
+  context:
+    cluster: in-cluster
+    user: in-cluster
+    namespace: default
+current-context: in-cluster
+users:
+- name: in-cluster
+  user:
+    tokenFile: ${saDir}/token
+`);
+        cachedKubeconfigPath = target;
+    } catch (err) {
+        logger.error(err, 'Failed to write in-cluster kubeconfig');
+        cachedKubeconfigPath = '';
+    }
+    return cachedKubeconfigPath;
+}
+function terminalEnv() {
+    const env = { ...process.env, TERM: 'xterm-256color' };
+    const kc = inClusterKubeconfigPath();
+    if (kc) env.KUBECONFIG = kc;
+    return env;
+}
+
 server.on('upgrade', (request, socket, head) => {
     const urlObj = new URL(request.url, `http://${request.headers.host}`);
     const pathname = urlObj.pathname;
     
-    if (['/api/terminal/ws', '/api/logs/ws', '/api/cluster-terminal/ws', '/api/network/sniff/ws', '/api/resources/ws'].includes(pathname)) {
+    if (['/api/terminal/ws', '/api/logs/ws', '/api/cluster-terminal/ws', '/api/k9s/ws', '/api/network/sniff/ws', '/api/resources/ws'].includes(pathname)) {
         if (!wsAuthCheck(request)) {
             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
             socket.destroy();
@@ -214,7 +260,7 @@ wss.on('connection', (ws, request) => {
         logger.info('Establishing cluster-level terminal session');
         const { spawn } = require('child_process');
         const shell = spawn('script', ['-q', '-c', '/bin/sh', '/dev/null'], {
-            env: { ...process.env, TERM: 'xterm-256color' }
+            env: terminalEnv()
         });
         let sized = false;
         shell.stdout.on('data', (data) => ws.readyState === WebSocket.OPEN && ws.send(data));
@@ -238,6 +284,39 @@ wss.on('connection', (ws, request) => {
                     return;
                 }
             } catch (e) { /* not JSON — fall through and treat as shell input */ }
+            if (shell.stdin.writable) shell.stdin.write(msg);
+        });
+        shell.on('exit', () => ws.readyState === WebSocket.OPEN && ws.close());
+        ws.on('close', () => { shell.kill('SIGKILL'); });
+        return;
+    }
+
+    if (pathname === '/api/k9s/ws') {
+        logger.info('Establishing k9s session');
+        const { spawn } = require('child_process');
+        const env = terminalEnv();
+        const shell = spawn('script', ['-q', '-c', '/bin/sh', '/dev/null'], { env });
+
+        const k9sCmd = env.KUBECONFIG
+            ? 'exec zarf tools k9s --context in-cluster -A'
+            : 'exec zarf tools k9s -A';
+        let started = false;
+        shell.stdout.on('data', (data) => ws.readyState === WebSocket.OPEN && ws.send(data));
+        shell.stderr.on('data', (data) => ws.readyState === WebSocket.OPEN && ws.send(data));
+        ws.on('message', (msg) => {
+            try {
+                const p = JSON.parse(msg.toString());
+                if (p && p.type === 'resize') {
+                    const cols = parseInt(p.cols, 10);
+                    const rows = parseInt(p.rows, 10);
+
+                    if (!started && shell.stdin.writable && cols > 0 && rows > 0) {
+                        started = true;
+                        shell.stdin.write(`stty rows ${rows} cols ${cols} 2>/dev/null; clear; ${k9sCmd}\r`);
+                    }
+                    return;
+                }
+            } catch (e) { /* not JSON — treat as k9s keystrokes */ }
             if (shell.stdin.writable) shell.stdin.write(msg);
         });
         shell.on('exit', () => ws.readyState === WebSocket.OPEN && ws.close());

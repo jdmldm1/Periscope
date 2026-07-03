@@ -403,7 +403,9 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
             ) : activeTab === 'cronjobs' ? (
               <CronJobManagerView selectedNs={selectedNs} />
             ) : activeTab === 'cluster-terminal' ? (
-              <ClusterTerminalView />
+              <ClusterTerminalView key="cluster-terminal" />
+            ) : activeTab === 'k9s' ? (
+              <ClusterTerminalView key="k9s" wsPath="/api/k9s/ws" title="K9s" subtitle="zarf tools k9s" stripReports />
             ) : activeTab === 'traffic' ? (
               <TrafficInspectorView selectedNs={selectedNs} />
             ) : activeTab === 'dashboard' ? (
