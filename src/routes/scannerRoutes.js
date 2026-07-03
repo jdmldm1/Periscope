@@ -61,18 +61,45 @@ router.get('/running-images', async (req, res) => {
 });
 
 router.get('/config', (req, res) => {
-    res.json({ enableAutoScan: scannerService.enableAutoScan });
+    res.json({
+        enableAutoScan: scannerService.enableAutoScan,
+        autoUpdateDb: scannerService.autoUpdateDb,
+        dbUpdateIntervalHours: scannerService.dbUpdateIntervalHours,
+    });
 });
 
 router.post('/config', (req, res) => {
-    const { enableAutoScan } = req.body;
-    if (typeof enableAutoScan === 'boolean') {
-        scannerService.enableAutoScan = enableAutoScan;
-        scannerService.saveScannerConfig();
-        res.json({ success: true, enableAutoScan });
-    } else {
-        res.status(400).json({ error: 'enableAutoScan must be a boolean' });
+    const { enableAutoScan, autoUpdateDb, dbUpdateIntervalHours } = req.body;
+
+    // At least one recognised field must be present and well-typed.
+    const hasScan = typeof enableAutoScan === 'boolean';
+    const hasAuto = typeof autoUpdateDb === 'boolean';
+    const hasInterval = dbUpdateIntervalHours !== undefined;
+
+    if (!hasScan && !hasAuto && !hasInterval) {
+        return res.status(400).json({ error: 'No valid config fields provided' });
     }
+    if (dbUpdateIntervalHours !== undefined &&
+        (!Number.isFinite(Number(dbUpdateIntervalHours)) || Number(dbUpdateIntervalHours) <= 0)) {
+        return res.status(400).json({ error: 'dbUpdateIntervalHours must be a positive number' });
+    }
+
+    if (hasScan) scannerService.enableAutoScan = enableAutoScan;
+
+    // Re-arm the DB updater only when the toggle or interval actually changed.
+    const dbSettingsChanged = hasAuto || hasInterval;
+    if (hasAuto) scannerService.autoUpdateDb = autoUpdateDb;
+    if (hasInterval) scannerService.dbUpdateIntervalHours = Number(dbUpdateIntervalHours);
+
+    scannerService.saveScannerConfig();
+    if (dbSettingsChanged) scannerService.startDbAutoUpdateLoop();
+
+    res.json({
+        success: true,
+        enableAutoScan: scannerService.enableAutoScan,
+        autoUpdateDb: scannerService.autoUpdateDb,
+        dbUpdateIntervalHours: scannerService.dbUpdateIntervalHours,
+    });
 });
 
 module.exports = router;

@@ -1,4 +1,6 @@
+const yaml = require('js-yaml');
 const { run, spawnSafe } = require('../utils/exec');
+const { ensureTypeMeta } = require('../utils/k8sHelpers');
 const k8sService = require('./k8sService');
 
 // Mutating operations on workloads, all funnelled through argv-based kubectl
@@ -56,8 +58,16 @@ async function start(namespace, name, bodyReplicas) {
     return { message: `Deployment ${name} started (scaled to ${target})`, replicas: target };
 }
 
+// Cluster-scoped kinds have no namespace, so `-n` must be omitted. Deleting a
+// namespace cascades to every resource inside it (standard Kubernetes GC).
+const CLUSTER_SCOPED = new Set(['namespaces', 'namespace', 'ns', 'nodes', 'node', 'persistentvolumes', 'pv', 'customresourcedefinitions', 'crds', 'crd']);
+
 async function deleteResource(kind, namespace, name) {
-    const { stdout } = await run('kubectl', ['delete', kind, name, '-n', namespace]);
+    const clusterScoped = CLUSTER_SCOPED.has(String(kind).toLowerCase());
+    const args = clusterScoped || !namespace || namespace === 'undefined' || namespace === 'all'
+        ? ['delete', kind, name]
+        : ['delete', kind, name, '-n', namespace];
+    const { stdout } = await run('kubectl', args);
     k8sService.clearCache(kind, namespace);
     return { message: stdout.trim() };
 }
@@ -66,13 +76,24 @@ async function deleteResource(kind, namespace, name) {
 // Resolves with the kubectl output on success; rejects with stderr on failure.
 function applyYaml(kind, namespace, yamlContent) {
     return new Promise((resolve, reject) => {
+        // Older editor sessions (or hand-edited YAML) may lack apiVersion/kind
+        // because list items are served without TypeMeta. Re-attach it from the
+        // route's kind so `kubectl apply` doesn't reject with "Kind is missing".
+        let payload = yamlContent;
+        try {
+            const doc = yaml.load(yamlContent);
+            if (doc && typeof doc === 'object' && (!doc.apiVersion || !doc.kind)) {
+                payload = yaml.dump(ensureTypeMeta(doc, kind));
+            }
+        } catch (_) { /* not parseable here — let kubectl surface the error */ }
+
         const args = ['apply', '-f', '-'];
         if (namespace && namespace !== 'all' && namespace !== 'undefined') {
             args.push('-n', namespace);
         }
 
         const cp = spawnSafe('kubectl', args);
-        cp.stdin.write(yamlContent);
+        cp.stdin.write(payload);
         cp.stdin.end();
 
         let stdout = '';

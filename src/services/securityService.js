@@ -14,7 +14,139 @@ class SecurityService {
         this.kubescapeBinaryName = process.platform === 'win32' ? 'kubescape.exe' : 'kubescape';
         this.localKubescapePath = path.join(this.binDir, this.kubescapeBinaryName);
         this.kubescapeCacheFile = path.join(this.cacheDir, 'periscope-kubescape-cache.json');
+
+        // Local copy of Kubescape's frameworks/controls ("artifacts"). Scans point
+        // at this directory so an air-gapped cluster keeps working against the
+        // last downloaded set instead of trying to fetch fresh ones each run.
+        this.artifactsDir = path.join(this.cacheDir, 'kubescape-artifacts');
+        this.securityConfigFile = path.join(this.cacheDir, 'periscope-security-config.json');
+        this.isArtifactsUpdating = false;
+        this.artifactsUpdateError = null;
+        this.lastArtifactsCheck = null;
+        this.autoUpdateArtifacts = true;
+        this.artifactsUpdateIntervalHours = 24;
+        this.artifactsAutoUpdateTimer = null;
+
         this.loadCache();
+        this.loadSecurityConfig();
+        this.startArtifactsAutoUpdateLoop();
+    }
+
+    loadSecurityConfig() {
+        try {
+            if (fs.existsSync(this.securityConfigFile)) {
+                const config = JSON.parse(fs.readFileSync(this.securityConfigFile, 'utf8'));
+                this.autoUpdateArtifacts = config.autoUpdateArtifacts ?? true;
+                this.artifactsUpdateIntervalHours = Number(config.artifactsUpdateIntervalHours) > 0
+                    ? Number(config.artifactsUpdateIntervalHours) : 24;
+            }
+            if (this.hasCachedArtifacts()) this.lastArtifactsCheck = new Date();
+        } catch (err) {
+            logger.error(err, 'Failed to load security config');
+        }
+    }
+
+    saveSecurityConfig() {
+        try {
+            if (!fs.existsSync(this.cacheDir)) fs.mkdirSync(this.cacheDir, { recursive: true });
+            fs.writeFileSync(this.securityConfigFile, JSON.stringify({
+                autoUpdateArtifacts: this.autoUpdateArtifacts,
+                artifactsUpdateIntervalHours: this.artifactsUpdateIntervalHours,
+            }, null, 2), 'utf8');
+        } catch (err) {
+            logger.error(err, 'Failed to save security config');
+        }
+    }
+
+    hasCachedArtifacts() {
+        try {
+            return fs.existsSync(this.artifactsDir) && fs.readdirSync(this.artifactsDir).length > 0;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    // Choose which frameworks to scan from the locally cached artifacts. We map to
+    // the frameworks the UI surfaces (NSA-CISA, MITRE, CIS) and pick the newest CIS
+    // *cluster* benchmark that was actually downloaded, so we never name a
+    // framework file that isn't present on disk.
+    _selectFrameworks() {
+        try {
+            const files = fs.readdirSync(this.artifactsDir);
+            const has = (n) => files.includes(`${n}.json`);
+            const picked = [];
+            if (has('nsa')) picked.push('nsa');
+            if (has('mitre')) picked.push('mitre');
+            const cis = files
+                .filter(f => /^cis-v\d[\d.]*\.json$/.test(f)) // cis-v1.10.0.json, not cis-eks/aks/gke
+                .sort()
+                .pop();
+            if (cis) picked.push(cis.replace(/\.json$/, ''));
+            return picked;
+        } catch (_) {
+            return [];
+        }
+    }
+
+    getDbStatus() {
+        return {
+            isUpdating: this.isArtifactsUpdating,
+            error: this.artifactsUpdateError,
+            lastCheck: this.lastArtifactsCheck,
+            hasArtifacts: this.hasCachedArtifacts(),
+            autoUpdate: this.autoUpdateArtifacts,
+            intervalHours: this.artifactsUpdateIntervalHours,
+        };
+    }
+
+    // Download Kubescape's frameworks/controls into artifactsDir so later scans
+    // can run fully offline. Never throws — an air-gapped or offline cluster just
+    // keeps whatever artifacts were downloaded previously.
+    async ensureKubescapeArtifacts() {
+        if (this.isArtifactsUpdating) return false;
+        this.isArtifactsUpdating = true;
+        this.artifactsUpdateError = null;
+        try {
+            if (!fs.existsSync(this.artifactsDir)) fs.mkdirSync(this.artifactsDir, { recursive: true });
+
+            let bin = await this._getKubescapeCommand();
+            if (!bin) bin = await this._downloadKubescape();
+
+            logger.info('[Kubescape] Downloading framework/control artifacts...');
+            await run(bin, ['download', 'artifacts', '--output', this.artifactsDir], {
+                timeout: 300000,
+                env: { ...process.env, KS_SKIP_UPDATE_CHECK: 'true' },
+            });
+            logger.info('[Kubescape] Artifacts are up to date.');
+            return true;
+        } catch (error) {
+            const msg = error.stderr || error.message;
+            logger.error({ error: msg }, '[Kubescape] Failed to download artifacts');
+            this.artifactsUpdateError = msg;
+            return false;
+        } finally {
+            this.isArtifactsUpdating = false;
+            this.lastArtifactsCheck = new Date();
+        }
+    }
+
+    // (Re)arm the periodic artifacts updater. Safe to call repeatedly.
+    startArtifactsAutoUpdateLoop() {
+        if (this.artifactsAutoUpdateTimer) {
+            clearInterval(this.artifactsAutoUpdateTimer);
+            this.artifactsAutoUpdateTimer = null;
+        }
+        if (!this.autoUpdateArtifacts) {
+            logger.info('[Kubescape] Artifacts auto-update disabled');
+            return;
+        }
+        const intervalMs = Math.max(1, Number(this.artifactsUpdateIntervalHours) || 24) * 60 * 60 * 1000;
+        logger.info({ intervalHours: this.artifactsUpdateIntervalHours }, '[Kubescape] Artifacts auto-update enabled');
+        setTimeout(() => { this.ensureKubescapeArtifacts().catch(() => {}); }, 45000);
+        this.artifactsAutoUpdateTimer = setInterval(() => {
+            this.ensureKubescapeArtifacts().catch(() => {});
+        }, intervalMs);
+        if (this.artifactsAutoUpdateTimer.unref) this.artifactsAutoUpdateTimer.unref();
     }
 
     loadCache() {
@@ -54,13 +186,26 @@ class SecurityService {
 
                 const tempFileName = `kubescape-scan-${Date.now()}.json`;
                 const tempFilePath = path.join(os.tmpdir(), tempFileName);
-                const scanArgs = ['scan', '--format', 'json', '--format-version', 'v2', '--output', tempFilePath];
+
+                // With cached artifacts, scan explicitly-named frameworks against
+                // them (offline). A bare `scan --use-artifacts-from` fatals with
+                // "framework clusterscan ... not matching", so the frameworks must
+                // be enumerated. Without cached artifacts, fall back to an online scan.
+                const frameworks = this.hasCachedArtifacts() ? this._selectFrameworks() : [];
+                const scanArgs = frameworks.length
+                    ? ['scan', 'framework', frameworks.join(','),
+                       '--use-artifacts-from', this.artifactsDir,
+                       '--format', 'json', '--format-version', 'v2', '--output', tempFilePath]
+                    : ['scan', '--format', 'json', '--format-version', 'v2', '--output', tempFilePath];
+
+                // Don't let Kubescape block the scan on a version/update check.
+                const scanEnv = { ...process.env, KS_SKIP_UPDATE_CHECK: 'true' };
 
                 logger.info({ bin, scanArgs }, '[Kubescape] Executing scan');
 
                 let stderr = '';
                 try {
-                    const result = await run(bin, scanArgs);
+                    const result = await run(bin, scanArgs, { env: scanEnv });
                     stderr = result.stderr;
                 } catch (error) {
                     // Kubescape exits non-zero when controls fail; that's expected,

@@ -71,7 +71,8 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
 
   if (!modal) return null;
 
-  const tabs = modal.kind === 'pods' ? ['diagnose', 'yaml', 'logs', 'events', 'files', 'terminal'] : 
+  const tabs = modal.kind === 'pods' ? ['diagnose', 'yaml', 'logs', 'events', 'files', 'terminal'] :
+               ['deployments', 'statefulsets', 'daemonsets'].includes(modal.kind) ? ['diagnose', 'yaml', 'events'] :
                modal.kind === 'helm' ? ['values', 'history', 'events'] : ['yaml', 'events'];
   
   if (modal.kind === 'secrets' || modal.type === 'decoded') {
@@ -382,7 +383,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                         fontSize: '1.1rem' 
                       }}
                     >
-                      Smart Doctor: {modalData.status}
+                      Status: {modalData.status}
                     </strong>
                   </div>
                   <div style={{ color: 'var(--text-main)', fontSize: '0.9rem', lineHeight: 1.4 }}>
@@ -461,7 +462,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                               setRemediateError(null);
                               setRemediateSuccess(null);
                               try {
-                                const { data } = await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/remediate`, {
+                                const { data } = await api.post(`/kube/resource/${modal.kind || 'pods'}/${modal.namespace}/${modal.name}/remediate`, {
                                   type: fix.type,
                                   params: fix.params
                                 });

@@ -253,6 +253,111 @@ async function diagnosePod(namespace, podName) {
     return diagnosis;
 }
 
+// Diagnose a workload (Deployment / StatefulSet / DaemonSet): assess replica
+// health and rollout conditions, then roll up the container-level problems of
+// the pods it owns. Mirrors diagnosePod's shape so the same UI renders both.
+async function diagnoseWorkload(kind, namespace, name) {
+    assertKind(kind, 'kind');
+    assertName(name, 'name');
+
+    const { stdout } = await run('kubectl', ['get', kind, name, '-n', namespace, '-o', 'json']);
+    const wl = JSON.parse(stdout);
+    const kindName = wl.kind || 'Workload';
+    const isDaemon = kindName === 'DaemonSet';
+
+    const desired = isDaemon ? (wl.status?.desiredNumberScheduled ?? 0) : (wl.spec?.replicas ?? 0);
+    const ready = isDaemon ? (wl.status?.numberReady ?? 0) : (wl.status?.readyReplicas ?? 0);
+    const available = isDaemon ? (wl.status?.numberAvailable ?? 0) : (wl.status?.availableReplicas ?? 0);
+    const updated = isDaemon ? (wl.status?.updatedNumberScheduled ?? 0) : (wl.status?.updatedReplicas ?? 0);
+
+    const diagnosis = { status: 'Healthy', summary: '', details: [], suggestedFixes: [], events: [], logTail: '' };
+
+    if (desired === 0) {
+        diagnosis.status = 'Warning';
+        diagnosis.details.push(`${kindName} '${name}' is scaled to 0 — no pods are scheduled.`);
+    } else if (ready < desired) {
+        diagnosis.status = ready === 0 ? 'Critical' : 'Warning';
+        diagnosis.details.push(`${ready}/${desired} replicas ready (${available} available, ${updated} up-to-date). ${desired - ready} replica(s) not ready.`);
+    }
+
+    (wl.status?.conditions || []).forEach(c => {
+        if (c.type === 'Available' && c.status === 'False') { diagnosis.status = 'Critical'; diagnosis.details.push(`Availability: ${c.reason || ''} — ${c.message || ''}`); }
+        else if (c.type === 'Progressing' && c.status === 'False') { diagnosis.status = 'Critical'; diagnosis.details.push(`Rollout stalled: ${c.reason || ''} — ${c.message || ''}`); }
+        else if (c.type === 'ReplicaFailure' && c.status === 'True') { diagnosis.status = 'Critical'; diagnosis.details.push(`Replica failure: ${c.reason || ''} — ${c.message || ''}`); }
+    });
+
+    // Roll up the owned pods' container problems.
+    const selector = wl.spec?.selector?.matchLabels || {};
+    const selStr = Object.entries(selector).map(([k, v]) => `${k}=${v}`).join(',');
+    let pods = [];
+    if (selStr) {
+        try {
+            const { stdout: po } = await run('kubectl', ['get', 'pods', '-n', namespace, '-l', selStr, '-o', 'json']);
+            pods = JSON.parse(po).items || [];
+        } catch (_) { /* selector may be empty */ }
+    }
+
+    let oomContainer = null;
+    const problemPods = [];
+    pods.forEach(pod => {
+        const css = [...(pod.status?.containerStatuses || []), ...(pod.status?.initContainerStatuses || [])];
+        const sub = { status: 'Healthy', details: [] };
+        const r = analyzeContainers(css, sub);
+        if (r.hasIssue) {
+            problemPods.push(pod.metadata.name);
+            sub.details.forEach(d => diagnosis.details.push(`[${pod.metadata.name}] ${d}`));
+            if (sub.status === 'Critical') diagnosis.status = 'Critical';
+            else if (sub.status === 'Warning' && diagnosis.status !== 'Critical') diagnosis.status = 'Warning';
+            if (r.oomKilledContainer) oomContainer = r.oomKilledContainer;
+        }
+    });
+
+    try {
+        const evRes = await k8sService.core.listNamespacedEvent({ namespace });
+        const allEvents = evRes.items || evRes.body?.items || [];
+        const wlUid = wl.metadata?.uid;
+        const podUids = new Set(pods.map(p => p.metadata?.uid));
+        diagnosis.events = allEvents
+            .filter(e => e.involvedObject && (e.involvedObject.uid === wlUid || podUids.has(e.involvedObject.uid)))
+            .slice(-25)
+            .map(e => ({ type: e.type, reason: e.reason, message: e.message, firstTimestamp: e.firstTimestamp || e.metadata.creationTimestamp, count: e.count }));
+    } catch (_) { /* events best-effort */ }
+
+    const logPod = pods.find(p => problemPods.includes(p.metadata.name)) || pods[0];
+    if (logPod) {
+        const tgt = pickTargetContainer(logPod);
+        if (tgt) {
+            try {
+                const logRes = await k8sService.core.readNamespacedPodLog({ name: logPod.metadata.name, namespace, container: tgt, tailLines: 50 });
+                diagnosis.logTail = logRes.body || logRes;
+            } catch (_) { diagnosis.logTail = ''; }
+        }
+    }
+
+    if (diagnosis.status === 'Healthy') diagnosis.summary = `${kindName} '${name}' is healthy — ${ready}/${desired} replicas ready.`;
+    else if (diagnosis.status === 'Warning') diagnosis.summary = `${kindName} '${name}' shows warnings. It may be degraded or mid-rollout.`;
+    else diagnosis.summary = `Critical issues detected in ${kindName} '${name}'. One or more replicas are down.`;
+
+    if (WORKLOAD_KINDS.includes(kindName)) {
+        if (oomContainer) {
+            diagnosis.suggestedFixes.push({
+                type: 'ScaleResources',
+                title: `Double memory for '${oomContainer}'`,
+                description: `Double the memory limits/requests of container '${oomContainer}' in ${kindName} '${name}'.`,
+                params: { containerName: oomContainer, workloadKind: kindName, workloadName: name },
+            });
+        }
+        diagnosis.suggestedFixes.push({
+            type: 'RolloutRestart',
+            title: 'Rollout Restart',
+            description: `Trigger a rollout restart of ${kindName} '${name}' to recreate its pods and re-pull images.`,
+            params: { workloadKind: kindName, workloadName: name },
+        });
+    }
+
+    return diagnosis;
+}
+
 // workloadKind / workloadName / containerName come from the request body, so
 // validate them as strict Kubernetes identifiers before they reach kubectl
 // (argv-based; no shell interpolation either way).
@@ -352,5 +457,6 @@ async function remediate(namespace, name, type, params = {}) {
 module.exports = {
     findTrueWorkloadOwner,
     diagnosePod,
+    diagnoseWorkload,
     remediate,
 };

@@ -13,15 +13,23 @@ class ScannerService {
         this.vulnsScanCache = new Map();
         this.cacheDir = '/app/.cache';
         this.enableAutoScan = true;
+        // Keep the vulnerability DB fresh on a timer so operators never have to
+        // click "update" manually. Defaults to a daily refresh; both the toggle
+        // and the interval are persisted in the scanner config.
+        this.autoUpdateDb = true;
+        this.dbUpdateIntervalHours = 24;
+        this.dbAutoUpdateTimer = null;
         this.currentlyScanningImage = null;
         this.isBackgroundScanning = false;
         this.currentlyScanning = new Set();
-        
+
         this.initializeCache();
         this.loadScannerConfig();
-        
+
         // Start background scanner
         setTimeout(() => this.backgroundScanLoop(), 10000);
+        // Start the periodic DB auto-updater (no-op when disabled or offline).
+        this.startDbAutoUpdateLoop();
     }
 
     initializeCache() {
@@ -78,6 +86,9 @@ class ScannerService {
             if (fs.existsSync(file)) {
                 const config = JSON.parse(fs.readFileSync(file, 'utf8'));
                 this.enableAutoScan = config.enableAutoScan ?? true;
+                this.autoUpdateDb = config.autoUpdateDb ?? true;
+                this.dbUpdateIntervalHours = Number(config.dbUpdateIntervalHours) > 0
+                    ? Number(config.dbUpdateIntervalHours) : 24;
             }
         } catch (err) {
             logger.error(err, 'Failed to load scanner config');
@@ -87,10 +98,38 @@ class ScannerService {
     saveScannerConfig() {
         try {
             const file = path.join(this.cacheDir, 'periscope-scanner-config.json');
-            fs.writeFileSync(file, JSON.stringify({ enableAutoScan: this.enableAutoScan }, null, 2));
+            fs.writeFileSync(file, JSON.stringify({
+                enableAutoScan: this.enableAutoScan,
+                autoUpdateDb: this.autoUpdateDb,
+                dbUpdateIntervalHours: this.dbUpdateIntervalHours,
+            }, null, 2));
         } catch (err) {
             logger.error(err, 'Failed to save scanner config');
         }
+    }
+
+    // (Re)arm the periodic Grype DB updater. Safe to call repeatedly — it always
+    // clears any existing timer first. When auto-update is off it just stops.
+    startDbAutoUpdateLoop() {
+        if (this.dbAutoUpdateTimer) {
+            clearInterval(this.dbAutoUpdateTimer);
+            this.dbAutoUpdateTimer = null;
+        }
+        if (!this.autoUpdateDb) {
+            logger.info('Grype DB auto-update disabled');
+            return;
+        }
+        const intervalMs = Math.max(1, Number(this.dbUpdateIntervalHours) || 24) * 60 * 60 * 1000;
+        logger.info({ intervalHours: this.dbUpdateIntervalHours }, 'Grype DB auto-update enabled');
+        // Kick off an initial refresh shortly after boot. ensureGrypeDb never
+        // rejects and, in an air-gapped cluster, simply logs that it couldn't
+        // reach the DB host and leaves the baked-in database in place.
+        setTimeout(() => { this.ensureGrypeDb().catch(() => {}); }, 30000);
+        this.dbAutoUpdateTimer = setInterval(() => {
+            this.ensureGrypeDb().catch(() => {});
+        }, intervalMs);
+        // Don't let the timer keep the process alive on its own.
+        if (this.dbAutoUpdateTimer.unref) this.dbAutoUpdateTimer.unref();
     }
 
     clearImageCache(imageRef) {
@@ -111,7 +150,8 @@ class ScannerService {
             timeout: 300000,
             env: {
                 ...process.env,
-                GRYPE_DB_CACHE_DIR: path.join(this.cacheDir, 'grype')
+                GRYPE_DB_CACHE_DIR: path.join(this.cacheDir, 'grype'),
+                GRYPE_CHECK_FOR_APP_UPDATE: 'false'
             }
         };
         try {
@@ -134,6 +174,8 @@ class ScannerService {
             isUpdating: this.isGrypeDbUpdating,
             error: this.grypeDbUpdateError,
             lastCheck: this.lastGrypeDbCheck,
+            autoUpdate: this.autoUpdateDb,
+            intervalHours: this.dbUpdateIntervalHours,
         };
     }
 
@@ -209,7 +251,12 @@ class ScannerService {
                     killSignal: 'SIGTERM',
                     env: {
                         ...process.env,
-                        GRYPE_DB_AUTO_UPDATE: 'true',
+                        // Only reach for the network when auto-update is on (air-gapped
+                        // clusters turn it off and scan the on-disk DB).
+                        GRYPE_DB_AUTO_UPDATE: this.autoUpdateDb ? 'true' : 'false',
+                        // Don't refuse to scan on a stale DB — lets old/air-gapped DBs run.
+                        GRYPE_DB_VALIDATE_AGE: 'false',
+                        GRYPE_DB_MAX_ALLOWED_BUILT_AGE: '8760h',
                         GRYPE_DB_CACHE_DIR: path.join(this.cacheDir, 'grype'),
                         GRYPE_CHECK_FOR_APP_UPDATE: 'false',
                         GRYPE_REGISTRY_INSECURE_USE_HTTP: 'true',

@@ -20,8 +20,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Install curl/ca-certificates, Zarf v0.75.1, kubectl, zstd, util-linux (for PTY script tool), and tcpdump (for network sniffer)
-RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump && \
+# Install curl/ca-certificates, Zarf v0.75.1, kubectl, zstd, util-linux (for PTY script tool), tcpdump (for network sniffer), and libcap (setcap)
+RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump libcap && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then ZARF_ARCH="amd64"; else ZARF_ARCH="arm64"; fi && \
     curl -sL "https://github.com/zarf-dev/zarf/releases/download/v0.75.1/zarf_v0.75.1_Linux_${ZARF_ARCH}" -o /usr/local/bin/zarf && \
@@ -36,6 +36,12 @@ RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump && \
         GRYPE_DB_CACHE_DIR=/app/.cache/grype grype db update && \
         zstd -T0 -q --rm /app/.cache/grype/*/vulnerability.db; \
     fi
+
+# Grant CAP_NET_RAW to the tcpdump binary (a file capability) so the Traffic
+# Inspector can capture packets as the non-root user. At runtime the pod must
+# also carry NET_RAW and allow privilege escalation (so no_new_privs doesn't
+# suppress the file capability) — see the chart's containerSecurityContext.
+RUN setcap cap_net_raw+ep "$(command -v tcpdump)" && getcap "$(command -v tcpdump)"
 
 # Install ORAS conditionally if building the airgapped image
 ARG AIRGAP=false

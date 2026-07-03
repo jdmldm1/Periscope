@@ -29,7 +29,7 @@ interface ResourceListViewProps {
   handleDrillDownToPods: (res: any) => void;
   handleOpenServiceWebsite: (res: any) => void;
   establishingPortForward: string | null;
-  handleOpenDiagnostics: (name: string, ns: string) => void;
+  handleOpenDiagnostics: (name: string, ns: string, kind?: string) => void;
   handleDelete: (res: any) => void;
   setIsEditingYaml: (editing: boolean) => void;
   renderStatusBadge: (res: any) => React.ReactNode;
@@ -201,25 +201,27 @@ export const ResourceListView = ({
                       {res.spec.containers.map((c: any) => (
                         <div key={c.name} className="container-badge">
                           <span>{c.name}</span>
-                          <span 
+                          <span
                             className="container-badge-action logs"
+                            title={`View logs for ${c.name}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedContainer(c.name);
                               setModal({ type: 'logs', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
                             }}
                           >
-                            <FileText size={10} />
+                            <FileText size={12} />
                           </span>
-                          <span 
+                          <span
                             className="container-badge-action console"
+                            title={`Open a console in ${c.name}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedContainer(c.name);
                               setModal({ type: 'terminal', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
                             }}
                           >
-                            <Terminal size={10} />
+                            <Terminal size={12} />
                           </span>
                         </div>
                       ))}
@@ -470,6 +472,49 @@ export const ResourceListView = ({
                     </>
                   );
                 })()}
+                {(activeTab === 'deployments' || activeTab === 'statefulsets' || activeTab === 'daemonsets') && (() => {
+                  const isDaemon = activeTab === 'daemonsets';
+                  const desired = isDaemon ? (res.status?.desiredNumberScheduled ?? 0) : (res.spec?.replicas ?? 0);
+                  const ready = isDaemon ? (res.status?.numberReady ?? 0) : (res.status?.readyReplicas ?? 0);
+                  const updated = isDaemon ? (res.status?.updatedNumberScheduled ?? 0) : (res.status?.updatedReplicas ?? 0);
+                  const available = isDaemon ? (res.status?.numberAvailable ?? 0) : (res.status?.availableReplicas ?? 0);
+                  const pct = desired > 0 ? Math.round((ready / desired) * 100) : (ready > 0 ? 100 : 0);
+                  const allReady = desired > 0 && ready === desired;
+                  const barColor = allReady ? 'var(--accent-success)' : ready > 0 ? 'var(--accent-warning)' : 'var(--accent-error)';
+                  const containers = res.spec?.template?.spec?.containers || [];
+                  const images = containers.map((c: any) => c.image).filter(Boolean);
+                  const primaryImage = images[0] ? images[0].split('/').pop() : '—';
+                  const strategy = isDaemon ? (res.spec?.updateStrategy?.type || 'RollingUpdate') : (res.spec?.strategy?.type || 'RollingUpdate');
+                  return (
+                    <>
+                      <div className="meta-cell meta-cell-bar">
+                        <span className="meta-label">Ready</span>
+                        <div className="metric-bar-wrapper" style={{ margin: 0, width: 60, height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: barColor, transition: 'width 0.4s ease' }}></div>
+                        </div>
+                        <span className="meta-value" style={{ color: barColor, fontWeight: 600 }}>{ready}/{desired}</span>
+                      </div>
+                      <div className="meta-cell meta-cell-text">
+                        <span className="meta-label">Up-to-date / Avail</span>
+                        <span className="meta-value">{updated} / {available}</span>
+                      </div>
+                      <div className="meta-cell meta-cell-text">
+                        <span className="meta-label">Strategy</span>
+                        <span className="meta-value">{strategy}</span>
+                      </div>
+                      <div className="meta-cell meta-cell-text" style={{ maxWidth: 200 }}>
+                        <span className="meta-label">Image{images.length > 1 ? `s (${images.length})` : ''}</span>
+                        <span className="meta-value" title={images.join('\n')} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)' }}>
+                          {primaryImage}{images.length > 1 ? ` +${images.length - 1}` : ''}
+                        </span>
+                      </div>
+                      <div className="meta-cell meta-cell-metric">
+                        <span className="meta-label">Containers</span>
+                        <span className="meta-value">{containers.length}</span>
+                      </div>
+                    </>
+                  );
+                })()}
                 {activeTab === 'crds' && (
                   <div className="meta-cell meta-cell-text">
                     <span className="meta-label">Group / Scope</span>
@@ -563,6 +608,7 @@ export const ResourceListView = ({
                     <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleScale(res.metadata.name, res.metadata.namespace, res.spec?.replicas || 0); }}>
                       <SlidersHorizontal size={12} /> Scale
                     </button>
+                    <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleOpenDiagnostics(res.metadata.name, res.metadata.namespace, 'deployments'); }}>🩺 Diagnose</button>
                     <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); handleDrillDownToPods(res); }}>
                       <Box size={12} /> Pods
                     </button>

@@ -134,7 +134,9 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       if (type === 'yaml') endpoint = `/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/yaml`;
       else if (type === 'events') endpoint = `/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/events`;
       else if (type === 'logs') endpoint = `/kube/resource/pods/${modal.namespace}/${modal.name}/logs?container=${selectedContainer}`;
-      else if (type === 'diagnose') endpoint = `/kube/diagnose/${modal.namespace}/${modal.name}`;
+      else if (type === 'diagnose') endpoint = modal.kind && modal.kind !== 'pods'
+        ? `/kube/diagnose/${modal.kind}/${modal.namespace}/${modal.name}`
+        : `/kube/diagnose/${modal.namespace}/${modal.name}`;
       else if (type === 'history') endpoint = `/helm/${modal.namespace}/${modal.name}/history`;
       else if (type === 'values') endpoint = `/helm/${modal.namespace}/${modal.name}/values`;
       else if (type === 'decoded') endpoint = `/kube/resource/secrets/${modal.namespace}/${modal.name}`;

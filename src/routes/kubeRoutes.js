@@ -7,6 +7,7 @@ const logger = require('../utils/logger');
 const yaml = require('js-yaml');
 const { run } = require('../utils/exec');
 const { assertNamespace, assertName, assertKind } = require('../utils/validators');
+const { ensureTypeMeta } = require('../utils/k8sHelpers');
 
 // Validate path params before any handler runs. Combined with argv-based command
 // execution below, this means a hostile :namespace/:name/:kind can neither inject
@@ -95,7 +96,9 @@ router.get('/resource/:kind/:namespace/:name/yaml', async (req, res) => {
         const items = await k8sService.getResources(kind, namespace);
         const item = items.find(i => i.metadata.name === name);
         if (!item) return res.status(404).json({ error: 'Resource not found' });
-        res.send(yaml.dump(item));
+        // List items come back without apiVersion/kind; re-attach them so the YAML
+        // the user edits round-trips cleanly through `kubectl apply`.
+        res.send(yaml.dump(ensureTypeMeta(item, kind)));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -200,7 +203,33 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
     }
 });
 
+// Workload-level diagnosis (Deployment / StatefulSet / DaemonSet). The 3-segment
+// path distinguishes it from the pod route above.
+router.get('/diagnose/:kind/:namespace/:name', async (req, res) => {
+    const { kind, namespace, name } = req.params;
+    try {
+        res.json(await diagnoseService.diagnoseWorkload(kind, namespace, name));
+    } catch (err) {
+        res.status(500).json({ error: err.stderr || err.message });
+    }
+});
+
 router.post('/resource/pods/:namespace/:name/remediate', async (req, res) => {
+    const { namespace, name } = req.params;
+    const { type, params } = req.body;
+    try {
+        const { message } = await diagnoseService.remediate(namespace, name, type, params);
+        res.json({ success: true, message });
+    } catch (err) {
+        const status = err.statusCode || 500;
+        if (status === 500) logger.error({ namespace, name, type, error: err.message }, 'Failed to apply remediation');
+        res.status(status).json({ error: err.message });
+    }
+});
+
+// Generic remediation for non-pod workloads. The RolloutRestart / ScaleResources
+// actions act on the workload named in params, so the path name is unused there.
+router.post('/resource/:kind/:namespace/:name/remediate', async (req, res) => {
     const { namespace, name } = req.params;
     const { type, params } = req.body;
     try {
