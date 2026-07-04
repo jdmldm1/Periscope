@@ -6,6 +6,5 @@ frontend/dist/
 .env
 .DS_Store
 dist/
-.gemini/
 bin/
 .cache/
