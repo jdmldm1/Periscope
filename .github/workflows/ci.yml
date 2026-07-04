@@ -80,7 +80,9 @@ jobs:
         with:
           context: .
           push: true
-          build-args: CACHE_GRYPE_DB=true
+          build-args: |
+            CACHE_GRYPE_DB=true
+            AIRGAP=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}
@@ -91,7 +93,9 @@ jobs:
         with:
           context: .
           push: true
-          build-args: CACHE_GRYPE_DB=false
+          build-args: |
+            CACHE_GRYPE_DB=false
+            AIRGAP=false
           tags: |
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest-connected
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}-connected

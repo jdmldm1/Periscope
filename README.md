@@ -16,6 +16,7 @@ Cluster-health score with an actionable issues feed
 Resource management, status and metrics.
 
 ![Resource management](docs/screenshots/resources.png)
+![Deployments](docs/screenshots/deployments.png)
 
 ### Security & Compliance
 
@@ -34,6 +35,12 @@ Live packet capture rendered as a pod-to-pod traffic graph.
 Browser-based console into the cluster host.
 
 ![Web terminal](docs/screenshots/terminal.png)
+
+### K9s
+
+Full K9s TUI running in-browser, launched with the cluster's in-cluster context — no separate terminal needed.
+
+![K9s](docs/screenshots/k9s.png)
 
 ### Helm & Zarf Management
 
@@ -170,4 +177,5 @@ zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.2
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). The container image also bundles third-party
+tools under their own licenses — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
