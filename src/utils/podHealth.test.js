@@ -3,7 +3,7 @@ const assert = require('node:assert');
 
 const { classifyPod, podRestarts, podOwner, podIssueMessage } = require('./podHealth');
 
-// Small builder so each test only spells out the fields it cares about.
+
 const pod = (status = {}, metadata = {}, spec = {}) => ({ metadata, spec, status });
 const waiting = (reason, message) => ({ state: { waiting: { reason, message } } });
 const terminated = (reason, exitCode = 0) => ({ lastState: { terminated: { reason, exitCode } } });
@@ -33,8 +33,8 @@ test('classifyPod - OOMKilled detected from lastState', () => {
 });
 
 test('classifyPod - crash-loop takes priority over OOM lastState', () => {
-    // A container both waiting in CrashLoopBackOff and previously OOMKilled is
-    // surfaced as crashLooping (the waiting-reason scan runs first).
+
+
     const p = pod({ containerStatuses: [{ ...waiting('CrashLoopBackOff'), ...terminated('OOMKilled', 137) }] });
     assert.strictEqual(classifyPod(p), 'crashLooping');
 });
@@ -50,7 +50,7 @@ test('classifyPod - healthy when Running and Ready', () => {
 });
 
 test('classifyPod - transient waiting reasons are not failures', () => {
-    // ContainerCreating etc. are normal startup states and must not be flagged.
+
     assert.strictEqual(classifyPod(pod({ phase: 'Pending', containerStatuses: [waiting('ContainerCreating')] })), 'pending');
 });
 

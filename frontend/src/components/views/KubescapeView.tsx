@@ -243,7 +243,7 @@ export const KubescapeView: React.FC<KubescapeViewProps> = ({
                                   wordBreak: 'break-all'
                                 }}
                               >
-                                https://kubescape.io/docs/controls/{c.id.toLowerCase()}/#severity
+                                https:
                               </a>
                             </div>
                           )}

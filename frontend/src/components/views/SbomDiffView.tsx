@@ -25,7 +25,6 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
   runningImages,
   runningImagesScanResults,
 }) => {
-  // Select which images to compare
   const successfulImages = runningImages.filter(
     (img) => runningImagesScanResults[img]?.status === 'success'
   );
@@ -38,7 +37,6 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
   const scanA = runningImagesScanResults[imageA];
   const scanB = runningImagesScanResults[imageB];
 
-  // Helper to get packages as map name -> version
   const getPackagesMap = (scan: any) => {
     const map = new Map<string, { version: string; type: string }>();
     if (scan?.sbom?.artifacts) {
@@ -54,7 +52,6 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
     return map;
   };
 
-  // Helper to get CVEs as map ID -> info
   const getVulnsMap = (scan: any) => {
     const map = new Map<string, { severity: string; packageName: string }>();
     if (scan?.vulnerabilities?.matches) {
@@ -71,7 +68,6 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
     return map;
   };
 
-  // Perform diff computation
   const pkgsA = getPackagesMap(scanA);
   const pkgsB = getPackagesMap(scanB);
   const vulnsA = getVulnsMap(scanA);
@@ -80,8 +76,6 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
   const packageDiffs: PackageDiff[] = [];
   const vulnDiffs: VulnDiff[] = [];
 
-  // 1. Compute Package Diff
-  // Added or Changed (in B, but not in A or different version)
   pkgsB.forEach((infoB, name) => {
     const infoA = pkgsA.get(name);
     if (!infoA) {
@@ -102,7 +96,6 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
     }
   });
 
-  // Removed (in A, but not in B)
   pkgsA.forEach((infoA, name) => {
     if (!pkgsB.has(name)) {
       packageDiffs.push({
@@ -114,8 +107,6 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
     }
   });
 
-  // 2. Compute Vuln Diff
-  // New CVEs (in B, but not in A)
   vulnsB.forEach((infoB, id) => {
     if (!vulnsA.has(id)) {
       vulnDiffs.push({
@@ -127,7 +118,6 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
     }
   });
 
-  // Resolved CVEs (in A, but not in B)
   vulnsA.forEach((infoA, id) => {
     if (!vulnsB.has(id)) {
       vulnDiffs.push({
@@ -139,7 +129,6 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
     }
   });
 
-  // Filter package and vuln diffs based on search and tab selections
   const filteredPackages = packageDiffs.filter((p) => {
     if (diffFilterType !== 'all' && diffFilterType !== 'cves' && p.status !== diffFilterType) {
       return false;
@@ -176,8 +165,8 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
   const newCvesCount = vulnDiffs.filter((v) => v.status === 'new').length;
   const resolvedCvesCount = vulnDiffs.filter((v) => v.status === 'resolved').length;
 
-  const cleanedA = imageA.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
-  const cleanedB = imageB.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+  const cleanedA = imageA.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
+  const cleanedB = imageB.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
 
   if (successfulImages.length < 1) {
     return (
@@ -189,7 +178,7 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Selector Row */}
+      {}
       <div 
         style={{ 
           background: 'var(--bg-card)', 
@@ -226,7 +215,7 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
             >
               {successfulImages.map((img) => (
                 <option key={img} value={img}>
-                  {img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '')}
+                  {img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '')}
                 </option>
               ))}
             </select>
@@ -244,7 +233,7 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
             >
               {successfulImages.map((img) => (
                 <option key={img} value={img}>
-                  {img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '')}
+                  {img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '')}
                 </option>
               ))}
             </select>
@@ -260,7 +249,7 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
       </div>
     </div>
 
-      {/* Metrics Row */}
+      {}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
         <div style={{ background: 'rgba(16, 185, 129, 0.03)', border: '1px solid rgba(16, 185, 129, 0.15)', borderRadius: 8, padding: 12, textAlign: 'center' }}>
           <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-success)' }}>+{addedCount}</div>
@@ -284,7 +273,7 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
         </div>
       </div>
 
-      {/* Filter Options */}
+      {}
       <div 
         style={{ 
           display: 'flex', 
@@ -345,9 +334,9 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
         </div>
       </div>
 
-      {/* Main Differences Content */}
+      {}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Vulnerability Deltas (CVEs) */}
+        {}
         {(diffFilterType === 'all' || diffFilterType === 'cves') && filteredVulns.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <h4 style={{ fontSize: '0.9rem', color: 'var(--text-main)', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -411,7 +400,7 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
           </div>
         )}
 
-        {/* Package Deltas */}
+        {}
         {diffFilterType !== 'cves' && filteredPackages.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <h4 style={{ fontSize: '0.9rem', color: 'var(--text-main)', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -471,7 +460,7 @@ export const SbomDiffView: React.FC<SbomDiffViewProps> = ({
           </div>
         )}
 
-        {/* Empty States */}
+        {}
         {filteredPackages.length === 0 && filteredVulns.length === 0 && (
           <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             No differences found matching your current search/filter.

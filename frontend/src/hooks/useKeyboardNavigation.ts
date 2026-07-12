@@ -6,16 +6,9 @@ import type { ResourceKind } from '../contexts/AppContext';
 type NavFrame = { tab: ResourceKind; search: string; ns: string; focusedRow: number | null };
 
 interface Options {
-  // Opens the command palette pre-seeded with the given query (":" for command
-  // mode, "" for plain search). Owned by App because the palette's search box is
-  // local to it.
   openCommandPalette: (initialQuery: string) => void;
 }
 
-// Wires up the app's global keyboard shortcuts (command palette, vim-style row
-// navigation, drill-down, and the Escape "back" stack). Kept as a hook so
-// App.tsx doesn't carry ~115 lines of event-handler wiring. The drill-down
-// "back" history lives here because nothing else needs it.
 export const useKeyboardNavigation = ({ openCommandPalette }: Options) => {
   const {
     activeTab, setActiveTab,
@@ -37,8 +30,6 @@ export const useKeyboardNavigation = ({ openCommandPalette }: Options) => {
   const [navigationStack, setNavigationStack] = useState<NavFrame[]>([]);
   const isDrillDownRef = useRef(false);
 
-  // Clear the navigation stack when the user explicitly switches tabs (not from
-  // our own drill-down, which sets the ref just before changing the tab).
   useEffect(() => {
     if (isDrillDownRef.current) {
       isDrillDownRef.current = false;
@@ -108,8 +99,6 @@ export const useKeyboardNavigation = ({ openCommandPalette }: Options) => {
           return nextIdx;
         });
       } else if (e.key === 'd' && focused) {
-        // k9s-style 'describe' → Periscope's Diagnose screen. Pods and workloads get
-        // the diagnose modal; other kinds fall back to the YAML (describe) view.
         if (activeTab === 'pods' || ['deployments', 'statefulsets', 'daemonsets'].includes(activeTab)) {
           setModal({ type: 'diagnose', kind: activeTab, name: focused.metadata.name, namespace: focused.metadata.namespace, uid: focused.metadata.uid });
         } else {

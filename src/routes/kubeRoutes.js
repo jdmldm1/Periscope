@@ -9,9 +9,9 @@ const { run } = require('../utils/exec');
 const { assertNamespace, assertName, assertKind } = require('../utils/validators');
 const { ensureTypeMeta } = require('../utils/k8sHelpers');
 
-// Validate path params before any handler runs. Combined with argv-based command
-// execution below, this means a hostile :namespace/:name/:kind can neither inject
-// shell syntax nor reach an external binary as a malformed identifier.
+
+
+
 router.param('namespace', (req, res, next, val) => {
     try { assertNamespace(val); next(); }
     catch (e) { res.status(400).json({ error: e.message }); }
@@ -29,7 +29,7 @@ router.param('kind', (req, res, next, val) => {
     catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-// Specific routes MUST come before generic ones
+
 router.get('/contexts', async (req, res) => {
     try {
         const data = await k8sService.getContexts();
@@ -77,7 +77,7 @@ router.get('/:kind', (req, res, next) => {
     handleGenericResource(req, res);
 });
 
-// Resource Detail Endpoints
+
 router.get('/resource/:kind/:namespace/:name', async (req, res) => {
     const { kind, namespace, name } = req.params;
     try {
@@ -96,8 +96,8 @@ router.get('/resource/:kind/:namespace/:name/yaml', async (req, res) => {
         const items = await k8sService.getResources(kind, namespace);
         const item = items.find(i => i.metadata.name === name);
         if (!item) return res.status(404).json({ error: 'Resource not found' });
-        // List items come back without apiVersion/kind; re-attach them so the YAML
-        // the user edits round-trips cleanly through `kubectl apply`.
+
+
         res.send(yaml.dump(ensureTypeMeta(item, kind)));
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -203,8 +203,8 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
     }
 });
 
-// Workload-level diagnosis (Deployment / StatefulSet / DaemonSet). The 3-segment
-// path distinguishes it from the pod route above.
+
+
 router.get('/diagnose/:kind/:namespace/:name', async (req, res) => {
     const { kind, namespace, name } = req.params;
     try {
@@ -227,8 +227,8 @@ router.post('/resource/pods/:namespace/:name/remediate', async (req, res) => {
     }
 });
 
-// Generic remediation for non-pod workloads. The RolloutRestart / ScaleResources
-// actions act on the workload named in params, so the path name is unused there.
+
+
 router.post('/resource/:kind/:namespace/:name/remediate', async (req, res) => {
     const { namespace, name } = req.params;
     const { type, params } = req.body;
@@ -261,9 +261,9 @@ router.post('/resource/pods/:namespace/:name/exec', async (req, res) => {
     const { command, container } = req.body;
     try {
         const containerName = await k8sService.resolveContainerName(namespace, name, container);
-        // `command` runs inside the target pod via `sh -c` (the intended
-        // "exec into pod" feature); namespace/name/container are argv elements,
-        // so nothing is interpreted by a shell on the server itself.
+
+
+
         try {
             const { stdout, stderr } = await run('kubectl',
                 ['exec', '-n', namespace, name, '-c', containerName, '--', 'sh', '-c', String(command)]);
@@ -275,7 +275,7 @@ router.post('/resource/pods/:namespace/:name/exec', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Pod File Explorer: Download File/Folder
+
 router.get('/resource/pods/:namespace/:name/files/download', async (req, res) => {
     const { namespace, name } = req.params;
     const { path: filePath, container, isDir } = req.query;
@@ -339,7 +339,7 @@ router.get('/resource/pods/:namespace/:name/files/download', async (req, res) =>
     }
 });
 
-// Pod File Explorer: Upload File
+
 router.post('/resource/pods/:namespace/:name/files/upload', async (req, res) => {
     const { namespace, name } = req.params;
     const { destDir, container } = req.query;
@@ -392,7 +392,7 @@ router.post('/resource/pods/:namespace/:name/files/upload', async (req, res) => 
     }
 });
 
-// Pod File Explorer: View File
+
 router.get('/resource/pods/:namespace/:name/files/view', async (req, res) => {
     const { namespace, name } = req.params;
     const { path: filePath, container } = req.query;
@@ -401,8 +401,8 @@ router.get('/resource/pods/:namespace/:name/files/view', async (req, res) => {
     try {
         const containerName = await k8sService.resolveContainerName(namespace, name, container);
         
-        // filePath is passed straight to `cat` as a single argv element, so no
-        // quoting/escaping is needed and shell metacharacters are inert.
+
+
         try {
             const { stdout } = await run('kubectl',
                 ['exec', '-n', namespace, name, '-c', containerName, '--', 'cat', filePath]);
@@ -415,7 +415,7 @@ router.get('/resource/pods/:namespace/:name/files/view', async (req, res) => {
     }
 });
 
-// Pod File Explorer: Save File
+
 router.post('/resource/pods/:namespace/:name/files/save', async (req, res) => {
     const { namespace, name } = req.params;
     const { path: filePath, content, container } = req.body;
@@ -463,7 +463,7 @@ router.post('/resource/pods/:namespace/:name/files/save', async (req, res) => {
     }
 });
 
-// Pod File Explorer: Delete File or Folder
+
 router.delete('/resource/pods/:namespace/:name/files', async (req, res) => {
     const { namespace, name } = req.params;
     const { path: filePath, container } = req.query;
@@ -472,8 +472,8 @@ router.delete('/resource/pods/:namespace/:name/files', async (req, res) => {
     try {
         const containerName = await k8sService.resolveContainerName(namespace, name, container);
         
-        // `rm` receives filePath as a single argv element; no shell on the
-        // server side, and `--` stops kubectl/rm from treating it as a flag.
+
+
         try {
             await run('kubectl',
                 ['exec', '-n', namespace, name, '-c', containerName, '--', 'rm', '-rf', '--', filePath]);

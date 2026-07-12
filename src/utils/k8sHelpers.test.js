@@ -4,10 +4,10 @@ const yaml = require('js-yaml');
 
 const { ensureTypeMeta, KIND_GVK } = require('./k8sHelpers');
 
-// Regression guard for the "Failed to save: status 500" bug: the Kubernetes API
-// server returns list items WITHOUT apiVersion/kind, so the YAML we served for
-// editing could not be re-applied via `kubectl apply` ("Object 'Kind' is
-// missing"). ensureTypeMeta re-attaches the group/version/kind.
+
+
+
+
 
 test('ensureTypeMeta - re-attaches apiVersion/kind for a bare list item', () => {
     const item = { metadata: { name: 'web' }, spec: { replicas: 1 } };
@@ -31,7 +31,7 @@ test('ensureTypeMeta - does not clobber values already present', () => {
 
 test('ensureTypeMeta - tolerates unknown kinds and non-objects', () => {
     const item = { metadata: { name: 'x' } };
-    assert.strictEqual(ensureTypeMeta(item, 'widgets'), item); // unchanged, no throw
+    assert.strictEqual(ensureTypeMeta(item, 'widgets'), item);
     assert.strictEqual(ensureTypeMeta(null, 'deployments'), null);
 });
 

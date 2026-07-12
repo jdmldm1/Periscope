@@ -3,9 +3,9 @@ const { run, spawnSafe } = require('../utils/exec');
 const { ensureTypeMeta } = require('../utils/k8sHelpers');
 const k8sService = require('./k8sService');
 
-// Mutating operations on workloads, all funnelled through argv-based kubectl
-// (no shell). Each call invalidates the caches it affects so the UI reflects the
-// change on the next poll instead of showing stale state.
+
+
+
 
 async function restart(namespace, name) {
     const { stdout } = await run('kubectl', ['rollout', 'restart', `deployment/${name}`, '-n', namespace]);
@@ -20,15 +20,15 @@ async function scale(namespace, name, replicas) {
     return { message: stdout.trim() };
 }
 
-// Stop a deployment by scaling it to 0 replicas. The current replica count is
-// stashed in an annotation so that start() can restore it later.
+
+
 async function stop(namespace, name) {
     let previous = 1;
     try {
         const { stdout: getOut } = await run('kubectl', ['get', `deployment/${name}`, '-n', namespace, '-o', 'jsonpath={.spec.replicas}']);
         const current = parseInt((getOut || '').trim(), 10);
         if (!isNaN(current) && current > 0) previous = current;
-    } catch (_) { /* default to 1 */ }
+    } catch (_) {  }
 
     await run('kubectl', ['annotate', `deployment/${name}`, '-n', namespace, `periscope-previous-replicas=${previous}`, '--overwrite']);
     await run('kubectl', ['scale', `deployment/${name}`, '--replicas=0', '-n', namespace]);
@@ -38,14 +38,14 @@ async function stop(namespace, name) {
     return { message: `Deployment ${name} stopped (scaled to 0)`, previousReplicas: previous };
 }
 
-// Start a previously-stopped deployment by restoring the replica count saved
-// when it was stopped (falling back to the request body, then 1).
+
+
 async function start(namespace, name, bodyReplicas) {
     let saved = NaN;
     try {
         const { stdout: getOut } = await run('kubectl', ['get', `deployment/${name}`, '-n', namespace, '-o', 'jsonpath={.metadata.annotations.periscope-previous-replicas}']);
         saved = parseInt((getOut || '').trim(), 10);
-    } catch (_) { /* fall through to body/default */ }
+    } catch (_) {  }
 
     const reqReplicas = Number(bodyReplicas);
     const target = (!isNaN(saved) && saved > 0)
@@ -58,8 +58,8 @@ async function start(namespace, name, bodyReplicas) {
     return { message: `Deployment ${name} started (scaled to ${target})`, replicas: target };
 }
 
-// Cluster-scoped kinds have no namespace, so `-n` must be omitted. Deleting a
-// namespace cascades to every resource inside it (standard Kubernetes GC).
+
+
 const CLUSTER_SCOPED = new Set(['namespaces', 'namespace', 'ns', 'nodes', 'node', 'persistentvolumes', 'pv', 'customresourcedefinitions', 'crds', 'crd']);
 
 async function deleteResource(kind, namespace, name) {
@@ -72,20 +72,20 @@ async function deleteResource(kind, namespace, name) {
     return { message: stdout.trim() };
 }
 
-// Apply a YAML document via `kubectl apply -f -`, piping the content over stdin.
-// Resolves with the kubectl output on success; rejects with stderr on failure.
+
+
 function applyYaml(kind, namespace, yamlContent) {
     return new Promise((resolve, reject) => {
-        // Older editor sessions (or hand-edited YAML) may lack apiVersion/kind
-        // because list items are served without TypeMeta. Re-attach it from the
-        // route's kind so `kubectl apply` doesn't reject with "Kind is missing".
+
+
+
         let payload = yamlContent;
         try {
             const doc = yaml.load(yamlContent);
             if (doc && typeof doc === 'object' && (!doc.apiVersion || !doc.kind)) {
                 payload = yaml.dump(ensureTypeMeta(doc, kind));
             }
-        } catch (_) { /* not parseable here — let kubectl surface the error */ }
+        } catch (_) {  }
 
         const args = ['apply', '-f', '-'];
         if (namespace && namespace !== 'all' && namespace !== 'undefined') {

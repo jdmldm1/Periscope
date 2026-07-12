@@ -13,9 +13,9 @@ class ScannerService {
         this.vulnsScanCache = new Map();
         this.cacheDir = '/app/.cache';
         this.enableAutoScan = true;
-        // Keep the vulnerability DB fresh on a timer so operators never have to
-        // click "update" manually. Defaults to a daily refresh; both the toggle
-        // and the interval are persisted in the scanner config.
+
+
+
         this.autoUpdateDb = true;
         this.dbUpdateIntervalHours = 24;
         this.dbAutoUpdateTimer = null;
@@ -26,9 +26,9 @@ class ScannerService {
         this.initializeCache();
         this.loadScannerConfig();
 
-        // Start background scanner
+
         setTimeout(() => this.backgroundScanLoop(), 10000);
-        // Start the periodic DB auto-updater (no-op when disabled or offline).
+
         this.startDbAutoUpdateLoop();
     }
 
@@ -108,8 +108,8 @@ class ScannerService {
         }
     }
 
-    // (Re)arm the periodic Grype DB updater. Safe to call repeatedly — it always
-    // clears any existing timer first. When auto-update is off it just stops.
+
+
     startDbAutoUpdateLoop() {
         if (this.dbAutoUpdateTimer) {
             clearInterval(this.dbAutoUpdateTimer);
@@ -121,14 +121,14 @@ class ScannerService {
         }
         const intervalMs = Math.max(1, Number(this.dbUpdateIntervalHours) || 24) * 60 * 60 * 1000;
         logger.info({ intervalHours: this.dbUpdateIntervalHours }, 'Grype DB auto-update enabled');
-        // Kick off an initial refresh shortly after boot. ensureGrypeDb never
-        // rejects and, in an air-gapped cluster, simply logs that it couldn't
-        // reach the DB host and leaves the baked-in database in place.
+
+
+
         setTimeout(() => { this.ensureGrypeDb().catch(() => {}); }, 30000);
         this.dbAutoUpdateTimer = setInterval(() => {
             this.ensureGrypeDb().catch(() => {});
         }, intervalMs);
-        // Don't let the timer keep the process alive on its own.
+
         if (this.dbAutoUpdateTimer.unref) this.dbAutoUpdateTimer.unref();
     }
 
@@ -251,10 +251,10 @@ class ScannerService {
                     killSignal: 'SIGTERM',
                     env: {
                         ...process.env,
-                        // Only reach for the network when auto-update is on (air-gapped
-                        // clusters turn it off and scan the on-disk DB).
+
+
                         GRYPE_DB_AUTO_UPDATE: this.autoUpdateDb ? 'true' : 'false',
-                        // Don't refuse to scan on a stale DB — lets old/air-gapped DBs run.
+
                         GRYPE_DB_VALIDATE_AGE: 'false',
                         GRYPE_DB_MAX_ALLOWED_BUILT_AGE: '8760h',
                         GRYPE_DB_CACHE_DIR: path.join(this.cacheDir, 'grype'),
@@ -377,11 +377,11 @@ class ScannerService {
     async getAllScans() {
         const results = {};
         
-        // 1. Get currently running images in cluster
+
         const runningImagesList = await this.getRunningImages();
         const runningImagesSet = new Set(runningImagesList);
         
-        // 2. Automatically clean up scans for images not running in the cluster
+
         let cacheChanged = false;
         
         for (const img of this.sbomScanCache.keys()) {
@@ -402,7 +402,7 @@ class ScannerService {
             this.saveVulnsCache();
         }
         
-        // 3. Return results only for currently running images, plus any that are currently scanning
+
         const allImages = new Set([
             ...runningImagesList,
             ...this.currentlyScanning

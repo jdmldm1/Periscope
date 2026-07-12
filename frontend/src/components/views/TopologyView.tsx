@@ -110,7 +110,6 @@ export const TopologyView = ({
               setModal({ type: 'yaml', name: deploy.metadata.name, namespace: deploy.metadata.namespace || 'default', kind: 'deployments', uid: deploy.metadata.uid });
             }
           } else {
-            // Node
             const node = (topologyData.nodes || []).find(n => n.metadata.name === id);
             if (node) {
               setModal({ type: 'yaml', name: node.metadata.name, namespace: '', kind: 'nodes', uid: node.metadata.uid });
@@ -174,7 +173,7 @@ export const TopologyView = ({
   return (
     <div className="topology-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
       
-      {/* Graph View */}
+      {}
       <div 
         className="topology-view-wrapper animate-fade-in" 
         style={{ 
@@ -196,12 +195,12 @@ export const TopologyView = ({
         </div>
       </div>
 
-      {/* List / Columns View */}
+      {}
       <div 
         className="topology-layout"
         style={{ display: topologyMode === 'columns' ? 'flex' : 'none' }}
       >
-        {/* Column 1: Nodes */}
+        {}
         <div className="topology-col">
           <div className="topology-col-title">Nodes ({(topologyData.nodes || []).length})</div>
           {(topologyData.nodes || []).map(node => {
@@ -228,7 +227,7 @@ export const TopologyView = ({
           })}
         </div>
 
-        {/* Column 2: Services */}
+        {}
         <div className="topology-col">
           <div className="topology-col-title">Services ({(topologyData.services || []).length})</div>
           {(topologyData.services || []).map(svc => {
@@ -251,7 +250,7 @@ export const TopologyView = ({
           })}
         </div>
 
-        {/* Column 3: Deployments */}
+        {}
         <div className="topology-col">
           <div className="topology-col-title">Deployments ({(topologyData.deployments || []).length})</div>
           {(topologyData.deployments || []).map(deploy => {
@@ -271,7 +270,7 @@ export const TopologyView = ({
           })}
         </div>
 
-        {/* Column 4: Pods */}
+        {}
         <div className="topology-col">
           <div className="topology-col-title">Pods ({(topologyData.pods || []).length})</div>
           {(topologyData.pods || []).map(pod => {

@@ -71,7 +71,7 @@ router.get('/config', (req, res) => {
 router.post('/config', (req, res) => {
     const { enableAutoScan, autoUpdateDb, dbUpdateIntervalHours } = req.body;
 
-    // At least one recognised field must be present and well-typed.
+
     const hasScan = typeof enableAutoScan === 'boolean';
     const hasAuto = typeof autoUpdateDb === 'boolean';
     const hasInterval = dbUpdateIntervalHours !== undefined;
@@ -86,7 +86,7 @@ router.post('/config', (req, res) => {
 
     if (hasScan) scannerService.enableAutoScan = enableAutoScan;
 
-    // Re-arm the DB updater only when the toggle or interval actually changed.
+
     const dbSettingsChanged = hasAuto || hasInterval;
     if (hasAuto) scannerService.autoUpdateDb = autoUpdateDb;
     if (hasInterval) scannerService.dbUpdateIntervalHours = Number(dbUpdateIntervalHours);

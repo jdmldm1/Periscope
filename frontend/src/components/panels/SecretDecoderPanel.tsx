@@ -8,7 +8,6 @@ interface SecretDecoderPanelProps {
 const safeBase64Decode = (str: string) => {
   if (!str) return '';
   try {
-    // Correctly handle UTF-8 characters
     return decodeURIComponent(escape(window.atob(str)));
   } catch (e) {
     try {

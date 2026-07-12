@@ -3,7 +3,7 @@ const router = express.Router();
 const dashboardService = require('../services/dashboardService');
 const logger = require('../utils/logger');
 
-// Cluster-wide health overview shown on the dashboard.
+
 router.get('/stats', async (req, res) => {
     try {
         res.json(await dashboardService.getStats(req.query.namespace));
@@ -13,7 +13,7 @@ router.get('/stats', async (req, res) => {
     }
 });
 
-// Drill-down evidence for a single problematic Node / Deployment / Pod.
+
 router.get('/issue-detail', async (req, res) => {
     const { kind, namespace, name } = req.query;
     if (!kind || !name) return res.status(400).json({ error: 'kind and name are required' });
@@ -26,7 +26,7 @@ router.get('/issue-detail', async (req, res) => {
     }
 });
 
-// Run targeted diagnostic script for the active namespace.
+
 router.get('/diagnose', async (req, res) => {
     const { action, namespace } = req.query;
     if (!action) return res.status(400).json({ error: 'action query param is required' });

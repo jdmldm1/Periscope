@@ -126,9 +126,9 @@ class K8sService {
     }
 
     async setContext(contextName) {
-        // Only allow switching to a context that actually exists in the loaded
-        // kubeconfig. This both validates input and means contextName is never an
-        // arbitrary string heading toward an external command.
+
+
+
         const known = this.kc.contexts.some(c => c.name === contextName);
         if (!known) {
             const err = new Error(`Unknown context: ${contextName}`);
@@ -180,9 +180,9 @@ class K8sService {
         return res.items.map(ns => ns.metadata.name);
     }
 
-    // Resolve which container to act on: use the caller-supplied one if present,
-    // otherwise default to the pod's first container. Centralizes the lookup that
-    // the pod exec/logs/file-explorer endpoints all need.
+
+
+
     async resolveContainerName(namespace, name, container) {
         if (container) return container;
         const podRes = await this.core.readNamespacedPod({ name, namespace });

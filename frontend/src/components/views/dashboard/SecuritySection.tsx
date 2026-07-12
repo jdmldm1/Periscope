@@ -1,6 +1,4 @@
-// Security overview: image vulnerability counts (from the running-image scans)
-// and the Kubescape cluster-compliance summary. Both cards link into their
-// respective full views.
+
 export const SecuritySection: React.FC<{
   scanResults: Record<string, any>;
   kubescapeReport: any;

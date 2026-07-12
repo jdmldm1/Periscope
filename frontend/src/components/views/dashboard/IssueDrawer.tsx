@@ -1,9 +1,6 @@
 import { X, FileText, ExternalLink } from 'lucide-react';
 import { type Issue, SEV_COLOR } from './types';
 
-// Issue drill-down drawer: shows the evidence needed to resolve a selected
-// issue — container states, replicas, conditions, the previous container logs
-// (the crash evidence), and recent events.
 export const IssueDrawer: React.FC<{
   issue: Issue;
   detail: any;
@@ -20,7 +17,7 @@ export const IssueDrawer: React.FC<{
         background: 'var(--bg-card, #0d1b2a)', borderLeft: `1px solid var(--border-color)`,
         boxShadow: '-12px 0 40px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
       }}>
-        {/* header */}
+        {}
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -46,13 +43,13 @@ export const IssueDrawer: React.FC<{
           </div>
         </div>
 
-        {/* body */}
+        {}
         <div style={{ overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 18, fontSize: '0.82rem' }}>
           {loading && !d && <div className="loader-container" style={{ padding: 30 }}><div className="loader" /></div>}
 
           {d?.error && <div style={{ color: 'var(--accent-error)' }}>Failed to load detail: {d.error}</div>}
 
-          {/* Container states */}
+          {}
           {Array.isArray(d?.containers) && d.containers.length > 0 && (
             <div>
               <div className="dashboard-chart-title" style={{ marginBottom: 8 }}>CONTAINERS</div>
@@ -74,7 +71,7 @@ export const IssueDrawer: React.FC<{
             </div>
           )}
 
-          {/* Deployment replicas */}
+          {}
           {d?.replicas && (
             <div>
               <div className="dashboard-chart-title" style={{ marginBottom: 8 }}>REPLICAS</div>
@@ -95,7 +92,7 @@ export const IssueDrawer: React.FC<{
             </div>
           )}
 
-          {/* Conditions */}
+          {}
           {Array.isArray(d?.conditions) && d.conditions.length > 0 && (
             <div>
               <div className="dashboard-chart-title" style={{ marginBottom: 8 }}>CONDITIONS</div>
@@ -110,7 +107,7 @@ export const IssueDrawer: React.FC<{
             </div>
           )}
 
-          {/* Previous-container logs — the crash evidence */}
+          {}
           {d?.logs && (
             <div>
               <div className="dashboard-chart-title" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -123,7 +120,7 @@ export const IssueDrawer: React.FC<{
             </div>
           )}
 
-          {/* Events */}
+          {}
           {Array.isArray(d?.events) && d.events.length > 0 && (
             <div>
               <div className="dashboard-chart-title" style={{ marginBottom: 8 }}>RECENT EVENTS</div>

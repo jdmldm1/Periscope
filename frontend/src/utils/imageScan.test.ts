@@ -31,7 +31,7 @@ const results: Record<string, any> = {
     sbom: { artifacts: [{ name: 'bash', version: '5.0', type: 'apk', licenses: [{ value: 'GPL' }] }] },
   },
   'img-c:3': {
-    status: 'failed', // must be ignored everywhere
+    status: 'failed',
     vulnerabilities: { matches: [match('CVE-X', 'Critical', 'nope', '0')] },
     sbom: { artifacts: [{ name: 'nope', version: '0' }] },
   },
@@ -82,7 +82,6 @@ describe('getFilteredPackages', () => {
 describe('getRemediationList', () => {
   it('includes only fixable vulnerabilities, sorted by highest severity first', () => {
     const list = getRemediationList(results, 'all');
-    // openssl (Critical) before bash (High); curl has no fix and is excluded.
     expect(list.map(r => r.packageName)).toEqual(['openssl', 'bash']);
     expect(list.find(r => r.packageName === 'openssl')!.fixedVersions).toEqual(['1.1']);
   });

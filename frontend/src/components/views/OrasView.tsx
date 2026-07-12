@@ -1,28 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Upload, Download, ArrowRight, Play } from 'lucide-react';
 import axios from 'axios';
-
 export const OrasView: React.FC = () => {
   const [status, setStatus] = useState<{ installed: boolean; mode: 'connected' | 'airgap' } | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState('');
   
-  // Push Form
   const [pushRef, setPushRef] = useState('');
   const [pushFile, setPushFile] = useState<File | null>(null);
   const [pushUseZarfCreds, setPushUseZarfCreds] = useState(true);
   const [pushUsername, setPushUsername] = useState('');
   const [pushPassword, setPushPassword] = useState('');
   const [pushInsecure, setPushInsecure] = useState(true);
-
-  // Pull Form
   const [pullRef, setPullRef] = useState('');
   const [pullUseZarfCreds, setPullUseZarfCreds] = useState(true);
   const [pullUsername, setPullUsername] = useState('');
   const [pullPassword, setPullPassword] = useState('');
   const [pullInsecure, setPullInsecure] = useState(true);
-
   const fetchStatus = async () => {
     try {
       const { data } = await axios.get('/api/oras/status');
@@ -31,11 +26,9 @@ export const OrasView: React.FC = () => {
       console.error('Failed to get ORAS status:', err);
     }
   };
-
   useEffect(() => {
     fetchStatus();
   }, []);
-
   const handleDownloadBinary = async () => {
     setDownloading(true);
     setLogs('Downloading ORAS binary from GitHub...\n');
@@ -49,29 +42,22 @@ export const OrasView: React.FC = () => {
       setDownloading(false);
     }
   };
-
   const handlePush = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pushRef || !pushFile) return;
-
     setLoading(true);
     setLogs(`Starting upload of ${pushFile.name}...\n`);
     try {
-      // 1. Upload file to server
       const uploadRes = await axios.post('/api/oras/upload', pushFile, {
         headers: {
           'Content-Type': 'application/octet-stream',
           'x-file-name': pushFile.name
         }
       });
-
       if (!uploadRes.data.success || !uploadRes.data.filepath) {
         throw new Error('File upload to server failed');
       }
-
       setLogs(prev => prev + `File successfully uploaded to temporary directory. Initiating oras push...\n`);
-
-      // 2. Trigger ORAS push
       const pushRes = await axios.post('/api/oras/push', {
         ref: pushRef,
         filepath: uploadRes.data.filepath,
@@ -80,7 +66,6 @@ export const OrasView: React.FC = () => {
         useZarfCreds: pushUseZarfCreds,
         insecure: pushInsecure
       });
-
       setLogs(prev => prev + pushRes.data.logs + '\nPUSH COMPLETED SUCCESSFULLY!');
     } catch (err: any) {
       setLogs(prev => prev + '\n' + (err.response?.data?.logs || err.response?.data?.error || err.message) + '\nPUSH FAILED.');
@@ -88,11 +73,9 @@ export const OrasView: React.FC = () => {
       setLoading(false);
     }
   };
-
   const handlePull = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pullRef) return;
-
     setLoading(true);
     setLogs(`Initiating ORAS pull for artifact: ${pullRef}...\n`);
     try {
@@ -103,12 +86,9 @@ export const OrasView: React.FC = () => {
         useZarfCreds: pullUseZarfCreds,
         insecure: pullInsecure
       }, {
-        responseType: 'blob' // download as binary attachment
+        responseType: 'blob'
       });
-
       setLogs(prev => prev + `Artifact successfully pulled and downloaded!\n`);
-
-      // Extract original filename if present in headers, else default
       const contentDisposition = response.headers['content-disposition'];
       let filename = 'artifact.tar.gz';
       if (contentDisposition) {
@@ -117,8 +97,6 @@ export const OrasView: React.FC = () => {
           filename = match[1];
         }
       }
-
-      // Trigger browser download
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -128,7 +106,6 @@ export const OrasView: React.FC = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      // If error response type is blob, convert to text to read the JSON error logs
       if (err.response?.data instanceof Blob) {
         const text = await err.response.data.text();
         try {
@@ -144,18 +121,14 @@ export const OrasView: React.FC = () => {
       setLoading(false);
     }
   };
-
-  // Auto-detect secure registry settings based on URL
   useEffect(() => {
     const isZarf = (url: string) => url.includes('zarf-docker-registry') || url.includes('localhost') || url.includes('127.0.0.1');
     setPushInsecure(isZarf(pushRef));
   }, [pushRef]);
-
   useEffect(() => {
     const isZarf = (url: string) => url.includes('zarf-docker-registry') || url.includes('localhost') || url.includes('127.0.0.1');
     setPullInsecure(isZarf(pullRef));
   }, [pullRef]);
-
   const cardStyle = {
     background: 'var(--bg-card)',
     border: '1px solid var(--border-color)',
@@ -167,7 +140,6 @@ export const OrasView: React.FC = () => {
     flexDirection: 'column' as const,
     gap: 16
   };
-
   const inputStyle = {
     background: 'rgba(255, 255, 255, 0.03)',
     border: '1px solid var(--border-color)',
@@ -176,10 +148,9 @@ export const OrasView: React.FC = () => {
     color: '#fff',
     fontSize: '0.85rem'
   };
-
   return (
     <div className="oras-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* ORAS Status Banner */}
+      {}
       <div style={{
         background: 'rgba(31, 41, 55, 0.2)',
         border: '1px solid var(--border-color)',
@@ -221,7 +192,6 @@ export const OrasView: React.FC = () => {
             </p>
           </div>
         </div>
-
         {status && !status.installed && status.mode === 'connected' && (
           <button
             className="btn btn-primary"
@@ -234,11 +204,10 @@ export const OrasView: React.FC = () => {
           </button>
         )}
       </div>
-
-      {/* Main Grid */}
+      {}
       <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))' }}>
         
-        {/* Push Form */}
+        {}
         <div style={cardStyle}>
           <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Upload size={16} style={{ color: 'var(--accent-cyan)' }} />
@@ -257,7 +226,6 @@ export const OrasView: React.FC = () => {
                 disabled={!status?.installed || loading}
               />
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Select File to Push</label>
               <div className="oras-dropzone" onClick={() => !loading && document.getElementById('push-file-input')?.click()}>
@@ -277,7 +245,6 @@ export const OrasView: React.FC = () => {
                 </div>
               </div>
             </div>
-
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
                 type="checkbox"
@@ -290,7 +257,6 @@ export const OrasView: React.FC = () => {
                 Use Zarf Registry Credentials
               </label>
             </div>
-
             {!pushUseZarfCreds && (
               <div style={{ display: 'flex', gap: 10 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
@@ -317,7 +283,6 @@ export const OrasView: React.FC = () => {
                 </div>
               </div>
             )}
-
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
                 type="checkbox"
@@ -330,7 +295,6 @@ export const OrasView: React.FC = () => {
                 Allow Insecure Registry (HTTP/Self-signed)
               </label>
             </div>
-
             <button
               type="submit"
               className="btn btn-primary"
@@ -342,8 +306,7 @@ export const OrasView: React.FC = () => {
             </button>
           </form>
         </div>
-
-        {/* Pull Form */}
+        {}
         <div style={cardStyle}>
           <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Download size={16} style={{ color: 'var(--accent-purple)' }} />
@@ -362,14 +325,12 @@ export const OrasView: React.FC = () => {
                 disabled={!status?.installed || loading}
               />
             </div>
-
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px 0', opacity: 0.4 }}>
               <div style={{ textAlign: 'center' }}>
                 <Package size={48} style={{ color: 'var(--accent-purple)', marginBottom: 8 }} />
                 <div style={{ fontSize: '0.75rem' }}>Downloads pulled files as a single binary or .tar.gz archive</div>
               </div>
             </div>
-
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
                 type="checkbox"
@@ -382,7 +343,6 @@ export const OrasView: React.FC = () => {
                 Use Zarf Registry Credentials
               </label>
             </div>
-
             {!pullUseZarfCreds && (
               <div style={{ display: 'flex', gap: 10 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
@@ -409,7 +369,6 @@ export const OrasView: React.FC = () => {
                 </div>
               </div>
             )}
-
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
                 type="checkbox"
@@ -422,7 +381,6 @@ export const OrasView: React.FC = () => {
                 Allow Insecure Registry (HTTP/Self-signed)
               </label>
             </div>
-
             <button
               type="submit"
               className="btn btn-primary"
@@ -434,10 +392,8 @@ export const OrasView: React.FC = () => {
             </button>
           </form>
         </div>
-
       </div>
-
-      {/* Console Output */}
+      {}
       {logs && (
         <div style={cardStyle}>
           <div className="dashboard-chart-title">EXECUTION CONSOLE LOGS</div>

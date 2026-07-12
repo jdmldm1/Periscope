@@ -52,19 +52,16 @@ interface FlyingPacket {
 }
 
 export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
-  // Sniffer State
   const [capturing, setCapturing] = useState<boolean>(false);
   const [packets, setPackets] = useState<Packet[]>([]);
   const [selectedPacket, setSelectedPacket] = useState<Packet | null>(null);
   const [searchFilter, setSearchFilter] = useState<string>('');
   const socketRef = useRef<WebSocket | null>(null);
 
-  // Capture interface selection + capture-level error surfacing
   const [interfaces, setInterfaces] = useState<string[]>(['any']);
   const [selectedIface, setSelectedIface] = useState<string>('any');
   const [captureError, setCaptureError] = useState<string | null>(null);
 
-  // Load the interfaces the pod can capture on (tcpdump's "any" is always first)
   useEffect(() => {
     fetch('/api/network/interfaces')
       .then(r => r.json())
@@ -77,7 +74,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
       .catch(err => console.error('Failed to load capture interfaces:', err));
   }, []);
 
-  // Capture target: periscope's own pod ('self') or another pod ('ns/pod')
   const [captureTarget, setCaptureTarget] = useState<string>('self');
   const [podList, setPodList] = useState<{ ns: string; name: string }[]>([]);
 
@@ -95,58 +91,22 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
       .catch(err => console.error('Failed to load pod list:', err));
   }, []);
 
-  // Top-level tab: live packet capture, top talkers, DNS insights, or eBPF flows
-  const [topTab, setTopTab] = useState<'capture' | 'talkers' | 'dns' | 'flows'>('capture');
-  const [talkers, setTalkers] = useState<any[]>([]);
-  const [talkersHasRates, setTalkersHasRates] = useState<boolean>(false);
-  const [dns, setDns] = useState<any>(null);
+  const [topTab, setTopTab] = useState<'capture' | 'flows'>('capture');
   const [flows, setFlows] = useState<any>(null);
   const [pcapBusy, setPcapBusy] = useState<boolean>(false);
 
-  // Poll cluster-wide top talkers (per-pod bandwidth from cAdvisor) while the tab is open
-  useEffect(() => {
-    if (topTab !== 'talkers') return;
-    let stop = false;
-    const load = async () => {
-      try {
-        const r = await fetch('/api/network/top-talkers');
-        const d = await r.json();
-        if (!stop && Array.isArray(d.talkers)) { setTalkers(d.talkers); setTalkersHasRates(!!d.hasRates); }
-      } catch (e) { /* transient */ }
-    };
-    load();
-    const id = setInterval(load, 4000);
-    return () => { stop = true; clearInterval(id); };
-  }, [topTab]);
-
-  // Poll CoreDNS insights while the DNS tab is open
-  useEffect(() => {
-    if (topTab !== 'dns') return;
-    let stop = false;
-    const load = async () => {
-      try { const r = await fetch('/api/network/dns'); const d = await r.json(); if (!stop) setDns(d); }
-      catch (e) { /* transient */ }
-    };
-    load();
-    const id = setInterval(load, 5000);
-    return () => { stop = true; clearInterval(id); };
-  }, [topTab]);
-
-  // Poll eBPF flow metrics (Microsoft Retina) while the Flows tab is open
   useEffect(() => {
     if (topTab !== 'flows') return;
     let stop = false;
     const load = async () => {
       try { const r = await fetch('/api/network/flows'); const d = await r.json(); if (!stop) setFlows(d); }
-      catch (e) { /* transient */ }
+      catch (e) {  }
     };
     load();
     const id = setInterval(load, 5000);
     return () => { stop = true; clearInterval(id); };
   }, [topTab]);
 
-  // Download a real .pcap (openable in Wireshark). Goes through fetch so the
-  // auth token is attached; captures for up to ~30s or 5000 packets.
   const downloadPcap = async () => {
     setPcapBusy(true);
     try {
@@ -175,24 +135,19 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
     while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
     return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
   };
-  const fmtRate = (bps: number | null) => (bps === null || bps === undefined) ? '—' : `${fmtBytes(bps)}/s`;
 
-  // Graph states
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [flyingPackets, setFlyingPackets] = useState<FlyingPacket[]>([]);
 
-  // Filter & detail view states
   const [filterError, setFilterError] = useState<string | null>(null);
   const [detailView, setDetailView] = useState<'info' | 'hex'>('info');
 
-  // Reference lists for coordinates lookup in the event listener
   const latestNodesRef = useRef<GraphNode[]>([]);
   const packetsRef = useRef<Packet[]>([]);
   const lastGraphUpdateRef = useRef<number>(0);
   const graphUpdatePendingRef = useRef<boolean>(false);
 
-  // Stable layout state — positions assigned once, never reshuffled
   const stablePositionsRef = useRef<Map<string, { x: number; y: number; role: 'source' | 'destination' | 'external' }>>(new Map());
   const columnCountsRef = useRef<Record<string, number>>({ source: 0, destination: 0, external: 0 });
 
@@ -201,7 +156,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
   const COLUMN_START_Y = 40;
   const COLUMN_X: Record<string, number> = { source: 120, destination: 400, external: 680 };
 
-  // Split a BPF expression on a separator, respecting parentheses depth
   const splitTopLevel = (expr: string, sep: string): string[] => {
     const parts: string[] = [];
     let depth = 0, current = '', i = 0;
@@ -220,33 +174,26 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
     const f = expr.trim();
     if (!f) return true;
 
-    // Strip outer parens
     if (f.startsWith('(') && f.endsWith(')')) return evaluateFilter(p, f.slice(1, -1));
 
-    // OR
     const orParts = splitTopLevel(f, '||');
     if (orParts.length > 1) return orParts.some(part => evaluateFilter(p, part));
 
-    // AND
     const andParts = splitTopLevel(f, '&&');
     if (andParts.length > 1) return andParts.every(part => evaluateFilter(p, part));
 
-    // NOT
     if (f.startsWith('!')) return !evaluateFilter(p, f.slice(1));
     const notMatch = f.match(/^not\s+(.+)$/i);
     if (notMatch) return !evaluateFilter(p, notMatch[1]);
 
-    // Bare protocol keyword
     if (/^(http|https|dns|tcp|udp|icmp)$/i.test(f)) return p.protocol.toLowerCase() === f.toLowerCase();
 
-    // Field comparisons: field op value
     const compMatch = f.match(/^([\w.]+)\s*(==|!=|>=|<=|>|<|contains)\s*(.+)$/i);
     if (compMatch) {
       const [, field, op, rawVal] = compMatch;
       const val = rawVal.trim().replace(/^["']|["']$/g, '');
       const fl = field.toLowerCase();
 
-      // port shortcuts that check both ends
       if (fl === 'port' || fl === 'tcp.port' || fl === 'udp.port') {
         const n = parseInt(val, 10);
         return op === '==' ? (p.srcPort === n || p.destPort === n)
@@ -258,7 +205,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
         switch (fl) {
           case 'ip.src': case 'src': return p.srcIp;
           case 'ip.dst': case 'dst': return p.destIp;
-          case 'ip.addr': return null; // checked below
+          case 'ip.addr': return null;
           case 'tcp.srcport': case 'udp.srcport': case 'src port': return p.srcPort;
           case 'tcp.dstport': case 'udp.dstport': case 'dst port': return p.destPort;
           case 'frame.len': case 'len': case 'length': return p.length;
@@ -289,7 +236,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
       }
     }
 
-    // Fallback: plain text search across all fields
     const lf = f.toLowerCase();
     return [p.srcIp, p.destIp, p.srcRes.name, p.destRes.name, p.protocol, p.info]
       .some(v => v.toLowerCase().includes(lf));
@@ -355,9 +301,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
     }
   };
 
-  // Re-calculate node activities and edges; positions are assigned once and never moved
   const updateGraphLayout = (packetsList: Packet[]) => {
-    // 1. Rebuild activity counts from all packets
     const nodeMap = new Map<string, { res: Packet['srcRes']; ip: string; role: 'source' | 'destination' | 'external'; activity: number }>();
 
     packetsList.forEach(p => {
@@ -378,7 +322,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
       }
     });
 
-    // 2. Assign stable positions to any nodes we haven't seen before
     nodeMap.forEach((info, id) => {
       if (!stablePositionsRef.current.has(id)) {
         const role = info.role;
@@ -394,7 +337,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
       }
     });
 
-    // 3. Build layout nodes using stable positions (roles and coords never change)
     const layoutNodes: GraphNode[] = [];
     nodeMap.forEach((info, id) => {
       const pos = stablePositionsRef.current.get(id);
@@ -403,7 +345,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
       }
     });
 
-    // 4. Build all accumulated edges
     const edgeMap = new Map<string, GraphEdge>();
     packetsList.forEach(p => {
       const srcNode = layoutNodes.find(n => n.id === p.srcRes.name);
@@ -431,7 +372,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
       return newPackets;
     });
 
-    // Trigger packet flow animation if coordinates exist
     const srcNode = latestNodesRef.current.find(n => n.id === packet.srcRes.name);
     const destNode = latestNodesRef.current.find(n => n.id === packet.destRes.name);
 
@@ -448,7 +388,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
 
       setFlyingPackets(prev => [...prev.slice(-15), newFlight]);
 
-      // Prune flight packet after animation finishes
       setTimeout(() => {
         setFlyingPackets(prev => prev.filter(fp => fp.id !== flightId));
       }, 800);
@@ -463,7 +402,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     let wsUrl = `${protocol}//${host}/api/network/sniff/ws?iface=${encodeURIComponent(selectedIface)}`;
-    // Capture another pod (via an ephemeral debug container) when a target is chosen.
     if (captureTarget !== 'self') {
       const [ns, ...rest] = captureTarget.split('/');
       wsUrl += `&namespace=${encodeURIComponent(ns)}&pod=${encodeURIComponent(rest.join('/'))}`;
@@ -475,8 +413,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
     socket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        // The server sends {error} frames when tcpdump can't capture (e.g.
-        // missing CAP_NET_RAW) instead of failing silently.
         if (msg && msg.error) {
           setCaptureError(String(msg.error));
           setCapturing(false);
@@ -519,7 +455,6 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
     setSelectedPacket(null);
   };
 
-  // Cleanup capturing on unmount
   useEffect(() => {
     return () => {
       if (socketRef.current) {
@@ -561,7 +496,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Top Controls Bar */}
+      {}
       <div 
         style={{ 
           display: 'flex', 
@@ -634,9 +569,9 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
         </div>
       </div>
 
-      {/* Top-level view tabs */}
+      {}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-color)' }}>
-        {([['capture', 'Live Capture'], ['talkers', 'Top Talkers'], ['dns', 'DNS Insights'], ['flows', 'eBPF Flows']] as const).map(([id, label]) => (
+        {([['capture', 'Live Capture'], ['flows', 'Network Metrics']] as const).map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTopTab(id)}
@@ -653,7 +588,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
       </div>
 
       {topTab === 'capture' && (<>
-      {/* Capture error banner (e.g. tcpdump lacking CAP_NET_RAW) */}
+      {}
       {captureError && (
         <div style={{ background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <AlertCircle size={16} style={{ color: '#ef4444', flexShrink: 0, marginTop: 2 }} />
@@ -663,7 +598,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
         </div>
       )}
 
-      {/* Real-time Network Traffic Node Graph Panel */}
+      {}
       <div 
         style={{ 
           background: 'rgba(255,255,255,0.02)', 
@@ -684,7 +619,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
           </div>
         </div>
 
-        {/* SVG Live Node Graph */}
+        {}
         <div
           style={{
             height: '320px',
@@ -709,7 +644,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
                 </filter>
               </defs>
 
-              {/* Draw accumulated dataflow edges — weight is total packets on this path */}
+              {}
               {edges.map(edge => {
                 const styleInfo = getProtocolColor(edge.protocol);
                 return (
@@ -724,7 +659,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
                 );
               })}
 
-              {/* Draw Flying Real-time Packets */}
+              {}
               {flyingPackets.map(pkt => (
                 <circle key={pkt.id} r="5" fill={pkt.color} filter="url(#glow)">
                   <animateMotion 
@@ -735,7 +670,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
                 </circle>
               ))}
 
-              {/* Draw Graph Nodes */}
+              {}
               {nodes.map(node => {
                 let borderStroke = 'var(--text-muted)';
                 let fillBg = 'rgba(255,255,255,0.05)';
@@ -763,7 +698,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
                       </div>
                     </foreignObject>
                     
-                    {/* Node Text labels */}
+                    {}
                     <text y="36" textAnchor="middle" fill="#ededed" fontSize="9" fontWeight="600" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.9)' }}>
                       {node.id.length > 15 ? node.id.substring(0, 12) + '...' : node.id}
                     </text>
@@ -778,9 +713,9 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
         </div>
       </div>
 
-      {/* Main Wireshark Console Grid */}
+      {}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Live Sniff info panel */}
+        {}
         <div 
           style={{ 
             background: 'rgba(56, 189, 248, 0.05)', 
@@ -801,7 +736,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
-          {/* Packet table listing */}
+          {}
           <div 
             style={{ 
               background: 'rgba(255,255,255,0.02)', 
@@ -838,7 +773,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
               </div>
             </div>
 
-            {/* Table layout */}
+            {}
             <div 
               style={{ 
                 maxHeight: '380px', 
@@ -915,7 +850,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
             </div>
           </div>
 
-          {/* Details Inspector column */}
+          {}
           <div 
             style={{ 
               background: 'rgba(255,255,255,0.02)', 
@@ -933,7 +868,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
 
             {selectedPacket ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
-                {/* Facts card */}
+                {}
                 <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', borderRadius: 6, padding: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.8rem' }}>
                   <div>
                     <span style={{ color: 'var(--text-muted)' }}>Timestamp:</span> <strong style={{ fontFamily: 'var(--font-mono)' }}>{selectedPacket.timestamp}</strong>
@@ -951,7 +886,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
                   </div>
                 </div>
 
-                {/* Payload tabs: Raw Info | Hex Dump */}
+                {}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-color)' }}>
                     {(['info', 'hex'] as const).map(tab => (
@@ -1012,125 +947,35 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
       </div>
       </>)}
 
-      {/* ---- Top Talkers (cluster-wide per-pod bandwidth from cAdvisor) ---- */}
-      {topTab === 'talkers' && (
-        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {}
+      {topTab === 'flows' && (
+        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Zap size={16} style={{ color: 'var(--accent-cyan)' }} />
-              <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 600 }}>Cluster Top Talkers</h3>
+              <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 600 }}>Cluster Network Metrics</h3>
             </div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Per-pod bandwidth (kubelet / cAdvisor){!talkersHasRates ? ' · sampling rates…' : ''}
-            </span>
-          </div>
-          <div style={{ maxHeight: 460, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 6, background: '#040711' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
-              <thead style={{ position: 'sticky', top: 0, background: '#0a0d1a', zIndex: 1 }}>
-                <tr style={{ color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '8px 12px' }}>Namespace</th>
-                  <th style={{ padding: '8px 12px' }}>Pod</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>↓ Rate</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>↑ Rate</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>↓ Total</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>↑ Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {talkers.length === 0 ? (
-                  <tr><td colSpan={6} style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontStyle: 'italic' }}>Collecting per-pod network counters…</td></tr>
-                ) : talkers.map((t, i) => (
-                  <tr key={`${t.namespace}/${t.pod}`} style={{ borderTop: '1px solid rgba(255,255,255,0.03)', background: i % 2 ? 'rgba(255,255,255,0.01)' : 'transparent' }}>
-                    <td style={{ padding: '7px 12px', color: 'var(--text-muted)' }}>{t.namespace}</td>
-                    <td style={{ padding: '7px 12px', color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)' }}>{t.pod}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: (t.rxBps || 0) > 0 ? '#10b981' : 'var(--text-muted)' }}>{fmtRate(t.rxBps)}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: (t.txBps || 0) > 0 ? '#38bdf8' : 'var(--text-muted)' }}>{fmtRate(t.txBps)}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{fmtBytes(t.rxBytes)}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{fmtBytes(t.txBytes)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ---- DNS Insights (CoreDNS :9153 metrics) ---- */}
-      {topTab === 'dns' && (
-        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Globe size={16} style={{ color: 'var(--accent-cyan)' }} />
-            <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 600 }}>CoreDNS Insights</h3>
-          </div>
-          {dns === null ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>Loading DNS metrics…</div>
-          ) : dns.available === false ? (
-            <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, padding: '12px 16px', color: '#fcd34d', fontSize: '0.85rem', display: 'flex', gap: 10, alignItems: 'center' }}>
-              <Info size={16} /> DNS insights unavailable: {dns.reason}
-            </div>
-          ) : (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-                {[
-                  { label: 'Total Requests', value: Math.round(dns.requestsTotal).toLocaleString(), color: 'var(--text-main)' },
-                  { label: 'NXDOMAIN Rate', value: `${(dns.nxdomainRate * 100).toFixed(1)}%`, color: dns.nxdomainRate > 0.2 ? '#ef4444' : '#fbbf24' },
-                  { label: 'Cache Hit Ratio', value: `${(dns.cache.hitRatio * 100).toFixed(1)}%`, color: '#10b981' },
-                  { label: 'Avg Latency', value: dns.avgLatencyMs === null ? '—' : `${dns.avgLatencyMs.toFixed(2)} ms`, color: 'var(--accent-cyan)' },
-                ].map(c => (
-                  <div key={c.label} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: c.color, lineHeight: 1.2 }}>{c.value}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>{c.label}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14 }}>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Requests by Type</div>
-                  {Object.entries(dns.byType || {}).sort((a: any, b: any) => b[1] - a[1]).map(([type, n]: any) => (
-                    <div key={type} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '3px 0', fontFamily: 'var(--font-mono)' }}>
-                      <span style={{ color: 'var(--accent-cyan)' }}>{type}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>{Math.round(n).toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14 }}>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Responses</div>
-                  {[['NOERROR', dns.responses.noerror, '#10b981'], ['NXDOMAIN', dns.responses.nxdomain, '#fbbf24'], ['SERVFAIL', dns.responses.servfail, '#ef4444']].map(([k, v, c]: any) => (
-                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '3px 0', fontFamily: 'var(--font-mono)' }}>
-                      <span style={{ color: c }}>{k}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>{Math.round(v).toLocaleString()}</span>
-                    </div>
-                  ))}
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 10, fontStyle: 'italic' }}>{dns.note}</div>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ---- eBPF Flows (Microsoft Retina) ---- */}
-      {topTab === 'flows' && (
-        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Zap size={16} style={{ color: 'var(--accent-cyan)' }} />
-            <h3 style={{ fontSize: '0.95rem', margin: 0, fontWeight: 600 }}>eBPF Flow Metrics</h3>
-            {flows?.available && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>· {flows.agents} Retina agent(s)</span>}
+            {flows?.available && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Powered by eBPF · {flows.agents} agent(s)</span>}
           </div>
           {flows === null ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>Loading flow metrics…</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>Loading network metrics…</div>
           ) : flows.available === false ? (
             <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, padding: '12px 16px', color: '#fcd34d', fontSize: '0.85rem', display: 'flex', gap: 10, alignItems: 'center' }}>
               <Info size={16} /> {flows.reason}
             </div>
           ) : (
             <>
+              <div style={{ background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.15)', borderRadius: 8, padding: '10px 14px', fontSize: '0.82rem', color: '#bae6fd', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <Info size={16} style={{ color: 'var(--accent-cyan)', flexShrink: 0 }} />
+                <div>Real-time cluster-wide network metrics including TCP, UDP, and multicast traffic flows captured at the kernel level.</div>
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                 {[
-                  { label: 'Forwarded ↓ (ingress)', value: fmtBytes(flows.forward?.bytes?.ingress || 0), sub: `${Math.round(flows.forward?.count?.ingress || 0).toLocaleString()} pkts`, color: '#10b981' },
-                  { label: 'Forwarded ↑ (egress)', value: fmtBytes(flows.forward?.bytes?.egress || 0), sub: `${Math.round(flows.forward?.count?.egress || 0).toLocaleString()} pkts`, color: '#38bdf8' },
-                  { label: 'Dropped', value: fmtBytes(Object.values(flows.drop?.bytes || {}).reduce((a: number, b: any) => a + b, 0)), sub: `${Math.round(Object.values(flows.drop?.count || {}).reduce((a: number, b: any) => a + b, 0)).toLocaleString()} pkts`, color: '#ef4444' },
-                  { label: 'TCP Established', value: (flows.tcpState?.ESTABLISHED || 0).toLocaleString(), sub: `${flows.tcpState?.TIME_WAIT || 0} time-wait`, color: 'var(--accent-cyan)' },
+                  { label: 'Ingress Traffic', value: fmtBytes(flows.forward?.bytes?.ingress || 0), sub: `${Math.round(flows.forward?.count?.ingress || 0).toLocaleString()} packets`, color: '#10b981' },
+                  { label: 'Egress Traffic', value: fmtBytes(flows.forward?.bytes?.egress || 0), sub: `${Math.round(flows.forward?.count?.egress || 0).toLocaleString()} packets`, color: '#38bdf8' },
+                  { label: 'Dropped Packets', value: fmtBytes(Object.values(flows.drop?.bytes || {}).reduce((a: number, b: any) => a + b, 0)), sub: `${Math.round(Object.values(flows.drop?.count || {}).reduce((a: number, b: any) => a + b, 0)).toLocaleString()} packets`, color: '#ef4444' },
+                  { label: 'Active TCP Connections', value: (flows.tcpState?.ESTABLISHED || 0).toLocaleString(), sub: `${flows.tcpState?.TIME_WAIT || 0} closing`, color: 'var(--accent-cyan)' },
                 ].map(c => (
                   <div key={c.label} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px', textAlign: 'center' }}>
                     <div style={{ fontSize: '1.4rem', fontWeight: 700, color: c.color, lineHeight: 1.2 }}>{c.value}</div>
@@ -1141,9 +986,9 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14 }}>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Drops by direction / reason</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>Packet Drops (by direction/reason)</div>
                   {Object.keys(flows.drop?.count || {}).length === 0 ? (
-                    <div style={{ fontSize: '0.8rem', color: '#10b981' }}>No packet drops observed 🎉</div>
+                    <div style={{ fontSize: '0.8rem', color: '#10b981' }}>No packet drops observed</div>
                   ) : Object.entries(flows.drop.count).sort((a: any, b: any) => b[1] - a[1]).map(([k, n]: any) => (
                     <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '3px 0', fontFamily: 'var(--font-mono)' }}>
                       <span style={{ color: '#ef4444' }}>{k}</span>
@@ -1152,7 +997,7 @@ export const TrafficInspectorView: React.FC<TrafficInspectorViewProps> = () => {
                   ))}
                 </div>
                 <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 14 }}>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>TCP connection states</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600 }}>TCP Connection States</div>
                   {Object.entries(flows.tcpState || {}).sort((a: any, b: any) => b[1] - a[1]).map(([k, n]: any) => (
                     <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '3px 0', fontFamily: 'var(--font-mono)' }}>
                       <span style={{ color: 'var(--accent-cyan)' }}>{k}</span>

@@ -133,7 +133,7 @@ export const AutoscaleManagerView = ({ selectedNs }: { selectedNs: string }) => 
         </div>
       </div>
 
-      {/* Unscaled targets notice */}
+      {}
       {allTargets.filter(t => !hpaTargetNames.has(`${t.kind}/${t.namespace}/${t.name}`)).length > 0 && (
         <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 8, padding: '12px 16px' }}>
           <div style={{ fontSize: '0.8rem', color: 'var(--accent-blue)', marginBottom: 6, fontWeight: 600 }}>
@@ -157,7 +157,7 @@ export const AutoscaleManagerView = ({ selectedNs }: { selectedNs: string }) => 
         </div>
       )}
 
-      {/* HPA list */}
+      {}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {hpas.length === 0 && !loading && (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
@@ -229,7 +229,7 @@ export const AutoscaleManagerView = ({ selectedNs }: { selectedNs: string }) => 
                 </div>
               </div>
 
-              {/* Replica bar */}
+              {}
               {hpa.spec.maxReplicas > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ height: 6, background: 'var(--bg-main)', borderRadius: 3, overflow: 'hidden' }}>
@@ -251,7 +251,7 @@ export const AutoscaleManagerView = ({ selectedNs }: { selectedNs: string }) => 
         })}
       </div>
 
-      {/* Create HPA Modal */}
+      {}
       {showCreate && (
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <div className="modal-content animate-fade-in" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>

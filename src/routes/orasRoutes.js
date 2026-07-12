@@ -23,13 +23,13 @@ function runCommand(cmd) {
 }
 
 async function getOrasBinaryPath() {
-    // Check if in PATH
+
     try {
         await runCommand('oras version');
         return 'oras';
     } catch (e) {}
 
-    // Check if in /app/bin
+
     if (fs.existsSync(ORAS_PATH)) {
         return ORAS_PATH;
     }

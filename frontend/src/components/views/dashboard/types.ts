@@ -1,4 +1,4 @@
-// Shared types and constants for the dashboard panels.
+
 
 export interface Issue {
   severity: 'critical' | 'warning' | 'info';

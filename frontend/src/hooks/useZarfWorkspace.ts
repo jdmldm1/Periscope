@@ -3,16 +3,10 @@ import axios from 'axios';
 import { useAppContext } from '../contexts/AppContext';
 import { useZarfManager } from './useZarfManager';
 
-// Encapsulates everything the Zarf Manager screen needs: the local workspace
-// (upload / unpack / rebuild), the SBOM inspector, and the embedded registry
-// browser. App.tsx used to hold all of this state and ~15 handlers inline; this
-// hook keeps that surface in one place. The returned object's keys deliberately
-// match ZarfManagerView's prop names so the caller can spread them directly.
 export const useZarfWorkspace = () => {
   const { api, queryClient, activeTab } = useAppContext();
   const { zarfPackages, removePackage } = useZarfManager();
 
-  // Workspace / packages
   const [zarfViewMode, setZarfViewMode] = useState<'packages' | 'local' | 'tools' | 'edit' | 'registry' | 'sbom'>('packages');
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [zarfUploadFile, setZarfUploadFile] = useState<File | null>(null);
@@ -31,13 +25,11 @@ export const useZarfWorkspace = () => {
   const [selectedZarfPackageDetail, setSelectedZarfPackageDetail] = useState<any>(null);
   const [isFetchingPackageDetail, setIsFetchingPackageDetail] = useState(false);
 
-  // SBOM inspector
   const [sbomPackageName, setSbomPackageName] = useState('');
   const [sbomExtractedFiles, setSbomExtractedFiles] = useState<any[]>([]);
   const [sbomSelectedFileUrl, setSbomSelectedFileUrl] = useState('');
   const [isExtractingSbom, setIsExtractingSbom] = useState(false);
 
-  // Registry browser
   const [registryPullSource, setRegistryPullSource] = useState('');
   const [registryPullTarget, setRegistryPullTarget] = useState('');
   const [isPullingRegistry, setIsPullingRegistry] = useState(false);
@@ -67,8 +59,6 @@ export const useZarfWorkspace = () => {
     }
   };
 
-  // Refresh the workspace + registry whenever the user lands on a Zarf screen,
-  // and keep the sub-view in sync with which Zarf tab is active.
   useEffect(() => {
     if (activeTab === 'zarf' || activeTab === 'zarf-registry') {
       fetchZarfLocalPackages();
@@ -314,8 +304,6 @@ export const useZarfWorkspace = () => {
     }
   };
 
-  // Keys mirror ZarfManagerView's prop names so the caller can spread this whole
-  // object onto the component.
   return {
     resources: zarfPackages || [],
     zarfViewMode, setZarfViewMode,

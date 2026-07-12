@@ -49,12 +49,10 @@ export const PvcExplorerView = ({
   const [isBrowsing, setIsBrowsing] = useState(false);
   const [error, setError] = useState('');
 
-  // File viewer
   const [viewingFile, setViewingFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState('');
   const [isLoadingFile, setIsLoadingFile] = useState(false);
 
-  // Cleanup
   const [isCleaning, setIsCleaning] = useState(false);
 
   const browse = useCallback(async (path: string = '/', ns: string = namespace, pvc: string = pvcName) => {
@@ -89,7 +87,6 @@ export const PvcExplorerView = ({
       setPvcName(initialPvcName);
       browse('/', initialNamespace, initialPvcName);
 
-      // Clear the parent prefilled state only if not in modal
       if (!isModal) {
         if (setInitialNamespace) setInitialNamespace('');
         if (setInitialPvcName) setInitialPvcName('');
@@ -154,12 +151,11 @@ export const PvcExplorerView = ({
     navigator.clipboard.writeText(fileContent);
   }, [fileContent]);
 
-  // Breadcrumb segments
   const pathSegments = currentPath === '/' ? [] : currentPath.split('/').filter(Boolean);
 
   return (
     <div style={{ padding: '0 4px' }}>
-      {/* Header */}
+      {}
       {!isModal && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
           <HardDrive size={20} style={{ color: 'var(--accent-cyan)' }} />
@@ -172,7 +168,7 @@ export const PvcExplorerView = ({
         </div>
       )}
 
-      {/* Connection Panel */}
+      {}
       {!isModal && (
         <div style={{
           background: 'var(--bg-card)', border: '1px solid var(--border-color)',
@@ -259,13 +255,13 @@ export const PvcExplorerView = ({
         </div>
       )}
 
-      {/* File Browser */}
+      {}
       {isBrowsing && (
         <div style={{
           background: 'var(--bg-card)', border: '1px solid var(--border-color)',
           borderRadius: 12, overflow: 'hidden',
         }}>
-          {/* Breadcrumb */}
+          {}
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px',
             borderBottom: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)',
@@ -316,7 +312,7 @@ export const PvcExplorerView = ({
             )}
           </div>
 
-          {/* File Table */}
+          {}
           {isLoading ? (
             <div style={{ textAlign: 'center', padding: '50px 20px' }}>
               <div className="loader-sm" style={{ width: 28, height: 28, borderWidth: 3, margin: '0 auto 12px' }} />
@@ -403,7 +399,7 @@ export const PvcExplorerView = ({
         </div>
       )}
 
-      {/* Not Browsing State */}
+      {}
       {!isBrowsing && !error && !isModal && (
         <div style={{
           textAlign: 'center', padding: '80px 20px',
@@ -418,7 +414,7 @@ export const PvcExplorerView = ({
         </div>
       )}
 
-      {/* File Viewer Modal */}
+      {}
       {viewingFile && (
         <div className="modal-overlay" onClick={() => setViewingFile(null)}>
           <div className="modal-content animate-fade-in" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>

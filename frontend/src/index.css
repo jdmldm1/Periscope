@@ -1,24 +1,24 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg-main: #030712; /* Rich dark indigo-gray */
-  --bg-panel: rgba(17, 24, 39, 0.7); /* Sleek glassmorphic gray */
-  --bg-card: rgba(31, 41, 55, 0.35); /* Glass card base */
+  --bg-main: #030712; 
+  --bg-panel: rgba(17, 24, 39, 0.7); 
+  --bg-card: rgba(31, 41, 55, 0.35); 
   --bg-card-hover: rgba(55, 65, 81, 0.5);
   
   --border-color: rgba(255, 255, 255, 0.06);
   --border-glow: rgba(59, 130, 246, 0.25);
   --border-active: rgba(255, 255, 255, 0.2);
   
-  --text-main: #f3f4f6; /* Premium soft white */
-  --text-muted: #9ca3af; /* Clean medium gray */
+  --text-main: #f3f4f6; 
+  --text-muted: #9ca3af; 
   
-  --accent-primary: #3b82f6; /* Royal Blue */
+  --accent-primary: #3b82f6; 
   --accent-blue: #2563eb;
-  --accent-cyan: #06b6d4; /* Vibrant Cyan */
-  --accent-purple: #a855f7; /* Vibrant Purple */
-  --accent-pink: #ec4899; /* Neon Pink */
-  --accent-green: #10b981; /* Emerald Green */
+  --accent-cyan: #06b6d4; 
+  --accent-purple: #a855f7; 
+  --accent-pink: #ec4899; 
+  --accent-green: #10b981; 
   --accent-success: #10b981;
   --accent-warning: #f59e0b;
   --accent-error: #ef4444;
@@ -26,7 +26,7 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   --font-mono: 'JetBrains Mono', Menlo, Monaco, Consolas, "Courier New", monospace;
 
-  --radius-lg: 12px; /* Smoother corners */
+  --radius-lg: 12px; 
   --radius-md: 8px;
   --radius-sm: 6px;
 
@@ -48,7 +48,7 @@ body {
   overflow: hidden;
 }
 
-/* Scrollbar */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -65,13 +65,13 @@ body {
   background: rgba(255, 255, 255, 0.16); 
 }
 
-/* Main Layout */
+
 .layout-container {
   display: flex;
   height: 100vh;
 }
 
-/* Sidebar */
+
 .sidebar {
   width: 240px;
   background: rgba(10, 10, 18, 0.6);
@@ -163,7 +163,7 @@ body {
   box-shadow: 0 4px 15px rgba(59, 130, 246, 0.08);
 }
 
-/* Main Content */
+
 .main-content {
   flex: 1;
   display: flex;
@@ -249,7 +249,7 @@ body {
   overflow-y: auto;
 }
 
-/* Stats Dashboard */
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -346,7 +346,7 @@ body {
   margin-top: 4px;
 }
 
-/* List/Table Layout */
+
 .resource-list {
   display: flex;
   flex-direction: column;
@@ -373,8 +373,7 @@ body {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
 }
 
-/* row-main is the full-width column container inside the card;
-   row-header is the top line (name + badge + actions). */
+
 .row-main {
   display: flex;
   flex-direction: column;
@@ -403,8 +402,7 @@ body {
   min-width: 0;
 }
 
-/* Status badge sits right of the name, fixed width so badge text doesn't
-   shift the action buttons. */
+
 .row-status {
   flex: 0 0 auto;
   width: 110px;
@@ -412,8 +410,7 @@ body {
   align-items: center;
 }
 
-/* meta row sits below the name/badge header; cells are fixed-width so
-   IP, CPU sparkline, RAM sparkline, NS and Age columns line up across rows. */
+
 .row-meta {
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -423,9 +420,7 @@ body {
   flex-wrap: wrap;
 }
 
-/* Each meta field gets a dedicated fixed-width column so that values,
-   sparklines and bars line up vertically from one row to the next,
-   regardless of how long an individual field's text is. */
+
 .meta-cell {
   display: flex;
   flex-direction: row;
@@ -617,8 +612,7 @@ body {
   background: rgba(56, 189, 248, 0.12);
   border-color: rgba(56, 189, 248, 0.45);
 }
-/* Action icons read as buttons: colored by default (not just on hover) with a
-   pill hover state, so it's obvious each container has quick log/console actions. */
+
 .container-badge-action {
   cursor: pointer;
   transition: color 0.15s, background 0.15s;
@@ -649,7 +643,7 @@ body {
   background: var(--accent-purple);
 }
 
-/* Modals */
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -748,7 +742,7 @@ body {
   background: rgba(10, 10, 15, 0.2);
 }
 
-/* Editor / Terminal */
+
 .editor-container {
   display: flex;
   flex-direction: column;
@@ -783,12 +777,12 @@ body {
   font-family: var(--font-mono);
   font-size: 0.85rem;
   line-height: 1.5;
-  color: #38bdf8; /* Modern sky blue console text */
+  color: #38bdf8; 
   white-space: pre-wrap;
   box-shadow: inset 0 6px 24px rgba(0, 0, 0, 0.9);
 }
 
-/* Premium Glassmorphic Table Styling */
+
 .crd-table {
   width: 100%;
   border-collapse: separate;
@@ -860,7 +854,7 @@ body {
   color: var(--text-muted);
 }
 
-/* Loader */
+
 .loader-container {
   display: flex;
   justify-content: center;
@@ -889,11 +883,9 @@ body {
   animation: fadeIn 0.3s ease-out forwards;
 }
 
-/* ==========================================================================
-   Advanced Features Styles
-   ========================================================================== */
 
-/* Metrics visual progress bars */
+
+
 .metric-bar-group {
   margin-top: 8px;
   width: 100%;
@@ -932,7 +924,7 @@ body {
   box-shadow: 0 0 6px rgba(238, 0, 0, 0.4);
 }
 
-/* Pod Executor Terminal */
+
 .exec-terminal {
   flex: 1;
   background: #000;
@@ -975,7 +967,7 @@ body {
   font-size: 0.85rem;
 }
 
-/* Cluster Topology visualization */
+
 .topology-container {
   display: flex;
   flex-direction: column;
@@ -1051,14 +1043,14 @@ body {
   z-index: 1;
 }
 
-/* Syntax Highlighting */
+
 .yaml-key { color: #f97583; font-weight: 500; }
 .yaml-string { color: #9ecbff; }
 .yaml-number { color: #ffab70; }
 .yaml-boolean { color: #ffab70; font-weight: 500; }
 .yaml-null { color: #f97583; font-style: italic; }
 
-/* Logs highlighting */
+
 .log-line {
   display: block;
   font-family: var(--font-mono);
@@ -1081,7 +1073,7 @@ body {
   color: #fff;
 }
 
-/* Log control bar */
+
 .log-controls {
   display: flex;
   gap: 12px;
@@ -1112,7 +1104,7 @@ body {
   font-size: 0.8rem;
 }
 
-/* Dashboard Premium Layout */
+
 .dashboard-container {
   display: flex;
   flex-direction: column;
@@ -1178,7 +1170,7 @@ body {
   font-weight: normal;
 }
 
-/* circular gauge labels */
+
 .circular-gauge-text {
   font-size: 1.5rem;
   font-weight: 700;
@@ -1193,7 +1185,7 @@ body {
   letter-spacing: 1px;
 }
 
-/* svg chart animations */
+
 .svg-animate-draw {
   stroke-dasharray: 1000;
   stroke-dashoffset: 1000;
@@ -1242,7 +1234,7 @@ body {
 .quick-action-btn:hover svg {
   transform: scale(1.1);
 }
-/* vis.js Network Graph Styles */
+
 div.vis-tooltip {
   background-color: var(--bg-card) !important;
   border: 1px solid var(--border-color) !important;
@@ -1264,13 +1256,13 @@ div.vis-tooltip {
   cursor: grabbing;
 }
 
-/* Slide in animations */
+
 @keyframes slideInRight {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
 
-/* Alert pulse effect */
+
 @keyframes pulseRed {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
   70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
@@ -1282,7 +1274,7 @@ div.vis-tooltip {
   color: var(--accent-error) !important;
 }
 
-/* Live-stream connection indicator */
+
 @keyframes pulseDot {
   0% { opacity: 1; }
   50% { opacity: 0.35; }
@@ -1292,7 +1284,7 @@ div.vis-tooltip {
   animation: pulseDot 1.6s ease-in-out infinite;
 }
 
-/* Custom scrollbars inside diagnostics and logs */
+
 .diagnostics-log-tail {
   background: #000;
   color: #ededed;
@@ -1307,7 +1299,7 @@ div.vis-tooltip {
   white-space: pre-wrap;
 }
 
-/* Diff View Highlights */
+
 .diff-container {
   display: flex;
   flex-direction: column;
@@ -1337,7 +1329,7 @@ div.vis-tooltip {
   color: #888;
 }
 
-/* Secret badge tooltip styling */
+
 .secret-badge {
   position: relative;
 }
@@ -1371,9 +1363,7 @@ div.vis-tooltip {
   opacity: 1;
 }
 
-/* ============================================================
-   Mobile / touch hamburger toggle + backdrop (hidden on desktop)
-   ============================================================ */
+
 .menu-toggle {
   display: none;
   background: rgba(255, 255, 255, 0.04);
@@ -1392,17 +1382,14 @@ div.vis-tooltip {
   display: none;
 }
 
-/* On devices that can't hover (touch), row action buttons must always be
-   visible — otherwise they're impossible to reach without a mouse. */
+
 @media (hover: none) {
   .row-actions {
     opacity: 1 !important;
   }
 }
 
-/* ============================================================
-   Tablet / phone layout
-   ============================================================ */
+
 @media (max-width: 900px) {
   .content-area {
     padding: 18px 14px;
@@ -1424,7 +1411,7 @@ div.vis-tooltip {
     gap: 12px;
   }
 
-  /* Off-canvas sidebar drawer */
+  
   .menu-toggle {
     display: inline-flex;
   }
@@ -1456,16 +1443,13 @@ div.vis-tooltip {
     z-index: 1050;
   }
 
-  /* Let the title and action buttons wrap instead of overflowing. (The row
-     sets display/align-items inline, so we rely on flex-wrap here rather than
-     switching to a column, which an inline style would override.) */
+
   .resource-row {
     flex-wrap: wrap;
     row-gap: 12px;
   }
 
-  /* On narrow viewports let the fixed meta columns wrap onto additional lines
-     instead of forcing horizontal overflow. */
+
   .row-main {
     flex-wrap: wrap;
     row-gap: 12px;
@@ -1481,7 +1465,7 @@ div.vis-tooltip {
     flex-wrap: wrap;
   }
 
-  /* Header controls wrap and stay reachable */
+  
   .controls-bar {
     flex-wrap: wrap;
     justify-content: flex-end;
@@ -1489,9 +1473,7 @@ div.vis-tooltip {
   }
 }
 
-/* ============================================================
-   Phone layout — full-screen modals, denser controls
-   ============================================================ */
+
 @media (max-width: 600px) {
   .topbar {
     height: auto;
@@ -1527,9 +1509,7 @@ div.vis-tooltip {
   }
 }
 
-/* ============================================================
-   Authentication Layer Styles
-   ============================================================ */
+
 .login-overlay {
   display: flex;
   align-items: center;
@@ -1578,7 +1558,7 @@ div.vis-tooltip {
   margin-bottom: 32px;
 }
 
-/* Pulse Animation for Critical Items */
+
 @keyframes critical-pulse {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
@@ -1594,7 +1574,7 @@ div.vis-tooltip {
   animation: critical-pulse 2s infinite ease-in-out;
 }
 
-/* User Menu Section in Sidebar */
+
 .sidebar-user {
   margin-top: auto;
   padding-top: 16px;
@@ -1640,7 +1620,7 @@ div.vis-tooltip {
   color: var(--text-muted);
 }
 
-/* ORAS View Specifics */
+
 .oras-dropzone {
   border: 2px dashed rgba(255, 255, 255, 0.1);
   border-radius: 8px;
@@ -1671,7 +1651,7 @@ div.vis-tooltip {
   box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
 }
 
-/* Dashboard enhancements */
+
 @keyframes health-pulse {
   0%, 100% {
     filter: drop-shadow(0 0 2px var(--pulse-color, #10b981));
@@ -1755,7 +1735,7 @@ div.vis-tooltip {
   text-decoration: underline;
 }
 
-/* Heatmap Grid */
+
 .pod-heatmap-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));

@@ -14,57 +14,45 @@ export type ResourceKind =
   'autoscale-manager' | 'backup-restore' | 'oras';
 
 interface AppContextType {
-  // Navigation
   activeTab: ResourceKind;
   setActiveTab: (tab: ResourceKind) => void;
   
-  // Namespaces
   namespaces: string[];
   selectedNs: string;
   setSelectedNs: (ns: string) => void;
   
-  // Kube contexts
   contexts: any[];
   currentContext: string;
   handleContextChange: (ctx: string) => Promise<void>;
   
-  // Search & resources
   search: string;
   setSearch: (s: string) => void;
   filteredResources: any[];
   loading: boolean;
   
-  // UI state
   isCmdPaletteOpen: boolean;
   setIsCmdPaletteOpen: (open: boolean) => void;
   customCrd: any;
   setCustomCrd: (crd: any) => void;
   
-  // Modal
   modal: any;
   setModal: (m: any) => void;
   
-  // Drill-down navigation
   handleDrillDownToPods: (deploy: any) => void;
   
-  // Sidebar
   collapsedSections: Record<string, boolean>;
   toggleSection: (section: string) => void;
   
-  // Deploy modals
   isDeployZarfModalOpen: boolean;
   setIsDeployZarfModalOpen: (open: boolean) => void;
   isDeployHelmModalOpen: boolean;
   setIsDeployHelmModalOpen: (open: boolean) => void;
   
-  // Keyboard nav
   focusedRowIndex: number | null;
   setFocusedRowIndex: Dispatch<SetStateAction<number | null>>;
   
-  // API client
   api: typeof api;
   
-  // Query client
   queryClient: ReturnType<typeof useQueryClient>;
 }
 

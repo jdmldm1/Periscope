@@ -9,9 +9,6 @@ const BADGE_COLORS: Record<BadgeType, string> = {
   info: 'var(--accent-blue)',
 };
 
-// Kubernetes resources don't carry their own "kind" on the objects we list, so
-// when the active tab is ambiguous (e.g. a drill-down mixing pods and
-// workloads) we sniff the shape of the object to decide how to read its status.
 function inferKind(res: any): string {
   if (res.spec?.backoffLimit !== undefined || res.status?.succeeded !== undefined || res.status?.failed !== undefined) return 'jobs';
   if (res.spec?.schedule !== undefined) return 'cronjobs';
@@ -22,8 +19,6 @@ function inferKind(res: any): string {
 }
 
 function podStatus(res: any): { status: string; type: BadgeType } {
-  // A pod with a deletionTimestamp is on its way out — show that clearly
-  // instead of leaving it as "Running" until it disappears.
   if (res.metadata?.deletionTimestamp) {
     return { status: 'Terminating', type: 'warning' };
   }
@@ -54,8 +49,6 @@ function workloadStatus(res: any): { status: string; type: BadgeType } {
   const ready = res.status?.readyReplicas || res.status?.numberReady || 0;
   const specReplicas = res.spec?.replicas;
   const desired = res.status?.replicas ?? res.status?.desiredNumberScheduled ?? specReplicas ?? 0;
-  // A deployment scaled to 0 is "Stopped" — make that explicit rather than
-  // showing a bare "0/0 Ready" that reads like a problem.
   if (specReplicas === 0 || desired === 0) {
     return { status: 'Stopped', type: 'warning' };
   }
@@ -85,8 +78,6 @@ function cronJobStatus(res: any): { status: string; type: BadgeType } {
   return { status: active.length > 0 ? 'Running' : 'Active', type: 'success' };
 }
 
-// Resolve a resource into a human-readable status string plus the badge color
-// category to render it with, given the tab it's being shown under.
 export function resolveStatus(res: any, activeTab: any): { status: string; type: 'success' | 'warning' | 'error' | 'info' } {
   const inferred = inferKind(res);
   const isJob = activeTab === 'jobs' || inferred === 'jobs';
@@ -120,7 +111,6 @@ export function resolveStatus(res: any, activeTab: any): { status: string; type:
   return { status: 'Unknown', type: 'warning' };
 }
 
-// Renders the colored status pill shown next to each resource row.
 export function renderStatusBadge(res: any, activeTab: ResourceKind): React.ReactNode {
   if (activeTab === 'events') return null;
   const { status, type } = resolveStatus(res, activeTab);
@@ -132,7 +122,6 @@ export function renderStatusBadge(res: any, activeTab: ResourceKind): React.Reac
   );
 }
 
-// Renders a tiny inline sparkline from a series of numeric points.
 export function renderSparkline(points: number[], color: string): React.ReactNode | null {
   if (!points || points.length < 2) return null;
   const max = Math.max(...points, 1);

@@ -18,10 +18,10 @@ function getItems(raw) {
     return raw?.items || raw?.body?.items || [];
 }
 
-// Group/Version/Kind lookup, keyed by the lowercase plural used throughout the
-// fetchers. The Kubernetes API server leaves apiVersion/kind (TypeMeta) empty on
-// items returned inside a List, so anything we hand to `kubectl apply` must have
-// those re-attached or the apply is rejected with "Object 'Kind' is missing".
+
+
+
+
 const KIND_GVK = {
     pods: { apiVersion: 'v1', kind: 'Pod' },
     services: { apiVersion: 'v1', kind: 'Service' },
@@ -44,8 +44,8 @@ const KIND_GVK = {
     customresourcedefinitions: { apiVersion: 'apiextensions.k8s.io/v1', kind: 'CustomResourceDefinition' },
 };
 
-// Re-attach apiVersion/kind to a bare list item (mutates and returns it). Falls
-// back to the value already on the object when the plural isn't in the map.
+
+
 function ensureTypeMeta(item, kind) {
     if (!item || typeof item !== 'object') return item;
     const gvk = KIND_GVK[String(kind || '').toLowerCase()];

@@ -16,12 +16,12 @@ router.post('/kubescape/scan', async (req, res) => {
     }
 });
 
-// Status of the locally cached Kubescape frameworks/controls ("artifacts").
+
 router.get('/kubescape/db-status', (req, res) => {
     res.json(securityService.getDbStatus());
 });
 
-// Manually refresh the cached artifacts (used by the "Update" button / airgap prep).
+
 router.post('/kubescape/db-update', async (req, res) => {
     const success = await securityService.ensureKubescapeArtifacts();
     res.json({ success, status: securityService.getDbStatus() });

@@ -4,7 +4,7 @@ const { run } = require('../utils/exec');
 
 class PvcService {
     async getHelperPodName(pvcName) {
-        // Sanitize name for DNS compliance
+
         const sanitized = pvcName.toLowerCase().replace(/[^a-z0-9-]/g, '-').substring(0, 40);
         return `periscope-pvc-browser-${sanitized}`;
     }
@@ -12,18 +12,18 @@ class PvcService {
     async ensureHelperPod(namespace, pvcName) {
         const podName = await this.getHelperPodName(pvcName);
         try {
-            // Check if pod exists
+
             const podRes = await k8sService.core.readNamespacedPod({ name: podName, namespace });
             const pod = podRes.body || podRes;
             if (pod.status?.phase === 'Running') {
                 return podName;
             }
             if (pod.status?.phase === 'Failed' || pod.status?.phase === 'Succeeded') {
-                // Delete and recreate
+
                 await this.deleteHelperPod(namespace, pvcName);
             }
         } catch (err) {
-            // Pod doesn't exist, create it
+
         }
 
         const podBody = {
@@ -59,7 +59,7 @@ class PvcService {
         logger.info({ podName, namespace, pvcName }, 'Creating transient helper pod for PVC browsing');
         await k8sService.core.createNamespacedPod({ namespace, body: podBody });
 
-        // Wait up to 30 seconds for pod to enter Running state
+
         for (let i = 0; i < 60; i++) {
             await new Promise(resolve => setTimeout(resolve, 500));
             try {
@@ -69,7 +69,7 @@ class PvcService {
                     return podName;
                 }
             } catch (err) {
-                // Ignore checks errors
+
             }
         }
         throw new Error(`Timeout waiting for volume helper pod ${podName} to start running.`);
@@ -88,9 +88,9 @@ class PvcService {
 
     async execCommand(namespace, pvcName, command) {
         const podName = await this.ensureHelperPod(namespace, pvcName);
-        // namespace/podName are passed as argv elements (no server-side shell).
-        // `command` is the script we want the throwaway helper pod's shell to
-        // run; it executes inside that ephemeral alpine pod, never on the host.
+
+
+
         try {
             const { stdout, stderr } = await run('kubectl', [
                 'exec', '-n', namespace, podName, '-c', 'browser', '--', 'sh', '-c', command
@@ -106,7 +106,7 @@ class PvcService {
 
     async listFiles(namespace, pvcName, folderPath = '/') {
         const path = folderPath.startsWith('/') ? folderPath : `/${folderPath}`;
-        // List details: name, size, type (dir/file), modified date
+
         const cmd = `find "/data${path}" -maxdepth 1 -exec stat -c "%n|%s|%F|%Y" {} + 2>/dev/null || true`;
         try {
             const { stdout } = await this.execCommand(namespace, pvcName, cmd);

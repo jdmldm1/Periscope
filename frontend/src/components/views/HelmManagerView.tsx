@@ -12,7 +12,6 @@ interface HelmManagerViewProps {
   isInstallModalOpen: boolean;
   setIsInstallModalOpen: (open: boolean) => void;
   
-  // Releases Inspect States
   selectedHelmRelease: { name: string; namespace: string } | null;
   setSelectedHelmRelease: (release: { name: string; namespace: string } | null) => void;
   fetchHelmInspect: (namespace: string, releaseName: string, tabType: 'values' | 'manifest' | 'notes') => void;
@@ -21,7 +20,6 @@ interface HelmManagerViewProps {
   isFetchingHelmInspect: boolean;
   helmInspectData: string;
   
-  // Upgrade release states
   helmUpgradeChartRef: string;
   setHelmUpgradeChartRef: (ref: string) => void;
   isUpgradingHelm: boolean;
@@ -29,7 +27,6 @@ interface HelmManagerViewProps {
   helmUpgradeValues: string;
   setHelmUpgradeValues: (val: string) => void;
   
-  // Custom Install states
   helmCustomInstall: {
     releaseName: string;
     repo: string;
@@ -49,7 +46,6 @@ interface HelmManagerViewProps {
   handleCustomHelmInstall: (e: React.FormEvent) => void;
   isSubmittingHelmDeploy: boolean;
   
-  // Repo Manager states
   helmRepos: any[];
   newHelmRepo: { name: string; url: string };
   setNewHelmRepo: React.Dispatch<React.SetStateAction<{ name: string; url: string }>>;
@@ -58,7 +54,6 @@ interface HelmManagerViewProps {
   handleRemoveHelmRepo: (name: string) => void;
   handleUpdateHelmRepos: () => void;
   
-  // Repo Search states
   helmSearchQuery: string;
   setHelmSearchQuery: (query: string) => void;
   helmSearchResults: any[];
@@ -66,7 +61,6 @@ interface HelmManagerViewProps {
   handleSearchHelmRepo: (e: React.FormEvent) => void;
 }
 
-// Helper functions for Helm values.schema.json Form Generator
 const getNestedValue = (obj: any, path: string[]): any => {
   return path.reduce((xs, x) => (xs && xs[x] !== undefined) ? xs[x] : undefined, obj);
 };
@@ -194,7 +188,6 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
   const [isFetchingSchema, setIsFetchingSchema] = React.useState<boolean>(false);
   const [schemaError, setSchemaError] = React.useState<string | null>(null);
 
-  // Prevent TS unused warning
   if (false) {
     setActiveTab(null);
   }
@@ -429,10 +422,10 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Release Inspect Panel */}
+                  {}
                   {isSelected && (
                     <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {/* Inspect tabs */}
+                      {}
                       <div style={{ display: 'flex', gap: 12, borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 8 }}>
                         {(['values', 'manifest', 'notes'] as const).map((t) => (
                           <button 
@@ -449,7 +442,7 @@ export const HelmManagerView: React.FC<HelmManagerViewProps> = ({
                         ))}
                       </div>
 
-                      {/* Inspector output */}
+                      {}
                       {isFetchingHelmInspect ? (
                         <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)' }}>Fetching release details...</div>
                       ) : helmInspectTab === 'values' ? (

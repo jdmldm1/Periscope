@@ -1,18 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useK8sResources } from '../utils/kubeHooks';
 import axios from 'axios';
-
 const api = axios.create({ baseURL: '/api' });
-
 interface ModalContextType {
-  // Core modal
   modal: any;
   setModal: (m: any) => void;
   modalData: any;
   setModalData: (d: any) => void;
   fetchModalData: (type: string) => Promise<void>;
   
-  // YAML editor
   yamlEdit: string;
   setYamlEdit: (y: string) => void;
   isEditingYaml: boolean;
@@ -22,17 +18,14 @@ interface ModalContextType {
   downloadYaml: () => void;
   downloadLogs: () => void;
   
-  // Container selection
   selectedContainer: string;
   setSelectedContainer: (c: string) => void;
   getPodContainers: () => string[];
   
-  // Log streaming
   isStreamingLogs: boolean;
   setIsStreamingLogs: (s: boolean) => void;
   scrollToBottomLogs: () => void;
   
-  // Pod file explorer
   currentDirPath: string;
   setCurrentDirPath: (p: string) => void;
   isListingFiles: boolean;
@@ -46,7 +39,6 @@ interface ModalContextType {
   handleDownloadPodFile: (fileName: string, isDir?: boolean) => void;
   handleDeletePodFile: (fileName: string, isDir: boolean) => Promise<void>;
   
-  // Helm revision
   handleRollback: (ns: string, name: string, rev: number) => Promise<void>;
   handleInspectRevisionValues: (ns: string, name: string, rev: number) => Promise<void>;
   selectedRevisionValues: any;
@@ -55,15 +47,12 @@ interface ModalContextType {
   handleHelmUpgradeFromModal: () => Promise<void>;
   renderDiffView: () => React.ReactNode;
 }
-
 const ModalContext = createContext<ModalContextType | null>(null);
-
 export function useModalContext() {
   const ctx = useContext(ModalContext);
   if (!ctx) throw new Error('useModalContext must be used within ModalProvider');
   return ctx;
 }
-
 export function ModalProvider({ children, selectedNs }: { children: ReactNode; selectedNs: string }) {
   const { data: allPods } = useK8sResources('pods', selectedNs);
   
@@ -74,23 +63,19 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
   const [selectedContainer, setSelectedContainer] = useState('');
   const [isStreamingLogs, setIsStreamingLogs] = useState(false);
   
-  // Pod file explorer
   const [currentDirPath, setCurrentDirPath] = useState('/');
   const [isListingFiles, setIsListingFiles] = useState(false);
   const [podFiles, setPodFiles] = useState<any[]>([]);
   const [podFileUploadProgress, setPodFileUploadProgress] = useState(-1);
   const [podFileUploadName, setPodFileUploadName] = useState('');
   
-  // Helm revision
   const [selectedRevisionValues, setSelectedRevisionValues] = useState<any>(null);
   const [isLoadingRevisionValues, setIsLoadingRevisionValues] = useState(false);
-
   useEffect(() => {
     if (!modal) {
       setCurrentDirPath('/');
     }
   }, [modal]);
-
   const fetchPodFilesList = async (path: string) => {
     if (!modal) return;
     setIsListingFiles(true);
@@ -125,7 +110,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       setIsListingFiles(false);
     }
   };
-
   const fetchModalData = async (type: string) => {
     if (!modal) return;
     setModalData(null);
@@ -147,7 +131,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
           fetchPodFilesList(currentDirPath);
           return;
       }
-
       const { data } = await api.get(endpoint);
       setModalData(data);
       if (type === 'yaml' || type === 'values') setYamlEdit(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
@@ -156,22 +139,18 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       setModalData({ error: 'Failed to fetch data' });
     }
   };
-
   useEffect(() => {
     if (modal) fetchModalData(modal.type);
   }, [modal?.type, modal?.name, selectedContainer]);
-
   const getPodContainers = () => {
     if (!modal || modal.kind !== 'pods') return [];
     const pod = (allPods || []).find((p: any) => p.metadata.name === modal.name);
     return pod?.spec?.containers?.map((c: any) => c.name) || [];
   };
-
   const copyToClipboard = () => {
     navigator.clipboard.writeText(yamlEdit);
     alert('Copied to clipboard');
   };
-
   const downloadYaml = () => {
     const blob = new Blob([yamlEdit], { type: 'text/yaml' });
     const url = URL.createObjectURL(blob);
@@ -180,12 +159,10 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
     a.download = `${modal?.name || 'resource'}.yaml`;
     a.click();
   };
-
   const scrollToBottomLogs = () => {
     const el = document.querySelector('.terminal-container');
     if (el) el.scrollTop = el.scrollHeight;
   };
-
   const downloadLogs = () => {
     if (!modal) return;
     const blob = new Blob([modalData], { type: 'text/plain' });
@@ -195,7 +172,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
     a.download = `${modal.name}-logs.txt`;
     a.click();
   };
-
   const saveYaml = async () => {
     if (!modal) return;
     try {
@@ -207,7 +183,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       alert('Failed to save: ' + err.message);
     }
   };
-
   const handleUploadPodFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!modal || !e.target.files?.[0]) return;
     const file = e.target.files[0];
@@ -228,7 +203,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       setPodFileUploadProgress(-1);
     }
   };
-
   const handleCreatePodFolder = async () => {
     const folderName = prompt('Enter folder name:');
     if (!folderName || !modal) return;
@@ -240,7 +214,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       fetchPodFilesList(currentDirPath);
     } catch (err: any) { alert(err.message); }
   };
-
   const handleEditPodFile = async (fileName: string) => {
     if (!modal) return;
     const filePath = currentDirPath + fileName;
@@ -257,14 +230,12 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       }
     } catch (err: any) { alert(err.message); }
   };
-
   const handleDownloadPodFile = (fileName: string, isDir?: boolean) => {
     if (!modal) return;
     const filePath = currentDirPath + fileName;
     const url = `/api/kube/resource/pods/${modal.namespace}/${modal.name}/files/download?path=${encodeURIComponent(filePath)}&isDir=${!!isDir}&container=${selectedContainer}`;
     window.open(url, '_blank');
   };
-
   const handleDeletePodFile = async (fileName: string, isDir: boolean) => {
     if (!modal || !confirm(`Delete ${isDir ? 'folder' : 'file'} ${fileName}?`)) return;
     try {
@@ -274,7 +245,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       fetchPodFilesList(currentDirPath);
     } catch (err: any) { alert(err.message); }
   };
-
   const handleRollback = async (ns: string, name: string, rev: number) => {
     try {
       await api.post(`/helm/${ns}/${name}/rollback`, { revision: rev });
@@ -282,7 +252,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       fetchModalData('history');
     } catch (err: any) { alert(err.message); }
   };
-
   const handleInspectRevisionValues = async (ns: string, name: string, rev: number) => {
     setIsLoadingRevisionValues(true);
     try {
@@ -291,7 +260,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
     } catch (err: any) { alert(err.message); }
     finally { setIsLoadingRevisionValues(false); }
   };
-
   const handleHelmUpgradeFromModal = async () => {
     if (!modal) return;
     try {
@@ -300,7 +268,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       fetchModalData('values');
     } catch (err) { alert('Upgrade failed'); }
   };
-
   const renderDiffView = () => {
     if (!selectedRevisionValues) return null;
     return (
@@ -316,7 +283,6 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       </div>
     );
   };
-
   return (
     <ModalContext.Provider value={{
       modal, setModal, modalData, setModalData, fetchModalData,

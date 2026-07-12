@@ -46,16 +46,11 @@ export const useResourceWatcher = () => {
 
           const queryKey = KIND_TO_QUERY_KEY_MAP[kind];
           if (queryKey) {
-            // Resource lists are cached under ['resources', kind, namespace], so a
-            // plain ['pods'] key never matches. Match the cached key by predicate
-            // so the list refetches automatically when the cluster changes.
             queryClient.invalidateQueries({
               predicate: (query) =>
                 query.queryKey[0] === 'resources' && query.queryKey[1] === queryKey,
             });
 
-            // Also refresh topology and dashboard health if anything that affects
-            // cluster state changes (nodes included, so NotReady surfaces live).
             if (['pods', 'services', 'deployments', 'nodes'].includes(queryKey)) {
               queryClient.invalidateQueries({ queryKey: ['topology'] });
               queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });

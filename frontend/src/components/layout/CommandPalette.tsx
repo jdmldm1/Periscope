@@ -36,7 +36,6 @@ export const CommandPalette = ({
 
   if (!isOpen) return null;
 
-  // k9s command items list with shortcut aliases
   const items = [
     { name: 'Topology Map (:topology)', aliases: ['topology', 'top', 'map'], category: 'Views', action: () => { setActiveTab('topology'); setIsOpen(false); } },
     { name: 'Node Status (:nodes, :node, :no)', aliases: ['nodes', 'node', 'no'], category: 'Views', action: () => { setActiveTab('nodes'); setIsOpen(false); } },
@@ -66,7 +65,6 @@ export const CommandPalette = ({
     { name: 'Refresh View', aliases: ['refresh', 'reload'], category: 'Commands', action: () => { fetchResources(); setIsOpen(false); } },
   ];
 
-  // Clean the colon prefix from search query
   const queryClean = search.trim().startsWith(':') ? search.trim().slice(1).toLowerCase() : search.trim().toLowerCase();
 
   const filtered = items.filter(item => 
@@ -75,7 +73,6 @@ export const CommandPalette = ({
     (item.aliases && item.aliases.some(alias => typeof alias === 'string' && (alias.toLowerCase() === queryClean || alias.toLowerCase().includes(queryClean))))
   );
 
-  // Boost items that exact match the alias
   const sortedFiltered = [...filtered].sort((a, b) => {
     const aExact = a.aliases?.some(al => typeof al === 'string' && al.toLowerCase() === queryClean);
     const bExact = b.aliases?.some(al => typeof al === 'string' && al.toLowerCase() === queryClean);
@@ -84,7 +81,6 @@ export const CommandPalette = ({
     return 0;
   });
 
-  // Handle keydown navigation inside search input
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -105,7 +101,6 @@ export const CommandPalette = ({
 
 
 
-  // Group sortedFiltered items by category
   const groups: Record<string, any[]> = {};
   sortedFiltered.forEach(item => {
     if (!groups[item.category]) groups[item.category] = [];

@@ -1,9 +1,9 @@
 const { run } = require('../utils/exec');
 const logger = require('../utils/logger');
 
-// All helm invocations go through run() with an argv array, so release names,
-// namespaces, repo names/URLs and search queries are passed as single arguments
-// and can never be interpreted as shell syntax.
+
+
+
 class HelmService {
     async listReleases(namespace) {
         const args = (namespace && namespace !== 'all')
@@ -69,7 +69,7 @@ class HelmService {
         try {
             return await this._execJson(args);
         } catch (err) {
-            // Fallback to non-json if it fails (as seen in server.old.js)
+
             const fallbackArgs = revision
                 ? ['get', 'values', name, '--revision', String(revision), '--namespace', namespace]
                 : ['get', 'values', name, '--namespace', namespace];

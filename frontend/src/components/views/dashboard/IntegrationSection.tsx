@@ -1,8 +1,5 @@
 import { CheckCircle2, Image as ImageIcon, Database, RefreshCw, AlertCircle, MemoryStick } from 'lucide-react';
 
-// Integration readiness: the things that actually block a new workload from
-// coming up — image-pull failures, quota limits, restarting/unschedulable pods,
-// and workloads already past their memory request.
 export const IntegrationSection: React.FC<{
   data: any;
   namespace: string;
@@ -24,7 +21,7 @@ export const IntegrationSection: React.FC<{
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-          {/* Image pull failures */}
+          {}
           {imagePullIssues.length > 0 && (
             <div className="dashboard-chart-card">
               <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -45,7 +42,7 @@ export const IntegrationSection: React.FC<{
             </div>
           )}
 
-          {/* Resource quotas */}
+          {}
           {quotas.length > 0 && (
             <div className="dashboard-chart-card">
               <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -67,7 +64,7 @@ export const IntegrationSection: React.FC<{
             </div>
           )}
 
-          {/* Pod restarts */}
+          {}
           {podRestarts.length > 0 && (
             <div className="dashboard-chart-card">
               <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -94,7 +91,7 @@ export const IntegrationSection: React.FC<{
             </div>
           )}
 
-          {/* Unschedulable pods */}
+          {}
           {unschedulable.length > 0 && (
             <div className="dashboard-chart-card">
               <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -112,7 +109,7 @@ export const IntegrationSection: React.FC<{
             </div>
           )}
 
-          {/* Memory exceeding requests */}
+          {}
           {overMemory.length > 0 && (
             <div className="dashboard-chart-card">
               <div className="dashboard-chart-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -21,7 +21,6 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
   useEffect(() => {
     if (!terminalRef.current) return;
 
-    // Initialize xterm
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
@@ -39,10 +38,8 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
     term.loadAddon(fitAddon);
     termInstanceRef.current = term;
 
-    // Open terminal inside container ref
     term.open(terminalRef.current);
     
-    // Fit terminal layout
     setTimeout(() => {
       try {
         fitAddon.fit();
@@ -51,24 +48,16 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
       }
     }, 100);
 
-    // Setup WebSocket URL
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/api/terminal/ws?namespace=${encodeURIComponent(namespace)}&pod=${encodeURIComponent(podName)}&container=${encodeURIComponent(containerName)}`;
 
     const socket = new WebSocket(wsUrl);
-    // Receive output as ArrayBuffers and decode synchronously below. Reading
-    // Blobs with FileReader resolves asynchronously and can reorder chunks,
-    // which scrambles the escape sequences used by progress bars and TUIs.
     socket.binaryType = 'arraybuffer';
     socketRef.current = socket;
 
-    // A single streaming decoder keeps multi-byte UTF-8 characters intact even
-    // when they are split across two WebSocket frames.
     const decoder = new TextDecoder();
 
-    // Fit the terminal and tell the backend the new dimensions so PTY programs
-    // (k9s, ollama pull, etc.) render at the correct size instead of flickering.
     const sendResize = () => {
       try {
         fitAddon.fit();
@@ -102,14 +91,12 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
       term.write(`\r\n\x1b[33m[Connection Closed: code=${e.code} reason=${e.reason || 'None'}]\x1b[0m\r\n`);
     };
 
-    // Forward terminal keystrokes to WS socket
     const dataDisposable = term.onData((data) => {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(data);
       }
     });
 
-    // Handle standard browser paste (Ctrl+V)
     const handlePaste = (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData('text');
       if (text && socket.readyState === WebSocket.OPEN) {
@@ -118,9 +105,6 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
     };
     terminalRef.current?.addEventListener('paste', handlePaste);
 
-    // Re-fit whenever the container changes size (the modal opening/animating
-    // in, the window resizing). Debounced so a burst of layout changes results
-    // in a single resize message.
     let resizeTimer: ReturnType<typeof setTimeout>;
     const scheduleResize = () => {
       clearTimeout(resizeTimer);
@@ -130,7 +114,6 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
     if (terminalRef.current) resizeObserver.observe(terminalRef.current);
     window.addEventListener('resize', scheduleResize);
 
-    // Cleanup on unmount
     return () => {
       clearTimeout(resizeTimer);
       window.removeEventListener('resize', scheduleResize);
