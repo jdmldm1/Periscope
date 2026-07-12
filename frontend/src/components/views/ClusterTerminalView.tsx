@@ -9,15 +9,12 @@ interface ClusterTerminalViewProps {
   title?: string;
   subtitle?: string;
   stripReports?: boolean;
-  // Show a "starting…" overlay until the TUI enters the alternate screen buffer.
-  // Used for k9s, which takes a few seconds to launch after the socket connects.
   awaitTui?: boolean;
   bootLabel?: string;
 }
 
 
 const TERMINAL_REPORT_RE = /\x1b\[[0-9;]*R/g;
-// Alternate-screen-buffer enter — emitted by a full-screen TUI once it's up.
 const ALT_SCREEN_RE = /\x1b\[\?(?:1049|1047|47)h/;
 
 export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
@@ -45,7 +42,6 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
     setErrorMsg(null);
     if (awaitTui) setBootingState(true);
 
-    // Initialize xterm
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 14,
@@ -74,7 +70,6 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
 
     term.open(terminalRef.current);
     
-    // Fit layout
     setTimeout(() => {
       try {
         fitAddon.fit();
@@ -83,22 +78,16 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
       }
     }, 200);
 
-    // Setup WebSocket URL
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}${wsPath}`;
 
     const socket = new WebSocket(wsUrl);
-    // Decode output synchronously and in order (see InteractiveTerminal): a
-    // FileReader resolves asynchronously and reorders chunks, which scrambles
-    // the escape sequences emitted by progress bars and TUIs.
     socket.binaryType = 'arraybuffer';
     socketRef.current = socket;
 
     const decoder = new TextDecoder();
 
-    // Fit the terminal and tell the backend the new size so the host PTY
-    // (and any TUI running inside it) renders at the correct dimensions.
     const sendResize = () => {
       try {
         fitAddon.fit();
@@ -114,7 +103,6 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
       setStatus('connected');
       if (!awaitTui) term.write('\r\n\x1b[1;36m=== Terminal ===\x1b[0m\r\n');
       sendResize();
-      // Safety net: never leave the overlay stuck if the TUI signal is missed.
       if (awaitTui) {
         if (bootTimerRef.current) clearTimeout(bootTimerRef.current);
         bootTimerRef.current = setTimeout(() => setBootingState(false), 25000);
@@ -127,7 +115,6 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
       else if (event.data instanceof ArrayBuffer) text = decoder.decode(event.data, { stream: true });
       else return;
       term.write(text);
-      // Drop the "starting…" overlay once the TUI enters its alternate screen.
       if (bootingRef.current && ALT_SCREEN_RE.test(text)) setBootingState(false);
     };
 
@@ -144,7 +131,6 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
       term.write(`\r\n\x1b[1;31m[Connection Closed: code=${e.code} reason=${e.reason || 'None'}]\x1b[0m\r\n`);
     };
 
-    // Forward terminal inputs (keystrokes and pastes) to WebSocket
     const dataDisposable = term.onData((data) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       if (stripReports) {
@@ -155,17 +141,14 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
       socket.send(data);
     });
 
-    // Handle standard browser paste (Ctrl+V)
     const handlePaste = (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData('text');
       if (text && socket.readyState === WebSocket.OPEN) {
-        // Send the pasted text to the shell
         socket.send(text);
       }
     };
     terminalRef.current?.addEventListener('paste', handlePaste);
 
-    // Re-fit on container/window size changes, debounced to coalesce bursts.
     let resizeTimer: ReturnType<typeof setTimeout>;
     const scheduleResize = () => {
       clearTimeout(resizeTimer);

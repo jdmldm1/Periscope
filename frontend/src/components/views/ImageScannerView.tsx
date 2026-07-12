@@ -54,7 +54,6 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Localized Filters
   const [selectedScanFilterImage, setSelectedScanFilterImage] = useState<string>('all');
   const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'remediation' | 'drift' | 'images'>(() => {
     const saved = localStorage.getItem('imageScannerActiveTab');
@@ -99,7 +98,6 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
     );
   }
 
-  // Localized Filters (rest of state)
   const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
 
   useEffect(() => {
@@ -107,8 +105,6 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
   }, [imageScannerActiveTab]);
   const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
 
-  // Active filters, bundled so the derivation/export helpers in utils/imageScan
-  // take a single argument.
   const filters = { image: selectedScanFilterImage, severity: imageScanSeverityFilter, search: imageScanSearchQuery };
 
   const totalCount = runningImages.length;
@@ -151,7 +147,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
     }
 
     const scan = runningImagesScanResults[selectedScanFilterImage];
-    const cleanedImg = selectedScanFilterImage.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+    const cleanedImg = selectedScanFilterImage.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
 
     if (!scan) {
       return (
@@ -208,7 +204,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
 
   return (
     <div className="image-scanner-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* DB Status Banner */}
+      {}
       {dbStatus.error && (
         <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ color: '#ef4444', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -230,7 +226,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
         </div>
       )}
 
-      {/* Top Control Bar */}
+      {}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h3 style={{ fontSize: '1.1rem', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -246,7 +242,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
           </div>
         </div>
         
-        {/* Toggle switch for background auto scan */}
+        {}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
             <input 
@@ -269,7 +265,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
         </div>
       </div>
 
-      {/* Severity Metrics Cards */}
+      {}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
         <div style={{ background: 'rgba(239, 68, 68, 0.03)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>{criticalCount}</div>
@@ -293,7 +289,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
         </div>
       </div>
 
-      {/* Tab Selection */}
+      {}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', gap: 16 }}>
         <button 
           className={`tab-btn ${imageScannerActiveTab === 'vulnerabilities' ? 'active' : ''}`}
@@ -377,10 +373,10 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
         </button>
       </div>
 
-      {/* Filter and Control Actions Bar (for data tabs) */}
+      {}
       {imageScannerActiveTab !== 'images' && imageScannerActiveTab !== 'drift' && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.1)', borderRadius: 6, padding: 12, flexWrap: 'wrap', gap: 10 }}>
-          {/* Left filters */}
+          {}
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <div className="search-box" style={{ width: 220, position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
@@ -399,7 +395,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
               />
             </div>
 
-            {/* Image Filter */}
+            {}
             <select
               value={selectedScanFilterImage}
               onChange={e => setSelectedScanFilterImage(e.target.value)}
@@ -407,12 +403,12 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             >
               <option value="all">All Images ({totalCount})</option>
               {runningImages.map(img => {
-                const cleaned = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+                const cleaned = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
                 return <option key={img} value={img}>{cleaned}</option>;
               })}
             </select>
 
-            {/* Severity Filter (only for vulnerabilities tab) */}
+            {}
             {imageScannerActiveTab === 'vulnerabilities' && (
               <select
                 value={imageScanSeverityFilter}
@@ -429,7 +425,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             )}
           </div>
 
-          {/* Right exports (only for vulnerabilities or packages) */}
+          {}
           {(imageScannerActiveTab === 'vulnerabilities' || imageScannerActiveTab === 'packages') && (
             <div style={{ display: 'flex', gap: 8 }}>
               <button 
@@ -451,7 +447,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
         </div>
       )}
 
-      {/* Tab Contents Rendering */}
+      {}
       {imageScannerActiveTab === 'vulnerabilities' && (
         filteredVulns.length === 0 ? (
           renderTablePlaceholder('vulnerabilities')
@@ -486,7 +482,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                     severity === 'Low' ? 'rgba(96, 165, 250, 0.08)' : 'rgba(255, 255, 255, 0.03)';
                   
                   const fixedIn = vuln.fix?.versions?.join(', ') || 'Not Fixed';
-                  const cleanedImg = m.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+                  const cleanedImg = m.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
 
                   return (
                     <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
@@ -549,7 +545,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                   const licenseStrs = Array.isArray(art.licenses)
                     ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || ''))
                     : [];
-                  const cleanedImg = art.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+                  const cleanedImg = art.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
 
                   return (
                     <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
@@ -604,7 +600,7 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                   maxSeverity === 'High' ? '#f59e0b' :
                   maxSeverity === 'Medium' ? '#fbbf24' : '#60a5fa';
 
-                const cleanedImg = item.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
+                const cleanedImg = item.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
 
                 return (
                   <div 
@@ -721,8 +717,8 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             <tbody>
               {runningImages.map((img: string, idx: number) => {
                 const scan = runningImagesScanResults[img];
-                const cleanedName = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '').replace(/^127\.0\.0\.1:31999\//, '');
-                
+                const cleanedName = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
+
                 let cCount = 0, hCount = 0, mCount = 0, lCount = 0;
                 if (scan && scan.status === 'success' && scan.vulnerabilities && scan.vulnerabilities.matches) {
                   scan.vulnerabilities.matches.forEach((m: any) => {

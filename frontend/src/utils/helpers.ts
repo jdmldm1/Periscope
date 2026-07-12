@@ -77,14 +77,11 @@ export const matchesSelector = (labels: any, selector: any) => {
   return Object.entries(selector).every(([k, v]) => labels[k] === v);
 };
 
-// Naive pluralizer for Kubernetes kinds used in list headings / URLs.
 export const pluralizeKind = (k: string) => {
   if (k.endsWith('s')) return k.toLowerCase();
   return k.toLowerCase() + 's';
 };
 
-// Computes a node's CPU/memory usage as a percentage of its capacity by pairing
-// a metrics-server sample with the matching node object from the resource list.
 export const getNodeUsagePercent = (metric: any, nodes: any[]) => {
   const node = (nodes || []).find(n => n.metadata.name === metric.metadata.name);
   if (!node) return { cpuPercent: 0, memPercent: 0 };

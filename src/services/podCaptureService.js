@@ -9,9 +9,9 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 let cachedImage = null;
 
-// Which image to run the capture with. It needs tcpdump — periscope's own image
-// has it (with the CAP_NET_RAW file capability). Prefer an explicit override,
-// otherwise discover it by reading our own pod.
+
+
+
 async function getCaptureImage() {
     if (cachedImage) return cachedImage;
     if (process.env.PERISCOPE_CAPTURE_IMAGE) { cachedImage = process.env.PERISCOPE_CAPTURE_IMAGE; return cachedImage; }
@@ -23,12 +23,12 @@ async function getCaptureImage() {
     return cachedImage;
 }
 
-// Capture packets on ANY pod by injecting an ephemeral debug container into it.
-// Containers in a pod share a network namespace, so tcpdump there sees the target
-// pod's traffic. The ephemeral container runs as root with NET_RAW (root gets the
-// capability effectively, regardless of the target's user) and self-terminates via
-// `timeout`; ephemeral containers can't be removed, so it lingers in Completed
-// until the pod is recreated. Returns { ecName, stop } — stop() aborts the stream.
+
+
+
+
+
+
 async function startEphemeralCapture({ ns, pod, iface, maxSeconds = 300, onData }) {
     const ecName = `periscope-sniff-${Math.random().toString(36).slice(2, 8)}`;
     const image = await getCaptureImage();
@@ -52,15 +52,15 @@ async function startEphemeralCapture({ ns, pod, iface, maxSeconds = 300, onData 
     };
 
     logger.info({ ns, pod, ecName, iface }, 'Injecting ephemeral capture container');
-    // The client sends this subresource patch as JSON Patch (json-patch+json), so
-    // build a JSON Patch. A single `add` to /spec/ephemeralContainers with the
-    // full list works whether or not the field already exists (add replaces an
-    // existing value), avoiding a missing-path error on pods with none yet.
+
+
+
+
     await k8sService.core.patchNamespacedPodEphemeralcontainers(
         { name: pod, namespace: ns, body: [{ op: 'add', path: '/spec/ephemeralContainers', value: [...existing, ec] }] }
     );
 
-    // Wait for it to be running, or surface a fast failure.
+
     let running = false;
     for (let i = 0; i < 40; i++) {
         await sleep(1000);
@@ -85,8 +85,8 @@ async function startEphemeralCapture({ ns, pod, iface, maxSeconds = 300, onData 
     return {
         ecName,
         stop() {
-            try { controller.abort(); } catch (e) { /* already gone */ }
-            try { stream.destroy(); } catch (e) { /* already gone */ }
+            try { controller.abort(); } catch (e) {  }
+            try { stream.destroy(); } catch (e) {  }
         },
     };
 }

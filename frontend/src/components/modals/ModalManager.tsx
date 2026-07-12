@@ -356,7 +356,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
               <div style={{ color: 'var(--accent-error)', padding: 20 }}>{modalData.error}</div>
             ) : (
               <div className="diagnostics-panel" style={{ display: 'flex', flexDirection: 'column', gap: 20, height: '100%', overflowY: 'auto', paddingRight: 10 }}>
-                {/* Health Status Card */}
+                {}
                 <div 
                   style={{ 
                     padding: 16, 
@@ -391,7 +391,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                   </div>
                 </div>
 
-                {/* Findings & Recommendations */}
+                {}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     Findings & Recommendations
@@ -422,7 +422,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                   )}
                 </div>
 
-                {/* Suggested Remediation Actions */}
+                {}
                 {modalData.suggestedFixes && modalData.suggestedFixes.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -500,7 +500,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                   </div>
                 )}
 
-                {/* Related Events */}
+                {}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     Recent Related Events
@@ -539,7 +539,7 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                   )}
                 </div>
 
-                {/* Log Excerpt */}
+                {}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     Troubleshooting Logs (Last 50 Lines)

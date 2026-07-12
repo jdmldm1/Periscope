@@ -5,21 +5,14 @@ const compression = require('compression');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
-const stream = require('stream');
 const WebSocket = require('ws');
-const k8s = require('@kubernetes/client-node');
 
-// Services
 const k8sService = require('./src/services/k8sService');
-const helmService = require('./src/services/helmService');
-const zarfService = require('./src/services/zarfService');
-const scannerService = require('./src/services/scannerService');
-const securityService = require('./src/services/securityService');
-const watchService = require('./src/services/watchService');
 const { authMiddleware, wsAuthCheck } = require('./src/middleware/auth');
 const { createRateLimiter } = require('./src/middleware/rateLimiter');
+const { decompressGrypeDatabase } = require('./src/utils/grypeDbHelper');
+const { routeWebSocketConnection } = require('./src/websocket/wsRouter');
 
-// Routes
 const kubeRoutes = require('./src/routes/kubeRoutes');
 const kubeRoutesV2 = require('./src/routes/kubeRoutesV2');
 const helmRoutes = require('./src/routes/helmRoutes');
@@ -40,70 +33,48 @@ const networkRoutes = require('./src/routes/networkRoutes');
 const app = express();
 app.use(compression());
 
-// CORS is locked down by default. Periscope serves its own frontend from the
-// same origin, so cross-origin requests are unnecessary unless explicitly
-// allowed via CORS_ORIGIN (comma-separated list of origins, or "*" to opt back
-// into the old allow-all behavior). Defaulting to same-origin closes the
-// CSRF-style hole that an open `cors()` left when auth was disabled.
-const corsOrigins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+const corsOrigins = (process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
 if (corsOrigins.length) {
-    app.use(cors({ origin: corsOrigins.includes('*') ? true : corsOrigins }));
+    app.use(cors({
+        origin: corsOrigins.includes('*') ? true : corsOrigins
+    }));
 }
 
 app.use(express.json());
-
-// Authentication middleware for all API routes
 app.use('/api', authMiddleware);
 
-// Rate-limit mutating API calls (the destructive surface: scale, delete, exec,
-// deploy, restore...). Reads are left unthrottled.
-const destructiveLimiter = createRateLimiter({ windowMs: 60000, maxRequests: 30 });
-const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-app.use('/api', (req, res, next) => {
-    if (MUTATING_METHODS.has(req.method)) return destructiveLimiter(req, res, next);
-    next();
+const destructiveLimiter = createRateLimiter({
+    windowMs: 60000,
+    maxRequests: 30
 });
 
-// Audit log every mutating API request so destructive actions are traceable.
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 app.use('/api', (req, res, next) => {
     if (MUTATING_METHODS.has(req.method)) {
-        logger.warn({ audit: true, method: req.method, url: req.url.split('?')[0], ip: req.ip }, 'Mutating API request');
+        return destructiveLimiter(req, res, next);
     }
     next();
 });
 
-(function decompressGrypeDb() {
-    const dbBaseDir = '/app/.cache/grype';
-    if (!fs.existsSync(dbBaseDir)) {
-        return;
+app.use('/api', (req, res, next) => {
+    if (MUTATING_METHODS.has(req.method)) {
+        logger.warn({
+            audit: true,
+            method: req.method,
+            url: req.url.split('?')[0],
+            ip: req.ip
+        }, 'Mutating API request');
     }
-    try {
-        const schemas = fs.readdirSync(dbBaseDir);
-        for (const schema of schemas) {
-            const schemaDir = path.join(dbBaseDir, schema);
-            if (fs.statSync(schemaDir).isDirectory()) {
-                const files = fs.readdirSync(schemaDir);
-                const compressedFile = files.find(f => f.endsWith('.db.zst'));
-                if (compressedFile) {
-                    const compressedPath = path.join(schemaDir, compressedFile);
-                    const decompressedPath = path.join(schemaDir, 'vulnerability.db');
-                    if (!fs.existsSync(decompressedPath)) {
-                        const { exec } = require('child_process');
-                        logger.info(`Found compressed Grype database in schema v${schema}. Decompressing in background...`);
-                        exec(`zstd -d -f -q --rm "${compressedPath}" -o "${decompressedPath}"`, (err) => {
-                            if (err) logger.error(`Failed to decompress Grype database for schema v${schema}:`, err);
-                            else logger.info(`Successfully decompressed Grype database for schema v${schema}.`);
-                        });
-                    }
-                }
-            }
-        }
-    } catch (err) {
-        logger.error('Error during initial Grype database check/decompression:', err);
-    }
-})();
+    next();
+});
 
-// Request logging (strip any token query param so secrets never hit the logs)
+decompressGrypeDatabase();
+
 app.use((req, res, next) => {
     if (!req.url.includes('/metrics')) {
         const safeUrl = req.url.replace(/([?&]token=)[^&]*/gi, '$1[redacted]');
@@ -112,30 +83,32 @@ app.use((req, res, next) => {
     next();
 });
 
-// Health checks. /healthz is a liveness probe (process is up); /readyz is a
-// readiness probe that actually verifies API-server connectivity, so Kubernetes
-// won't route traffic to a replica that can't reach the cluster.
-app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
+app.get('/healthz', (req, res) => {
+    res.json({ status: 'ok' });
+});
+
 app.get('/readyz', async (req, res) => {
     try {
         await k8sService.core.listNamespace({ limit: 1 });
         res.json({ status: 'ready' });
     } catch (err) {
         logger.warn({ error: err.message }, 'Readiness check failed: cannot reach Kubernetes API');
-        res.status(503).json({ status: 'not-ready', error: 'Kubernetes API unreachable' });
+        res.status(503).json({
+            status: 'not-ready',
+            error: 'Kubernetes API unreachable'
+        });
     }
 });
 
-// API Routes (Matching old paths for compatibility)
 app.use('/api/kube', kubeRoutes);
 app.use('/api', kubeRoutesV2);
-app.use('/api/resource', kubeRoutes); // Alias for LogsView/etc
+app.use('/api/resource', kubeRoutes);
 app.use('/api/helm', helmRoutes);
 app.use('/api/zarf', zarfRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/zarf/scanner', scannerRoutes);
-app.use('/api/zarf/grype', scannerRoutes); // Legacy scanner path
-app.use('/api/zarf/sbom', scannerRoutes); // Legacy scanner path
+app.use('/api/zarf/grype', scannerRoutes);
+app.use('/api/zarf/sbom', scannerRoutes);
 app.use('/api/security', securityRoutes);
 app.use('/api/portforward', forwardRoutes);
 app.use('/api/metrics', metricRoutes);
@@ -147,11 +120,15 @@ app.use('/api/network', networkRoutes.router);
 app.use('/api', authRoutes);
 app.use('/api', orasRoutes);
 
-// Static frontend
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
+
 app.get('/*path', (req, res) => {
-    if (req.url.startsWith('/api')) return res.status(404).json({ error: 'Not Found' });
+    if (req.url.startsWith('/api')) {
+        return res.status(404).json({ error: 'Not Found' });
+    }
+
     const distPath = path.join(__dirname, 'frontend/dist/index.html');
+
     if (fs.existsSync(distPath)) {
         res.sendFile(distPath);
     } else {
@@ -162,78 +139,26 @@ app.get('/*path', (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 
-function safeClose(ws, code, reason) {
-    if (ws.readyState !== WebSocket.OPEN) return;
-    try {
-        let safeReason = reason || '';
-        if (Buffer.byteLength(safeReason, 'utf8') > 123) {
-            const buf = Buffer.from(safeReason, 'utf8');
-            safeReason = buf.subarray(0, 120).toString('utf8');
-            safeReason = safeReason.replace(/[\uFFFD]/g, '') + '...';
-        }
-        ws.close(code, safeReason);
-    } catch (e) {
-        logger.error(e, 'Error in safeClose');
-        try { ws.close(code); } catch (_) {}
-    }
-}
-
-let cachedKubeconfigPath = null;
-function inClusterKubeconfigPath() {
-    if (cachedKubeconfigPath !== null) return cachedKubeconfigPath;
-    const saDir = '/var/run/secrets/kubernetes.io/serviceaccount';
-    const host = process.env.KUBERNETES_SERVICE_HOST;
-    const port = process.env.KUBERNETES_SERVICE_PORT || '443';
-    if (!host || !fs.existsSync(path.join(saDir, 'token'))) {
-        cachedKubeconfigPath = ''; // not in-cluster
-        return cachedKubeconfigPath;
-    }
-    const target = '/app/.cache/incluster-kubeconfig.yaml';
-    try {
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, `apiVersion: v1
-kind: Config
-clusters:
-- name: in-cluster
-  cluster:
-    server: https://${host}:${port}
-    certificate-authority: ${saDir}/ca.crt
-contexts:
-- name: in-cluster
-  context:
-    cluster: in-cluster
-    user: in-cluster
-    namespace: default
-current-context: in-cluster
-users:
-- name: in-cluster
-  user:
-    tokenFile: ${saDir}/token
-`);
-        cachedKubeconfigPath = target;
-    } catch (err) {
-        logger.error(err, 'Failed to write in-cluster kubeconfig');
-        cachedKubeconfigPath = '';
-    }
-    return cachedKubeconfigPath;
-}
-function terminalEnv() {
-    const env = { ...process.env, TERM: 'xterm-256color' };
-    const kc = inClusterKubeconfigPath();
-    if (kc) env.KUBECONFIG = kc;
-    return env;
-}
+const WEBSOCKET_PATHS = [
+    '/api/terminal/ws',
+    '/api/logs/ws',
+    '/api/cluster-terminal/ws',
+    '/api/k9s/ws',
+    '/api/network/sniff/ws',
+    '/api/resources/ws'
+];
 
 server.on('upgrade', (request, socket, head) => {
     const urlObj = new URL(request.url, `http://${request.headers.host}`);
     const pathname = urlObj.pathname;
-    
-    if (['/api/terminal/ws', '/api/logs/ws', '/api/cluster-terminal/ws', '/api/k9s/ws', '/api/network/sniff/ws', '/api/resources/ws'].includes(pathname)) {
+
+    if (WEBSOCKET_PATHS.includes(pathname)) {
         if (!wsAuthCheck(request)) {
             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
             socket.destroy();
             return;
         }
+
         wss.handleUpgrade(request, socket, head, (ws) => {
             wss.emit('connection', ws, request);
         });
@@ -243,236 +168,7 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 wss.on('connection', (ws, request) => {
-    const urlObj = new URL(request.url, `http://${request.headers.host}`);
-    const pathname = urlObj.pathname;
-    const params = urlObj.searchParams;
-    
-    const namespace = params.get('namespace') || 'default';
-    const pod = params.get('pod');
-    const container = params.get('container');
-
-    if (pathname === '/api/resources/ws') {
-        watchService.addClient(ws);
-        return;
-    }
-    
-    if (pathname === '/api/cluster-terminal/ws') {
-        logger.info('Establishing cluster-level terminal session');
-        const { spawn } = require('child_process');
-        const shell = spawn('script', ['-q', '-c', '/bin/sh', '/dev/null'], {
-            env: terminalEnv()
-        });
-        let sized = false;
-        shell.stdout.on('data', (data) => ws.readyState === WebSocket.OPEN && ws.send(data));
-        shell.stderr.on('data', (data) => ws.readyState === WebSocket.OPEN && ws.send(data));
-        ws.on('message', (msg) => {
-            // Resize messages are JSON control frames, not shell input — they
-            // must not be written into the shell as literal text.
-            try {
-                const p = JSON.parse(msg.toString());
-                if (p && p.type === 'resize') {
-                    // The pty created by `script` can't be resized via ioctl
-                    // without a native module, so set the size once via stty at
-                    // the initial (empty) prompt. This is what lets TUIs like
-                    // k9s draw at the right dimensions instead of flickering.
-                    const cols = parseInt(p.cols, 10);
-                    const rows = parseInt(p.rows, 10);
-                    if (!sized && shell.stdin.writable && cols > 0 && rows > 0) {
-                        sized = true;
-                        shell.stdin.write(`stty rows ${rows} cols ${cols} 2>/dev/null; clear\r`);
-                    }
-                    return;
-                }
-            } catch (e) { /* not JSON — fall through and treat as shell input */ }
-            if (shell.stdin.writable) shell.stdin.write(msg);
-        });
-        shell.on('exit', () => ws.readyState === WebSocket.OPEN && ws.close());
-        ws.on('close', () => { shell.kill('SIGKILL'); });
-        return;
-    }
-
-    if (pathname === '/api/k9s/ws') {
-        logger.info('Establishing k9s session');
-        const { spawn } = require('child_process');
-        const env = terminalEnv();
-        const shell = spawn('script', ['-q', '-c', '/bin/sh', '/dev/null'], { env });
-
-        const k9sCmd = env.KUBECONFIG
-            ? 'exec zarf tools k9s --context in-cluster -A'
-            : 'exec zarf tools k9s -A';
-        let started = false;
-        shell.stdout.on('data', (data) => ws.readyState === WebSocket.OPEN && ws.send(data));
-        shell.stderr.on('data', (data) => ws.readyState === WebSocket.OPEN && ws.send(data));
-        ws.on('message', (msg) => {
-            try {
-                const p = JSON.parse(msg.toString());
-                if (p && p.type === 'resize') {
-                    const cols = parseInt(p.cols, 10);
-                    const rows = parseInt(p.rows, 10);
-
-                    if (!started && shell.stdin.writable && cols > 0 && rows > 0) {
-                        started = true;
-                        shell.stdin.write(`stty rows ${rows} cols ${cols} 2>/dev/null; clear; ${k9sCmd}\r`);
-                    }
-                    return;
-                }
-            } catch (e) { /* not JSON — treat as k9s keystrokes */ }
-            if (shell.stdin.writable) shell.stdin.write(msg);
-        });
-        shell.on('exit', () => ws.readyState === WebSocket.OPEN && ws.close());
-        ws.on('close', () => { shell.kill('SIGKILL'); });
-        return;
-    }
-
-    if (pathname === '/api/network/sniff/ws') {
-        logger.info('Establishing live network packet capture session');
-        const { spawn } = require('child_process');
-        const { listInterfaces } = require('./src/routes/networkRoutes');
-
-        // Pick the capture interface from the query (defaulting to "any"), and
-        // only accept a value the pod actually exposes so a bogus/hostile string
-        // can never reach tcpdump.
-        const requestedIface = params.get('iface') || 'any';
-        const iface = listInterfaces().includes(requestedIface) ? requestedIface : 'any';
-
-        // When a pod is supplied, capture THAT pod (via an ephemeral container)
-        // instead of periscope's own pod. `pod`/`namespace` come from the shared
-        // query parsing above.
-        const targetPod = pod;
-        const targetNs = namespace;
-
-        let ipMap = {};
-        const refreshIpMap = async () => {
-            try {
-                const [pods, svcs] = await Promise.all([
-                    k8sService.core.listPodForAllNamespaces(),
-                    k8sService.core.listServiceForAllNamespaces()
-                ]);
-                const newIpMap = {};
-                pods.items.forEach(p => p.status?.podIP && (newIpMap[p.status.podIP] = { type: 'pod', name: p.metadata.name, namespace: p.metadata.namespace }));
-                svcs.items.forEach(s => s.spec?.clusterIP && s.spec.clusterIP !== 'None' && (newIpMap[s.spec.clusterIP] = { type: 'service', name: s.metadata.name, namespace: s.metadata.namespace }));
-                ipMap = newIpMap;
-            } catch (err) { logger.error(err, 'Error refreshing IP lookup map'); }
-        };
-        refreshIpMap();
-        const refreshInterval = setInterval(refreshIpMap, 15000);
-
-        // Shared line parser: turns a tcpdump text line into a packet object and
-        // sends it over the websocket. Used for both the local capture and the
-        // any-pod (ephemeral container) capture.
-        let lineBuffer = '';
-        const handleData = (data) => {
-            lineBuffer += data.toString('utf8');
-            const lines = lineBuffer.split('\n');
-            lineBuffer = lines.pop() || '';
-            lines.forEach(line => {
-                const match = line.match(/^(\d{2}:\d{2}:\d{2}\.\d+)\s+(?:.*\s+)?IP\s+([\d.]+)\.(\d+)\s+>\s+([\d.]+)\.(\d+):\s+(.*)/);
-                if (!match) return;
-                const [_, timestamp, srcIp, srcPortStr, destIp, destPortStr, info] = match;
-                const srcPort = parseInt(srcPortStr, 10);
-                const destPort = parseInt(destPortStr, 10);
-                const lenMatch = info.match(/length (\d+)/);
-
-                // tcpdump prints "Flags [..]" only for TCP segments; UDP-based
-                // traffic (DNS, NTP, QUIC, ...) never does — the old check for
-                // the literal string "UDP" mislabelled decoded UDP as TCP. Use
-                // the flags marker to split TCP vs UDP, then refine well-known
-                // ports so the UI can colour DNS/HTTP/HTTPS distinctly.
-                const isTcp = info.includes('Flags [');
-                const onPort = (p) => srcPort === p || destPort === p;
-                let protocol;
-                if (onPort(53)) protocol = 'DNS';
-                else if (!isTcp) protocol = 'UDP';
-                else if (onPort(443) || onPort(8443)) protocol = 'HTTPS';
-                else if (onPort(80) || onPort(8080)) protocol = 'HTTP';
-                else protocol = 'TCP';
-
-                const packet = { timestamp, srcIp, srcPort, srcRes: ipMap[srcIp] || { type: 'external', name: srcIp }, destIp, destPort, destRes: ipMap[destIp] || { type: 'external', name: destIp }, protocol, length: lenMatch ? parseInt(lenMatch[1], 10) : 0, info: info.trim() };
-                if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(packet));
-            });
-        };
-
-        // Any-pod capture: sniff a *different* pod via an ephemeral debug
-        // container. Falls back to a clear error frame if it can't be started.
-        if (targetPod) {
-            const podCaptureService = require('./src/services/podCaptureService');
-            let capture = null;
-            podCaptureService.startEphemeralCapture({ ns: targetNs, pod: targetPod, iface, onData: handleData })
-                .then((c) => {
-                    capture = c;
-                    if (ws.readyState !== WebSocket.OPEN) c.stop();
-                })
-                .catch((err) => {
-                    logger.error({ targetNs, targetPod, error: err.message }, 'Ephemeral capture failed');
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ error: `Could not capture ${targetNs}/${targetPod}: ${err.body?.message || err.message}` }));
-                    }
-                });
-            ws.on('close', () => { clearInterval(refreshInterval); if (capture) capture.stop(); });
-            return;
-        }
-
-        // Local capture: sniff periscope's own pod (the original behaviour).
-        const tcpdump = spawn('tcpdump', ['-l', '-nn', '-i', iface], { env: { ...process.env } });
-        tcpdump.stdout.on('data', handleData);
-
-        // Surface capture problems (missing CAP_NET_RAW, bad interface, etc.) to
-        // the UI instead of failing silently. tcpdump prints a normal
-        // "listening on ..." line to stderr on success, so only forward text
-        // that looks like an actual error.
-        let stderrBuf = '';
-        tcpdump.stderr.on('data', (data) => {
-            stderrBuf += data.toString('utf8');
-            const low = stderrBuf.toLowerCase();
-            if (/(permission|denied|can't|cannot|no such device|failed|error)/.test(low) && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ error: stderrBuf.trim() }));
-            }
-        });
-        tcpdump.on('error', (err) => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ error: `Failed to start tcpdump: ${err.message}` }));
-        });
-        tcpdump.on('exit', (code) => {
-            if (code && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ error: stderrBuf.trim() || `tcpdump exited with code ${code}` }));
-            }
-        });
-
-        ws.on('close', () => { clearInterval(refreshInterval); tcpdump.kill('SIGKILL'); });
-        return;
-    }
-    
-    if (!pod) return safeClose(ws, 4000, 'Pod required');
-    
-    if (pathname === '/api/terminal/ws') {
-        const stdinStream = new stream.PassThrough();
-        const stdoutStream = new stream.Writable({ write(chunk, enc, cb) { ws.readyState === WebSocket.OPEN && ws.send(chunk); cb(); } });
-        const execInstance = new k8s.Exec(k8sService.kc);
-        // Prefer bash for proper line editing and command history (up-arrow
-        // recall), but fall back to sh on minimal images that lack it. TERM is
-        // exported so curses-based TUIs and progress bars render correctly.
-        const shellCmd = ['/bin/sh', '-c', 'export TERM=xterm-256color; if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi'];
-        execInstance.exec(namespace, pod, container || undefined, shellCmd, stdoutStream, stdoutStream, stdinStream, true, (status) => {
-            ws.readyState === WebSocket.OPEN && ws.close();
-        }).then((conn) => {
-            ws.on('message', (msg) => {
-                try {
-                    const p = JSON.parse(msg.toString());
-                    if (p.type === 'resize' && conn?.resize) return conn.resize(p.cols, p.rows);
-                } catch (e) {}
-                stdinStream.write(msg);
-            });
-            ws.on('close', () => stdinStream.end());
-        }).catch(err => safeClose(ws, 4001, err.message));
-    } else if (pathname === '/api/logs/ws') {
-        const logStream = new stream.PassThrough();
-        logStream.on('data', (chunk) => ws.readyState === WebSocket.OPEN && ws.send(chunk.toString('utf8')));
-        const k8sLog = new k8s.Log(k8sService.kc);
-        k8sLog.log(namespace, pod, container || undefined, logStream, { follow: true, tailLines: 500 }, (err) => {
-            ws.readyState === WebSocket.OPEN && ws.close();
-        }).then((req) => {
-            ws.on('close', () => req?.abort?.());
-        }).catch(err => safeClose(ws, 4002, err.message));
-    }
+    routeWebSocketConnection(ws, request);
 });
 
 const PORT = process.env.PORT || 3001;

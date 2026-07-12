@@ -17,8 +17,6 @@ interface Props {
   onSubmit: (e: React.FormEvent) => void;
 }
 
-// "Deploy Helm Chart" dialog opened from the header. The form state is owned by
-// App because the same values back the custom-install flow in HelmManagerView.
 export function DeployHelmModal({ isOpen, onClose, form, setForm, onSubmit }: Props) {
   if (!isOpen) return null;
 

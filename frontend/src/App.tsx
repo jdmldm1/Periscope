@@ -85,7 +85,6 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
     renderDiffView,
   } = useModalContext();
 
-  // Local UI state owned by the shell
   const [topologyMode, setTopologyMode] = useState<'columns' | 'graph'>('graph');
   const [hoveredTopologyItem, setHoveredTopologyItem] = useState<any>(null);
   const [podMetricsHistory, setPodMetricsHistory] = useState<Record<string, any>>({});
@@ -97,7 +96,6 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [helmDeployForm, setHelmDeployForm] = useState<HelmDeployForm>({ releaseName: '', repo: '', chartName: '', version: '', namespace: 'default', valuesYaml: '' });
 
-  // Data fetching hooks for child views
   const { data: topologyData } = useTopologyData(selectedNs);
   const { data: nodeMetrics } = useNodeMetrics();
   const { data: podMetrics } = usePodMetrics();
@@ -119,8 +117,6 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
   };
   useKeyboardNavigation({ openCommandPalette });
 
-  // Keep a short rolling history of per-pod CPU/memory usage to drive the
-  // inline sparklines in the resource list.
   useEffect(() => {
     if (!podMetrics) return;
     setPodMetricsHistory(prev => {
@@ -142,10 +138,6 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
   const getNodeUsagePercent = (metric: any) => computeNodeUsagePercent(metric, filteredResources);
 
   const refreshResources = () => {
-    // Resource lists are cached under ['resources', kind, namespace]; the topology
-    // and dashboard widgets under their own keys. Invalidate them all so the UI
-    // reflects stop/start/restart/scale/delete actions immediately instead of
-    // waiting for the next poll.
     queryClient.invalidateQueries({ queryKey: ['resources'] });
     queryClient.invalidateQueries({ queryKey: ['topology'] });
     queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
@@ -173,8 +165,6 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
     }
   };
 
-  // Opens a service in a new tab: prefer NodePort / LoadBalancer addresses, and
-  // fall back to setting up an on-demand port-forward to a matching pod.
   const handleOpenServiceWebsite = async (service: any) => {
     const ports = service.spec?.ports || [];
     if (ports.length === 0) return alert('Service has no configured ports.');

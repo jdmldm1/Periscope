@@ -14,10 +14,8 @@ interface LogLine {
 }
 
 export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace }) => {
-  // Navigation / Mode
   const [logSource, setLogSource] = useState<'pods' | 'events'>('pods');
   
-  // Selectors
   const activeNamespaces = namespaces.filter(ns => ns !== 'all');
   const [selectedNs, setSelectedNs] = useState<string>(
     initialNamespace && initialNamespace !== 'all' ? initialNamespace : (activeNamespaces[0] || 'default')
@@ -27,29 +25,24 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
   const [containers, setContainers] = useState<string[]>([]);
   const [selectedContainer, setSelectedContainer] = useState<string>('');
   
-  // Logs data
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showErrors, setShowErrors] = useState<boolean>(true);
   const [showWarnings, setShowWarnings] = useState<boolean>(true);
   const [showInfos, setShowInfos] = useState<boolean>(true);
   const [showSuccesses, setShowSuccesses] = useState<boolean>(true);
 
-  // Controls
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
-  const [refreshInterval, setRefreshInterval] = useState<number>(0); // 0 = disabled
+  const [refreshInterval, setRefreshInterval] = useState<number>(0);
 
-  // Refs
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<any | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const [reconnectCount, setReconnectCount] = useState<number>(0);
 
-  // Fetch pods when namespace changes
   useEffect(() => {
     if (logSource !== 'pods') return;
     
@@ -88,7 +81,6 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
     return () => { isMounted = false; };
   }, [selectedNs, logSource]);
 
-  // Extract containers when pod changes
   useEffect(() => {
     if (logSource !== 'pods' || !selectedPod) return;
     
@@ -112,7 +104,6 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
     }
   }, [selectedPod, pods, logSource]);
 
-  // Fetch logs function
   const fetchLogs = async () => {
     if (logSource === 'pods') {
       if (!selectedNs || !selectedPod) return;
@@ -128,7 +119,6 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
         const text = await res.text();
         
         const rawLines = text.split('\n');
-        // Filter out final empty line if present
         if (rawLines.length > 0 && rawLines[rawLines.length - 1] === '') {
           rawLines.pop();
         }
@@ -178,7 +168,6 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
         setLoading(false);
       }
     } else {
-      // Cluster Events logs
       try {
         setLoading(true);
         setErrorMsg(null);
@@ -187,7 +176,6 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
         if (!res.ok) throw new Error(`Failed to fetch events: ${res.statusText}`);
         const data = await res.json();
         
-        // Sort events chronologically
         const eventsList = Array.isArray(data) ? data : [];
         eventsList.sort((a: any, b: any) => {
           const tA = new Date(a.lastTimestamp || a.metadata?.creationTimestamp || 0).getTime();
@@ -233,9 +221,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
     }
   };
 
-  // WebSockets for Pod logs, HTTP polling for events
   useEffect(() => {
-    // Clean up any existing WebSocket connection
     if (socketRef.current) {
       try {
         socketRef.current.close();
@@ -246,7 +232,6 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
     }
 
     if (logSource !== 'pods') {
-      // If we are in 'events' mode, fetch events using the existing function
       fetchLogs();
       return;
     }
@@ -256,7 +241,6 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
       return;
     }
 
-    // Prevent race conditions: wait until selectedContainer aligns with the chosen pod
     const podObj = pods.find(p => p.metadata?.name === selectedPod);
     const podContainers: string[] = [];
     if (podObj) {
@@ -281,7 +265,6 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
 
     let buffer = '';
     socket.onopen = () => {
-      // socket connected successfully
     };
 
     socket.onmessage = async (event) => {
@@ -300,7 +283,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
 
         buffer += text;
         const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // keep the last partial line in buffer
+        buffer = lines.pop() || '';
 
         if (lines.length > 0) {
         setLogLines(prev => {
@@ -341,7 +324,6 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
             });
           });
 
-          // Limit lines to 2000 to prevent performance degradation
           if (nextLines.length > 2000) {
             return nextLines.slice(nextLines.length - 2000);
           }
@@ -371,14 +353,12 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
         try {
           socketRef.current.close();
         } catch (e) {
-          // ignore
         }
         socketRef.current = null;
       }
     };
   }, [selectedNs, selectedPod, selectedContainer, logSource, reconnectCount]);
 
-  // Set up auto-refresh timer for cluster events (only)
   useEffect(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -398,14 +378,12 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
     };
   }, [refreshInterval, selectedNs, logSource]);
 
-  // Scroll to bottom on updates
   useEffect(() => {
     if (autoScroll && terminalEndRef.current) {
       terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logLines, autoScroll]);
 
-  // Handle Download Logs
   const handleDownload = () => {
     const content = filteredLines.map(l => l.text).join('\n');
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -422,20 +400,16 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
     URL.revokeObjectURL(url);
   };
 
-  // Perform filtering
   const filteredLines = logLines.filter(line => {
-    // Search filter
     if (searchQuery) {
       try {
         const regex = new RegExp(searchQuery, 'i');
         if (!regex.test(line.text)) return false;
       } catch (e) {
-        // Fallback to substring matching if regex fails to parse
         if (!line.text.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       }
     }
     
-    // Level filter
     if (line.level === 'error' && !showErrors) return false;
     if (line.level === 'warning' && !showWarnings) return false;
     if (line.level === 'info' && !showInfos) return false;
@@ -447,7 +421,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
   return (
     <div className="logs-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 170px)', gap: 16 }}>
       
-      {/* Controls Card */}
+      {}
       <div style={{
         background: 'var(--bg-card)',
         border: '1px solid var(--border-color)',
@@ -458,9 +432,9 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
         gap: 14
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-          {/* Left Side: selectors */}
+          {}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {/* Log Source Tabs */}
+            {}
             <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: 2 }}>
               <button
                 onClick={() => setLogSource('pods')}
@@ -500,7 +474,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
               </button>
             </div>
 
-            {/* Namespace selector */}
+            {}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Namespace</span>
               <select
@@ -514,7 +488,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
               </select>
             </div>
 
-            {/* Pod selector (Pods Mode only) */}
+            {}
             {logSource === 'pods' && (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -552,9 +526,9 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
             )}
           </div>
 
-          {/* Right Side: Refresh / Download Controls */}
+          {}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Auto refresh dropdown or Live indicator */}
+            {}
             {logSource === 'events' ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Auto-Refresh</span>
@@ -587,7 +561,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
               </div>
             )}
 
-            {/* Auto scroll checkbox */}
+            {}
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
               <input
                 type="checkbox"
@@ -598,7 +572,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
               Auto-Scroll
             </label>
 
-            {/* Refresh button */}
+            {}
             <button
               className="btn btn-icon"
               onClick={() => {
@@ -615,7 +589,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
               <RefreshCw size={14} className={loading ? 'spin' : ''} />
             </button>
 
-            {/* Download button */}
+            {}
             <button
               className="btn btn-icon"
               onClick={handleDownload}
@@ -628,9 +602,9 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
           </div>
         </div>
 
-        {/* Filters Row */}
+        {}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color)', paddingTop: 12, flexWrap: 'wrap', gap: 12 }}>
-          {/* Regex Filter Search */}
+          {}
           <div className="search-box" style={{ width: 320, padding: '4px 10px', height: 32 }}>
             <Search size={14} />
             <input
@@ -642,7 +616,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
             />
           </div>
 
-          {/* Level Toggles */}
+          {}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, marginRight: 4 }}>Log Levels:</span>
             
@@ -733,7 +707,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
         </div>
       </div>
 
-      {/* Terminal Display */}
+      {}
       <div 
         className="terminal-container" 
         style={{
@@ -747,7 +721,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
           padding: 0
         }}
       >
-        {/* Terminal Header */}
+        {}
         <div style={{
           background: '#080808',
           borderBottom: '1px solid var(--border-color)',
@@ -776,7 +750,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
           )}
         </div>
 
-        {/* Console output stream */}
+        {}
         <div style={{
           flex: 1,
           overflowY: 'auto',
@@ -801,15 +775,15 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
             </div>
           ) : (
             filteredLines.map((line) => {
-              let color = '#ededed'; // Default light gray text
+              let color = '#ededed';
               if (line.level === 'error') {
-                color = '#ff6b6b'; // Muted error red
+                color = '#ff6b6b';
               } else if (line.level === 'warning') {
-                color = '#ffd43b'; // Warning yellow
+                color = '#ffd43b';
               } else if (line.level === 'success') {
-                color = '#51cf66'; // Success green
+                color = '#51cf66';
               } else {
-                color = '#a5d6ff'; // Soft cyan/blue for info
+                color = '#a5d6ff';
               }
               
               return (
@@ -827,7 +801,7 @@ export const LogsView: React.FC<LogsViewProps> = ({ namespaces, initialNamespace
             })
           )}
 
-          {/* Anchor for Auto-Scroll */}
+          {}
           <div ref={terminalEndRef} />
         </div>
       </div>

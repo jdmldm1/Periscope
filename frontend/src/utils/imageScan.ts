@@ -1,12 +1,8 @@
-// Pure derivation and export helpers for the Image Scanner view. These turn the
-// raw Grype/Syft scan results plus the active filters into the rows the UI
-// renders, and into downloadable JSON/CSV reports. Kept out of the component so
-// the view is just presentation and these can be reasoned about (and tested) on
-// their own.
+
 
 export interface ScanFilters {
-  image: string;     // 'all' or a specific image ref
-  severity: string;  // 'all' or a severity name
+  image: string;
+  severity: string;
   search: string;
 }
 
@@ -26,8 +22,6 @@ function highestSeverity(vulns: { severity: string }[]): number {
   return vulns.reduce((max, v) => Math.max(max, SEVERITY_RANK[v.severity.toLowerCase()] ?? 1), 0);
 }
 
-// Iterate every successfully-scanned image (respecting the image filter),
-// invoking `fn` with the image ref and its result.
 function forEachScannedImage(results: ScanResults, imageFilter: string, fn: (imgRef: string, res: any) => void) {
   Object.keys(results).forEach(imgRef => {
     if (imageFilter !== 'all' && imageFilter !== imgRef) return;
@@ -36,7 +30,6 @@ function forEachScannedImage(results: ScanResults, imageFilter: string, fn: (img
   });
 }
 
-// Group fixable vulnerabilities by package, most-severe package first.
 export function getRemediationList(results: ScanResults, imageFilter: string): RemediationItem[] {
   const map = new Map<string, RemediationItem>();
 
@@ -132,7 +125,6 @@ export function getFilteredPackages(results: ScanResults, filters: ScanFilters):
   });
 }
 
-// --- Report exports -------------------------------------------------------
 
 function triggerDownload(href: string, filename: string) {
   const anchor = document.createElement('a');
@@ -158,8 +150,6 @@ function downloadCsv(headers: string[], rows: string[][], filename: string) {
   triggerDownload(url, filename);
 }
 
-// Matches the original report formatting (a missing field renders literally,
-// e.g. "undefined"), just centralized so the quoting lives in one place.
 const csvCell = (val: unknown) => `"${val}"`;
 
 export function exportVulnerabilitiesJson(results: ScanResults, filters: ScanFilters) {

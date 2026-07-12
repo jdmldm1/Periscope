@@ -42,13 +42,13 @@ class AuthService {
             if (!fs.existsSync(AUTH_DIR)) {
                 fs.mkdirSync(AUTH_DIR, { recursive: true });
             }
-            // Test write access
+
             const testFile = path.join(AUTH_DIR, '.write-test');
             fs.writeFileSync(testFile, 'test');
             fs.unlinkSync(testFile);
             return AUTH_FILE;
         } catch (e) {
-            // Fallback to project root directory
+
             return path.join(__dirname, '../../auth-config.json');
         }
     }
@@ -59,7 +59,7 @@ class AuthService {
                 const fileData = fs.readFileSync(this.configPath, 'utf8');
                 let decryptedData;
                 if (fileData.startsWith('{')) {
-                    // Legacy unencrypted configuration format fallback
+
                     decryptedData = fileData;
                 } else {
                     decryptedData = this._decrypt(fileData);
@@ -73,7 +73,7 @@ class AuthService {
             }
         }
         
-        // Generate default config
+
         const salt = crypto.randomBytes(16).toString('hex');
         const hash = this._hashPassword('periscope', salt);
         return {
@@ -113,7 +113,7 @@ class AuthService {
         this.config.salt = salt;
         this.config.isDefault = false;
         this._saveConfig();
-        // Clear all active tokens on password change for security
+
         this.activeTokens.clear();
         logger.info('User password changed successfully');
         return true;

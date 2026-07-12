@@ -26,7 +26,6 @@ interface ZarfManagerViewProps {
   handleRebuildAndDeployZarf: () => void;
   setZarfUnpackTempDir: (dir: string) => void;
   
-  // Package Upload / Deploy States
   isDeployModalOpen: boolean;
   setIsDeployModalOpen: (open: boolean) => void;
   zarfUploadFile: File | null;
@@ -40,7 +39,6 @@ interface ZarfManagerViewProps {
   setSelectedZarfConfigPath: (path: string) => void;
   handleDeployLocalPackage: (path: string) => void;
   
-  // SBOM States
   sbomPackageName: string;
   setSbomPackageName: (name: string) => void;
   sbomExtractedFiles: Array<{ name: string; url: string }>;
@@ -50,7 +48,6 @@ interface ZarfManagerViewProps {
   isExtractingSbom: boolean;
   handleExtractSbom: () => void;
   
-  // Inspect package detail
   selectedZarfPackageDetail: any;
   setSelectedZarfPackageDetail: (detail: any) => void;
   isPackageDetailModalOpen: boolean;
@@ -61,7 +58,6 @@ interface ZarfManagerViewProps {
   selectedZarfGraphPkg: string | null;
   setSelectedZarfGraphPkg: (pkg: string | null) => void;
 
-  // Registry States
   registryPullSource: string;
   setRegistryPullSource: (source: string) => void;
   registryPullTarget: string;
@@ -146,7 +142,6 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
   handlePruneRegistry,
 }) => {
 
-  // Auto-close modal when upload progress finishes and resets to -1
   const prevProgressRef = useRef(zarfUploadProgress);
   useEffect(() => {
     if (prevProgressRef.current >= 0 && zarfUploadProgress === -1) {
@@ -288,7 +283,7 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
     return (
       <div className="zarf-packages-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
         
-        {/* Status Bar */}
+        {}
         <div 
           style={{ 
             display: 'flex', 
@@ -329,7 +324,7 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
           )}
         </div>
 
-        {/* Deployed Packages Section */}
+        {}
         <div>
           <h3 style={{ fontSize: '1.1rem', marginBottom: 12 }}>Deployed Packages ({filteredResources.length})</h3>
           {!zarfStatus.installed ? (
@@ -416,7 +411,7 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
           )}
         </div>
 
-        {/* Upload & Deploy Popup Modal */}
+        {}
         {isDeployModalOpen && (
           <div 
             className="modal-overlay" 
@@ -557,7 +552,7 @@ export const ZarfManagerView: React.FC<ZarfManagerViewProps> = ({
           </div>
         )}
 
-        {/* Inspect Deployed Package Modal */}
+        {}
         {isPackageDetailModalOpen && selectedZarfPackageDetail && (
           <div 
             className="modal-overlay" 

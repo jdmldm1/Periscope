@@ -6,16 +6,16 @@ const k8sService = require('../services/k8sService');
 const logger = require('../utils/logger');
 const { run, spawnSafe } = require('../utils/exec');
 
-// List the network interfaces the pod can capture on. tcpdump's pseudo-device
-// "any" (capture across every interface) is always offered first and is the
-// default. On Linux we read /sys/class/net (the authoritative list, including
-// down interfaces); elsewhere we fall back to os.networkInterfaces().
+
+
+
+
 function listInterfaces() {
     const names = new Set();
     try {
         fs.readdirSync('/sys/class/net').forEach(n => names.add(n));
     } catch (_) {
-        try { Object.keys(os.networkInterfaces()).forEach(n => names.add(n)); } catch (_) { /* none */ }
+        try { Object.keys(os.networkInterfaces()).forEach(n => names.add(n)); } catch (_) {  }
     }
     return ['any', ...Array.from(names).sort()];
 }
@@ -24,17 +24,17 @@ router.get('/interfaces', (req, res) => {
     res.json({ interfaces: listInterfaces(), default: 'any' });
 });
 
-// ---------------------------------------------------------------------------
-// Top talkers — per-pod network volume from each kubelet's cAdvisor metrics.
-// cAdvisor exposes cumulative counters, so we keep the previous scrape and
-// derive a bytes/second rate from the delta. The first call returns totals with
-// null rates; the second call onward includes rates.
-// ---------------------------------------------------------------------------
 
-let prevTalkerSnapshot = null; // { time, pods: { 'ns/pod': { rx, tx } } }
 
-// Fetch a node's cAdvisor metrics through the kubelet proxy. Uses kubectl (which
-// is already how the app runs cluster commands) so auth/proxying is handled.
+
+
+
+
+
+let prevTalkerSnapshot = null;
+
+
+
 async function fetchCadvisor(node) {
     const { stdout } = await run(
         'kubectl',
@@ -56,26 +56,26 @@ router.get('/top-talkers', async (req, res) => {
         const nodes = (nodesRes.items || nodesRes.body?.items || []).map(n => n.metadata.name);
 
         const texts = await Promise.allSettled(nodes.map(fetchCadvisor));
-        const pods = {}; // 'ns/pod' -> { rx, tx }
+        const pods = {};
         const RX = 'container_network_receive_bytes_total';
         const TX = 'container_network_transmit_bytes_total';
 
         for (const t of texts) {
             if (t.status !== 'fulfilled') continue;
             for (const line of t.value.split('\n')) {
-                if (line.charCodeAt(0) === 35) continue; // '#' comment
+                if (line.charCodeAt(0) === 35) continue;
                 const isRx = line.startsWith(RX + '{');
                 const isTx = !isRx && line.startsWith(TX + '{');
                 if (!isRx && !isTx) continue;
                 const brace = line.indexOf('}');
                 if (brace < 0) continue;
                 const labels = parsePromLabels(line.slice(line.indexOf('{') + 1, brace));
-                if (!labels.pod) continue; // only pod-scoped counters
+                if (!labels.pod) continue;
                 const value = parseFloat(line.slice(brace + 1).trim());
                 if (!isFinite(value)) continue;
                 const key = `${labels.namespace}/${labels.pod}`;
                 if (!pods[key]) pods[key] = { rx: 0, tx: 0 };
-                pods[key][isRx ? 'rx' : 'tx'] += value; // sum across interfaces
+                pods[key][isRx ? 'rx' : 'tx'] += value;
             }
         }
 
@@ -107,12 +107,12 @@ router.get('/top-talkers', async (req, res) => {
     }
 });
 
-// ---------------------------------------------------------------------------
-// DNS insights — scrape CoreDNS's Prometheus endpoint (:9153) via the pod proxy.
-// Standard CoreDNS metrics give request volume, response codes (NXDOMAIN),
-// cache hit ratio, and latency — but NOT per-name breakdowns (that needs query
-// logging / dnstap), which we call out to the client.
-// ---------------------------------------------------------------------------
+
+
+
+
+
+
 
 function sumMetric(text, name, filter) {
     let total = 0;
@@ -198,11 +198,11 @@ router.get('/dns', async (req, res) => {
     }
 });
 
-// ---------------------------------------------------------------------------
-// pcap export — run a bounded tcpdump (-w -) and stream a real .pcap the user
-// can open in Wireshark. Bounded by packet count AND a wall-clock timeout so it
-// always terminates, even on a quiet interface.
-// ---------------------------------------------------------------------------
+
+
+
+
+
 
 router.get('/pcap', (req, res) => {
     const requestedIface = req.query.iface || 'any';
@@ -216,11 +216,11 @@ router.get('/pcap', (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.tcpdump.pcap');
     res.setHeader('Content-Disposition', `attachment; filename="periscope-${iface}-capture.pcap"`);
 
-    // -w - writes raw pcap to stdout; -U flushes per packet so the stream starts
-    // immediately; -c bounds the packet count.
+
+
     const cp = spawnSafe('tcpdump', ['-w', '-', '-U', '-i', iface, '-c', String(count), '-nn']);
     cp.stdout.pipe(res);
-    cp.stderr.on('data', () => { /* "listening on ..." — not an error */ });
+    cp.stderr.on('data', () => {  });
 
     const timer = setTimeout(() => cp.kill('SIGTERM'), seconds * 1000);
     cp.on('close', () => { clearTimeout(timer); if (!res.writableEnded) res.end(); });
@@ -232,11 +232,11 @@ router.get('/pcap', (req, res) => {
     req.on('close', () => cp.kill('SIGKILL'));
 });
 
-// ---------------------------------------------------------------------------
-// eBPF flows — scrape Microsoft Retina's agent metrics (:10093) for cluster-wide
-// forwarded/dropped bytes & packets by direction, plus drop reasons and TCP
-// state. Degrades gracefully when Retina isn't deployed.
-// ---------------------------------------------------------------------------
+
+
+
+
+
 
 router.get('/flows', async (req, res) => {
     try {
@@ -264,8 +264,8 @@ router.get('/flows', async (req, res) => {
         }
         const text = ok.join('\n');
 
-        const forward = { bytes: {}, count: {} };   // by direction
-        const drop = { bytes: {}, count: {} };       // by "direction/reason"
+        const forward = { bytes: {}, count: {} };
+        const drop = { bytes: {}, count: {} };
         const tcpState = {};
         for (const line of text.split('\n')) {
             if (line.charCodeAt(0) === 35 || !line.startsWith('networkobservability_')) continue;

@@ -6,22 +6,22 @@ const k8sService = require('./k8sService');
 const logger = require('../utils/logger');
 const { assertKind, assertName } = require('../utils/validators');
 
-// Pod diagnosis ("why is this pod unhealthy?") and the automated remediations
-// the dashboard offers in response. Kept out of the route layer because it's the
-// densest logic in the kube API surface.
+
+
+
 
 const WORKLOAD_KINDS = ['Deployment', 'StatefulSet', 'DaemonSet'];
 
-// Errors carrying a statusCode are mapped to that HTTP status by the route.
+
 function httpError(statusCode, message) {
     const err = new Error(message);
     err.statusCode = statusCode;
     return err;
 }
 
-// Walk a pod's ownerReferences up to the real workload. Pod -> ReplicaSet is an
-// implementation detail, so when the immediate owner is a ReplicaSet we resolve
-// one more level to its Deployment.
+
+
+
 async function findTrueWorkloadOwner(namespace, pod) {
     const ownerReferences = pod.metadata?.ownerReferences || [];
     if (ownerReferences.length === 0) {
@@ -45,8 +45,8 @@ async function findTrueWorkloadOwner(namespace, pod) {
     return { kind, name };
 }
 
-// Pick the container whose logs are most likely to explain a failure: a waiting
-// or non-zero-exit container if there is one, else the first container.
+
+
 function pickTargetContainer(pod) {
     if (pod.status?.containerStatuses) {
         const failing = pod.status.containerStatuses.find(cs => cs.state?.waiting || (cs.state?.terminated && cs.state.terminated.exitCode !== 0));
@@ -56,8 +56,8 @@ function pickTargetContainer(pod) {
     return null;
 }
 
-// Inspect each container's state and append human-readable findings, mutating
-// diagnosis.status/details. Returns whether any issue was found.
+
+
 function analyzeContainers(containerStatuses, diagnosis) {
     let hasIssue = false;
     let oomKilledContainer = null;
@@ -216,7 +216,7 @@ async function diagnosePod(namespace, podName) {
         }
     }
 
-    // Build dynamically suggested fixes
+
     if (oomKilledContainer && ownerWorkload && WORKLOAD_KINDS.includes(ownerWorkload.kind)) {
         diagnosis.suggestedFixes.push({
             type: 'ScaleResources',
@@ -242,7 +242,7 @@ async function diagnosePod(namespace, podName) {
         });
     }
 
-    // Secondary fallback is always to recreate the pod directly
+
     diagnosis.suggestedFixes.push({
         type: 'RecreatePod',
         title: 'Recreate Pod',
@@ -253,9 +253,9 @@ async function diagnosePod(namespace, podName) {
     return diagnosis;
 }
 
-// Diagnose a workload (Deployment / StatefulSet / DaemonSet): assess replica
-// health and rollout conditions, then roll up the container-level problems of
-// the pods it owns. Mirrors diagnosePod's shape so the same UI renders both.
+
+
+
 async function diagnoseWorkload(kind, namespace, name) {
     assertKind(kind, 'kind');
     assertName(name, 'name');
@@ -286,7 +286,7 @@ async function diagnoseWorkload(kind, namespace, name) {
         else if (c.type === 'ReplicaFailure' && c.status === 'True') { diagnosis.status = 'Critical'; diagnosis.details.push(`Replica failure: ${c.reason || ''} — ${c.message || ''}`); }
     });
 
-    // Roll up the owned pods' container problems.
+
     const selector = wl.spec?.selector?.matchLabels || {};
     const selStr = Object.entries(selector).map(([k, v]) => `${k}=${v}`).join(',');
     let pods = [];
@@ -294,7 +294,7 @@ async function diagnoseWorkload(kind, namespace, name) {
         try {
             const { stdout: po } = await run('kubectl', ['get', 'pods', '-n', namespace, '-l', selStr, '-o', 'json']);
             pods = JSON.parse(po).items || [];
-        } catch (_) { /* selector may be empty */ }
+        } catch (_) {  }
     }
 
     let oomContainer = null;
@@ -321,7 +321,7 @@ async function diagnoseWorkload(kind, namespace, name) {
             .filter(e => e.involvedObject && (e.involvedObject.uid === wlUid || podUids.has(e.involvedObject.uid)))
             .slice(-25)
             .map(e => ({ type: e.type, reason: e.reason, message: e.message, firstTimestamp: e.firstTimestamp || e.metadata.creationTimestamp, count: e.count }));
-    } catch (_) { /* events best-effort */ }
+    } catch (_) {  }
 
     const logPod = pods.find(p => problemPods.includes(p.metadata.name)) || pods[0];
     if (logPod) {
@@ -358,9 +358,9 @@ async function diagnoseWorkload(kind, namespace, name) {
     return diagnosis;
 }
 
-// workloadKind / workloadName / containerName come from the request body, so
-// validate them as strict Kubernetes identifiers before they reach kubectl
-// (argv-based; no shell interpolation either way).
+
+
+
 function validateWorkload(kind, wname, container) {
     assertKind(kind, 'workloadKind');
     assertName(wname, 'workloadName');
@@ -386,11 +386,11 @@ async function remediateScaleResources(namespace, name, params) {
     }
     validateWorkload(workloadKind, workloadName, containerName);
 
-    // 1. Get current resources of the workload
+
     const { stdout } = await run('kubectl', ['get', workloadKind.toLowerCase(), workloadName, '-n', namespace, '-o', 'json']);
     const workload = JSON.parse(stdout);
 
-    // 2. Find container and double its memory request/limit
+
     const containers = workload.spec?.template?.spec?.containers || [];
     const container = containers.find(c => c.name === containerName);
     if (!container) {
@@ -421,8 +421,8 @@ async function remediateScaleResources(namespace, name, params) {
         }] } } }
     };
 
-    // kubectl patch reads the patch from a temp file so the JSON never touches a
-    // shell; clean it up regardless of outcome.
+
+
     const tempFilePath = path.join(os.tmpdir(), `patch-${name}-${Date.now()}.json`);
     fs.writeFileSync(tempFilePath, JSON.stringify(patchObj), 'utf8');
     try {
@@ -437,8 +437,8 @@ async function remediateScaleResources(namespace, name, params) {
     return { message: `Successfully doubled memory for container '${containerName}' in ${workloadKind} '${workloadName}' (Request: ${newMemRequest}, Limit: ${newMemLimit}).` };
 }
 
-// Apply one of the suggested fixes from diagnosePod. Throws httpError for invalid
-// input (mapped to 4xx by the route); anything else surfaces as a 500.
+
+
 async function remediate(namespace, name, type, params = {}) {
     if (type === 'RecreatePod') {
         await run('kubectl', ['delete', 'pod', name, '-n', namespace]);

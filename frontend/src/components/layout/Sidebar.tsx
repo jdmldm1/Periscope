@@ -23,7 +23,6 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
           setActiveTab(id);
           setSearch('');
         }
-        // Collapse the drawer after a selection on mobile.
         onNavigate?.();
       }}
     >

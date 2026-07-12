@@ -32,7 +32,6 @@ export const Sparkline: React.FC<{ data: number[]; color?: string; min?: number;
   );
 };
 
-// Health-focused summary card (healthy vs unhealthy).
 export const HealthStat: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -79,7 +78,6 @@ export const HealthStat: React.FC<{
   );
 };
 
-// Compact resource utilization bar (single source of truth).
 export const UtilBar: React.FC<{ pct: number; title: string; sub: string; icon: React.ReactNode; available: boolean; history?: number[] }> = ({ pct, title, sub, icon, available, history }) => {
   const color = pct >= 90 ? 'var(--accent-error)' : pct >= 75 ? 'var(--accent-warning)' : 'var(--accent-green)';
   const cls = pct >= 90 ? 'critical' : pct >= 75 ? 'warning' : 'normal';
@@ -106,7 +104,6 @@ export const UtilBar: React.FC<{ pct: number; title: string; sub: string; icon: 
   );
 };
 
-// Pod health doughnut (healthy vs failing/pending/not-ready).
 export const PodHealthDoughnut: React.FC<{ ph: any }> = ({ ph }) => {
   if (!ph) return null;
   const failing = (ph.crashLooping || 0) + (ph.imagePullError || 0) + (ph.configError || 0) + (ph.oomKilled || 0) + (ph.failed || 0);
@@ -165,7 +162,6 @@ export const PodHealthDoughnut: React.FC<{ ph: any }> = ({ ph }) => {
   );
 };
 
-// Resource inventory bar chart.
 export const ResourceBarChart: React.FC<{ counts: any }> = ({ counts }) => {
   const data = [
     { name: 'Pods', value: counts.pods || 0, color: 'var(--accent-green)' },

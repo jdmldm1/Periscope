@@ -15,9 +15,9 @@ class SecurityService {
         this.localKubescapePath = path.join(this.binDir, this.kubescapeBinaryName);
         this.kubescapeCacheFile = path.join(this.cacheDir, 'periscope-kubescape-cache.json');
 
-        // Local copy of Kubescape's frameworks/controls ("artifacts"). Scans point
-        // at this directory so an air-gapped cluster keeps working against the
-        // last downloaded set instead of trying to fetch fresh ones each run.
+
+
+
         this.artifactsDir = path.join(this.cacheDir, 'kubescape-artifacts');
         this.securityConfigFile = path.join(this.cacheDir, 'periscope-security-config.json');
         this.isArtifactsUpdating = false;
@@ -66,10 +66,10 @@ class SecurityService {
         }
     }
 
-    // Choose which frameworks to scan from the locally cached artifacts. We map to
-    // the frameworks the UI surfaces (NSA-CISA, MITRE, CIS) and pick the newest CIS
-    // *cluster* benchmark that was actually downloaded, so we never name a
-    // framework file that isn't present on disk.
+
+
+
+
     _selectFrameworks() {
         try {
             const files = fs.readdirSync(this.artifactsDir);
@@ -78,7 +78,7 @@ class SecurityService {
             if (has('nsa')) picked.push('nsa');
             if (has('mitre')) picked.push('mitre');
             const cis = files
-                .filter(f => /^cis-v\d[\d.]*\.json$/.test(f)) // cis-v1.10.0.json, not cis-eks/aks/gke
+                .filter(f => /^cis-v\d[\d.]*\.json$/.test(f))
                 .sort()
                 .pop();
             if (cis) picked.push(cis.replace(/\.json$/, ''));
@@ -99,9 +99,9 @@ class SecurityService {
         };
     }
 
-    // Download Kubescape's frameworks/controls into artifactsDir so later scans
-    // can run fully offline. Never throws — an air-gapped or offline cluster just
-    // keeps whatever artifacts were downloaded previously.
+
+
+
     async ensureKubescapeArtifacts() {
         if (this.isArtifactsUpdating) return false;
         this.isArtifactsUpdating = true;
@@ -130,7 +130,7 @@ class SecurityService {
         }
     }
 
-    // (Re)arm the periodic artifacts updater. Safe to call repeatedly.
+
     startArtifactsAutoUpdateLoop() {
         if (this.artifactsAutoUpdateTimer) {
             clearInterval(this.artifactsAutoUpdateTimer);
@@ -175,7 +175,7 @@ class SecurityService {
 
         this.isKubescapeScanning = true;
         
-        // Background execution
+
         (async () => {
             try {
                 let bin = await this._getKubescapeCommand();
@@ -187,10 +187,10 @@ class SecurityService {
                 const tempFileName = `kubescape-scan-${Date.now()}.json`;
                 const tempFilePath = path.join(os.tmpdir(), tempFileName);
 
-                // With cached artifacts, scan explicitly-named frameworks against
-                // them (offline). A bare `scan --use-artifacts-from` fatals with
-                // "framework clusterscan ... not matching", so the frameworks must
-                // be enumerated. Without cached artifacts, fall back to an online scan.
+
+
+
+
                 const frameworks = this.hasCachedArtifacts() ? this._selectFrameworks() : [];
                 const scanArgs = frameworks.length
                     ? ['scan', 'framework', frameworks.join(','),
@@ -198,7 +198,7 @@ class SecurityService {
                        '--format', 'json', '--format-version', 'v2', '--output', tempFilePath]
                     : ['scan', '--format', 'json', '--format-version', 'v2', '--output', tempFilePath];
 
-                // Don't let Kubescape block the scan on a version/update check.
+
                 const scanEnv = { ...process.env, KS_SKIP_UPDATE_CHECK: 'true' };
 
                 logger.info({ bin, scanArgs }, '[Kubescape] Executing scan');
@@ -208,8 +208,8 @@ class SecurityService {
                     const result = await run(bin, scanArgs, { env: scanEnv });
                     stderr = result.stderr;
                 } catch (error) {
-                    // Kubescape exits non-zero when controls fail; that's expected,
-                    // so we still try to read the report it wrote.
+
+
                     stderr = error.stderr || error.message;
                     logger.warn({ error: stderr }, '[Kubescape] Execution warning/error');
                 }
@@ -247,8 +247,8 @@ class SecurityService {
     }
 
     async _getKubescapeCommand() {
-        // Returns the executable path to invoke (passed to run() as argv[0]),
-        // or null if no kubescape binary is available yet.
+
+
         try {
             await run('kubescape', ['version']);
             return 'kubescape';
@@ -316,12 +316,12 @@ class SecurityService {
             ];
         }
 
-        // Kubescape's v2 JSON reports results per-resource: each entry in
-        // `results` has a `resourceID` and a `controls` array describing how
-        // that resource fared against each control. To list the resources that
-        // violate a given control we have to invert that mapping. (The previous
-        // implementation looked for `results[].controlID`, which never exists,
-        // so every control reported zero violating resources.)
+
+
+
+
+
+
         const resourceNameById = {};
         if (Array.isArray(data.resources)) {
             data.resources.forEach(r => {
@@ -347,9 +347,9 @@ class SecurityService {
             });
         }
 
-        // Kubescape's control summary doesn't always carry an explicit severity
-        // string; when it's missing, derive it from the control's base score
-        // using Kubescape's own severity bands.
+
+
+
         const deriveSeverity = (control) => {
             const raw = typeof control.severity === 'string' ? control.severity.toLowerCase() : '';
             if (raw.startsWith('crit')) return 'Critical';

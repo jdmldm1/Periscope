@@ -31,8 +31,6 @@ export const useClusterActions = (refresh: () => void) => {
     }
   };
 
-  // Stop a deployment by scaling it to 0. The backend remembers the previous
-  // replica count so handleStart can bring it back to where it was.
   const handleStop = async (name: string, namespace: string) => {
     if (!window.confirm(
       `Stop deployment ${name}?\n\nThis scales it to 0 replicas and terminates all of its pods. ` +

@@ -6,8 +6,6 @@ interface Props {
   onClose: () => void;
 }
 
-// Quick "deploy by path / OCI reference" dialog opened from the header. Owns its
-// own form state since nothing outside the modal reads it.
 export function DeployZarfModal({ isOpen, onClose }: Props) {
   const [packagePath, setPackagePath] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);

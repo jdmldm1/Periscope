@@ -1,15 +1,15 @@
-// Pure pod-health analysis used by the dashboard. These functions take raw
-// Kubernetes pod objects and answer "is this pod healthy, and if not, why?"
-// without touching the cluster or HTTP — which keeps them easy to reason about
-// and unit-test.
 
-// Container "waiting" reasons that indicate a hard failure rather than a
-// transient startup state.
+
+
+
+
+
+
 const IMAGE_PULL_REASONS = ['ImagePullBackOff', 'ErrImagePull', 'ErrImageNeverPull', 'InvalidImageName'];
 const CONFIG_ERROR_REASONS = ['CreateContainerConfigError', 'CreateContainerError', 'RunContainerError', 'StartError'];
 
-// A healthy pod that has restarted this many times is still surfaced as a
-// warning so churn doesn't hide behind a green status.
+
+
 const RESTART_WARN_THRESHOLD = 5;
 
 const STATUS_SEVERITY = {
@@ -24,7 +24,7 @@ const STATUS_LABEL = {
     pending: 'Pending / Unschedulable', notReady: 'Running (Not Ready)', terminating: 'Stuck Terminating'
 };
 
-// Classify a pod into a single "worst" health status for troubleshooting.
+
 function classifyPod(p) {
     const phase = p.status?.phase;
     if (p.metadata?.deletionTimestamp) return 'terminating';
@@ -89,9 +89,9 @@ function podIssueMessage(p, status) {
     return status;
 }
 
-// Resolve a workload "owner" for grouping pod issues. Pod ownerRefs point at the
-// ReplicaSet/Job/etc, which is exactly the grouping we want (all replicas of one
-// rollout collapse into a single issue instead of N near-identical rows).
+
+
+
 function podOwner(p) {
     const ref = (p.metadata?.ownerReferences || [])[0];
     if (ref) return { kind: ref.kind, name: ref.name };

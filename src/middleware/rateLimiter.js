@@ -3,7 +3,7 @@ const logger = require('../utils/logger');
 function createRateLimiter({ windowMs = 60000, maxRequests = 30 } = {}) {
     const hits = new Map();
 
-    // Clean up old entries periodically
+
     setInterval(() => {
         const now = Date.now();
         for (const [key, data] of hits) {

@@ -2,11 +2,8 @@ import React, { createContext, useContext, useState, useEffect, type ReactNode }
 import { useQueryClient } from '@tanstack/react-query';
 import { useSbomScans, useGrypeDbStatus, useKubescapeStatus } from '../utils/kubeHooks';
 import axios from 'axios';
-
 const api = axios.create({ baseURL: '/api' });
-
 interface ScannerContextType {
-  // Image scanner state
   enableAutoScan: boolean;
   handleToggleAutoScan: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   scanSingleImage: (img: string) => Promise<void>;
@@ -16,19 +13,15 @@ interface ScannerContextType {
   sbomScansData: any;
   grypeDbStatus: any;
   
-  // Kubescape
   kubescapeStatusData: any;
   triggerKubescapeScan: () => Promise<void>;
 }
-
 const ScannerContext = createContext<ScannerContextType | null>(null);
-
 export function useScannerContext() {
   const ctx = useContext(ScannerContext);
   if (!ctx) throw new Error('useScannerContext must be used within ScannerProvider');
   return ctx;
 }
-
 export function ScannerProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { data: sbomScansData } = useSbomScans();
@@ -38,7 +31,6 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
   const [enableAutoScan, setEnableAutoScan] = useState(true);
   const [localScanningImages, setLocalScanningImages] = useState<Set<string>>(new Set());
   const [isScanningAllRunningImages, setIsScanningAllRunningImages] = useState(false);
-
   useEffect(() => {
     const fetchScannerConfig = async () => {
       try {
@@ -50,7 +42,6 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     };
     fetchScannerConfig();
   }, []);
-
   const handleToggleAutoScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const newVal = e.target.checked;
     setEnableAutoScan(newVal);
@@ -61,7 +52,6 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       setEnableAutoScan(!newVal);
     }
   };
-
   const scanSingleImage = async (img: string) => {
     setLocalScanningImages(prev => {
       const next = new Set(prev);
@@ -83,7 +73,6 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       });
     }
   };
-
   const fetchRunningImagesAndScan = async () => {
     try {
       setIsScanningAllRunningImages(true);
@@ -98,7 +87,6 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       setIsScanningAllRunningImages(false);
     }
   };
-
   const triggerKubescapeScan = async () => {
     try {
       await api.post('/security/kubescape/scan');
@@ -107,7 +95,6 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
       console.error(err);
     }
   };
-
   const runningImagesScanResults = React.useMemo(() => {
     if (!sbomScansData) return {};
     const merged = { ...sbomScansData };
@@ -120,7 +107,6 @@ export function ScannerProvider({ children }: { children: ReactNode }) {
     });
     return merged;
   }, [sbomScansData, localScanningImages]);
-
   return (
     <ScannerContext.Provider value={{
       enableAutoScan, handleToggleAutoScan,

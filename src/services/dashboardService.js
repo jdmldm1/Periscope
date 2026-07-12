@@ -14,14 +14,14 @@ const {
     podOwner,
 } = require('../utils/podHealth');
 
-// Aggregates cluster state into the shapes the dashboard renders. Each function
-// fetches what it needs in parallel and returns a plain data object; the route
-// layer is responsible only for query parsing and HTTP responses.
 
-// ---------------------------------------------------------------------------
-// /stats — cluster-wide health overview: counts, pod/node/workload health, a
-// rolled-up health score, recent warnings, and recent deployments.
-// ---------------------------------------------------------------------------
+
+
+
+
+
+
+
 async function getStats(ns) {
     const scoped = ns && ns !== 'all';
 
@@ -56,7 +56,7 @@ async function getStats(ns) {
 
     const issues = [];
 
-    // ---- Pod health analysis (issues grouped by owning workload) ----
+
     const podHealth = {
         healthy: 0, crashLooping: 0, imagePullError: 0, configError: 0,
         oomKilled: 0, failed: 0, pending: 0, notReady: 0, terminating: 0, restarts: 0
@@ -75,7 +75,7 @@ async function getStats(ns) {
         }
         podIssueGroups.set(key, {
             severity, kind: 'Pod', namespace,
-            name: p.metadata?.name,        // representative pod (for drill-down)
+            name: p.metadata?.name,
             ownerKind: owner.kind, ownerName: owner.name,
             reason, message, restarts, count: 1
         });
@@ -97,7 +97,7 @@ async function getStats(ns) {
 
     const podsUnhealthy = pods.length - podHealth.healthy;
 
-    // ---- Node health analysis ----
+
     let nodesReady = 0;
     nodes.forEach(node => {
         const conditions = node.status?.conditions || [];
@@ -120,7 +120,7 @@ async function getStats(ns) {
         }
     });
 
-    // ---- Workload (Deployment) health analysis ----
+
     let deploymentsHealthy = 0;
     deployments.forEach(d => {
         const desired = d.spec?.replicas ?? 0;
@@ -132,7 +132,7 @@ async function getStats(ns) {
         }
     });
 
-    // ---- Recent warning events (last hour) ----
+
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     const warningEvents = events
         .filter(e => e.type === 'Warning')
@@ -199,18 +199,18 @@ async function getStats(ns) {
     };
 }
 
-// Cluster Health Score (0 - 100), penalizing critical/warning pods, not-ready
-// and pressured nodes, and degraded deployments.
+
+
 function computeHealthScore({ nodes, nodesReady, deployments, deploymentsHealthy, podHealth }) {
     let score = 100;
 
-    // 1. Pod health deductions
+
     const criticalPodsCount = (podHealth.crashLooping || 0) + (podHealth.imagePullError || 0) + (podHealth.configError || 0) + (podHealth.oomKilled || 0) + (podHealth.failed || 0);
     const warningPodsCount = (podHealth.pending || 0) + (podHealth.notReady || 0) + (podHealth.terminating || 0);
     score -= (criticalPodsCount * 6);
     score -= (warningPodsCount * 3);
 
-    // 2. Node health deductions
+
     const nodesNotReadyCount = nodes.length - nodesReady;
     score -= (nodesNotReadyCount * 15);
 
@@ -224,16 +224,16 @@ function computeHealthScore({ nodes, nodesReady, deployments, deploymentsHealthy
     });
     score -= (nodePressureCount * 4);
 
-    // 3. Workload (Deployment) health deductions
+
     const degradedDeploymentsCount = deployments.length - deploymentsHealthy;
     score -= (degradedDeploymentsCount * 5);
 
     return Math.max(0, Math.min(100, score));
 }
 
-// Merge Helm releases and Zarf packages into one recency-sorted feed. Timestamps
-// arrive in mixed formats (Helm appends a timezone abbreviation Date.parse can
-// choke on), so strip a trailing TZ before parsing and fall back to the raw value.
+
+
+
 function collectRecentDeployments(helmreleases, zarfpackages) {
     const recentDeployments = [];
 
@@ -274,11 +274,11 @@ function collectRecentDeployments(helmreleases, zarfpackages) {
     return recentDeployments.slice(0, 8);
 }
 
-// ---------------------------------------------------------------------------
-// /issue-detail — gather the evidence a troubleshooter needs in one place:
-// container states + exit codes, conditions, recent events, and crucially the
-// PREVIOUS container logs (what was printed right before it crashed).
-// ---------------------------------------------------------------------------
+
+
+
+
+
 async function eventsForObject(namespace, name, clusterScoped) {
     try {
         const raw = clusterScoped
@@ -305,7 +305,7 @@ async function readPodLog(namespace, name, container, previous) {
         });
         return resp.body || resp || '';
     } catch (e) {
-        return null; // caller decides on fallback
+        return null;
     }
 }
 
@@ -337,7 +337,7 @@ async function getDeploymentIssueDetail(namespace, name) {
             status: classifyPod(p),
             restarts: podRestarts(p)
         }));
-    } catch (e) { /* selector may be empty */ }
+    } catch (e) {  }
     return {
         kind: 'Deployment', namespace, name,
         replicas: {
@@ -372,7 +372,7 @@ async function getPodIssueDetail(namespace, name) {
         };
     });
 
-    // Pick the most relevant container to pull logs from.
+
     const failing = allStatuses.find(cs => cs.state?.waiting || (cs.state?.terminated && cs.state.terminated.exitCode !== 0) || cs.lastState?.terminated)
         || allStatuses[0]
         || { name: pod.spec?.containers?.[0]?.name };
@@ -380,8 +380,8 @@ async function getPodIssueDetail(namespace, name) {
 
     let logs = null;
     if (targetContainer) {
-        // Previous logs first — for a crashlooping container the current
-        // instance is usually empty, but the previous one shows the crash.
+
+
         const hadRestart = (failing.restartCount || 0) > 0 || !!failing.lastState?.terminated;
         let text = hadRestart ? await readPodLog(namespace, name, targetContainer, true) : null;
         let previous = text != null;
@@ -409,11 +409,11 @@ function getIssueDetail({ kind, namespace, name }) {
     return getPodIssueDetail(namespace, name);
 }
 
-// ---------------------------------------------------------------------------
-// /integration — the things that actually block a new workload from coming up:
-// quota limits, image-pull failures, restarting/unschedulable pods, and
-// workloads already pushing past their memory request.
-// ---------------------------------------------------------------------------
+
+
+
+
+
 function registryOf(image) {
     if (!image) return 'docker.io';
     const first = image.split('/')[0];
@@ -435,7 +435,7 @@ async function getIntegrationReadiness(ns) {
     const limitRangeItems = getItems(limitRangesRaw);
     const podMetrics = getItems(podMetricsRaw);
 
-    // Resource quotas with utilization
+
     const quotas = quotasItems.map(q => {
         const hard = q.status?.hard || q.spec?.hard || {};
         const used = q.status?.used || {};
@@ -443,7 +443,7 @@ async function getIntegrationReadiness(ns) {
         return { namespace: q.metadata?.namespace, name: q.metadata?.name, entries };
     });
 
-    // Image pull failures grouped by image
+
     const imagePullMap = new Map();
     pods.forEach(p => {
         (p.status?.containerStatuses || []).forEach(cs => {
@@ -458,13 +458,13 @@ async function getIntegrationReadiness(ns) {
     });
     const imagePullIssues = [...imagePullMap.values()].sort((a, b) => b.count - a.count).slice(0, 20);
 
-    // Pods with container restarts (restarting workloads/pods)
+
     const restartList = [];
     const unschedulable = [];
     pods.forEach(p => {
         if (p.status?.phase === 'Succeeded') return;
 
-        // Check for restarts
+
         const rCount = podRestarts(p);
         if (rCount > 0) {
             const isOOMKilled = (p.status?.containerStatuses || []).some(cs =>
@@ -479,7 +479,7 @@ async function getIntegrationReadiness(ns) {
             });
         }
 
-        // Check for scheduling issues
+
         if (p.status?.phase === 'Pending') {
             const schedCond = (p.status?.conditions || []).find(c => c.type === 'PodScheduled');
             if (schedCond && schedCond.status === 'False' && (schedCond.reason === 'Unschedulable' || schedCond.message?.includes('Insufficient') || schedCond.message?.includes('fit'))) {
@@ -495,7 +495,7 @@ async function getIntegrationReadiness(ns) {
     const podRestartsData = restartList.sort((a, b) => b.restarts - a.restarts).slice(0, 20);
     const unschedulableData = unschedulable.slice(0, 20);
 
-    // Workloads using more memory than they request (no headroom -> OOM risk)
+
     const usageByPod = new Map();
     podMetrics.forEach(pm => {
         const key = `${pm.metadata?.namespace}/${pm.metadata?.name}`;
@@ -652,7 +652,7 @@ async function runDiagnostic(action, ns) {
             const selectorStr = Object.entries(selector).map(([k, v]) => `${k}=${v}`).join(', ');
             output += `    - Selector:  ${selectorStr}\n`;
             
-            // Find pods in same namespace matching selector
+
             const svcPods = pods.filter(p => {
                 if (p.metadata?.namespace !== namespace) return false;
                 const labels = p.metadata?.labels || {};

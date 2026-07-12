@@ -2,8 +2,6 @@ import React from 'react';
 import { ShieldAlert, CheckCircle2, AlertCircle, AlertTriangle, ChevronRight, Package } from 'lucide-react';
 import { type Issue, type RecentWarning, SEV_COLOR } from './types';
 
-// Active issues panel — the core troubleshooting view. Clicking an issue opens
-// the drill-down drawer via onSelectIssue.
 export const IssuesPanel: React.FC<{
   issues: Issue[];
   criticalCount: number;
@@ -76,7 +74,6 @@ export const IssuesPanel: React.FC<{
   </div>
 );
 
-// Recent warning events panel.
 export const WarningsPanel: React.FC<{ warnings: RecentWarning[]; onViewEvents: () => void }> = ({ warnings, onViewEvents }) => (
   <div className="dashboard-chart-card" style={{ cursor: 'pointer' }} onClick={onViewEvents}
     onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)')}
@@ -108,7 +105,6 @@ export const WarningsPanel: React.FC<{ warnings: RecentWarning[]; onViewEvents: 
   </div>
 );
 
-// Recent Helm/Zarf deployments panel.
 export const DeploymentsPanel: React.FC<{ deployments: any[]; onViewHelm: () => void }> = ({ deployments, onViewHelm }) => (
   <div className="dashboard-chart-card" style={{ cursor: 'pointer' }} onClick={onViewHelm}
     onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)')}

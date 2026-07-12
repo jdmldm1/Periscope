@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
 import { Lock, ShieldAlert, Key, CheckCircle } from 'lucide-react';
 import axios from 'axios';
-
 interface ChangePasswordModalProps {
   isOpen: boolean;
   onPasswordChanged: () => void;
-  forced?: boolean; // if true, they cannot close it without changing
+  forced?: boolean;
   onClose?: () => void;
 }
-
 export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   isOpen,
   onPasswordChanged,
@@ -20,28 +18,22 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
-
   if (!isOpen) return null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!password || !confirmPassword) return;
-
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
-
     if (password.length < 4) {
       setError('Password must be at least 4 characters long');
       return;
     }
-
     if (password === 'periscope') {
       setError('You must choose a password other than the default "periscope"');
       return;
     }
-
     setLoading(true);
     setError(null);
     try {
@@ -57,7 +49,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       setLoading(false);
     }
   };
-
   const inputStyle = {
     background: 'var(--bg-main)',
     border: '1px solid var(--border-color)',
@@ -68,9 +59,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     outline: 'none',
     fontSize: '0.9rem',
   };
-
   const labelStyle = { fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 500 };
-
   return (
     <div className="modal-overlay" style={{ zIndex: 9999 }}>
       <div className="modal-content animate-fade-in" style={{ maxWidth: 440, height: 'auto', maxHeight: 'none', padding: 28 }}>
@@ -98,7 +87,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               : 'Update your security credentials'}
           </p>
         </div>
-
         {success ? (
           <div style={{
             background: 'rgba(16, 185, 129, 0.1)',
@@ -131,7 +119,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
                 <span>{error}</span>
               </div>
             )}
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label style={labelStyle}>New Password</label>
               <div style={{ position: 'relative' }}>
@@ -148,7 +135,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
                 />
               </div>
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label style={labelStyle}>Confirm New Password</label>
               <div style={{ position: 'relative' }}>
@@ -165,7 +151,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
                 />
               </div>
             </div>
-
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 12 }}>
               {!forced && onClose && (
                 <button type="button" className="btn" onClick={onClose} disabled={loading}>

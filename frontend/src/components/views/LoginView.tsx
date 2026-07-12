@@ -1,21 +1,17 @@
 import React, { useState } from 'react';
 import { Lock, User, ShieldAlert, Key } from 'lucide-react';
 import axios from 'axios';
-
 interface LoginViewProps {
   onLoginSuccess: (token: string, isDefault: boolean) => void;
 }
-
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) return;
-
     setLoading(true);
     setError(null);
     try {
@@ -32,7 +28,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       setLoading(false);
     }
   };
-
   const inputStyle = {
     background: 'rgba(255, 255, 255, 0.03)',
     border: '1px solid var(--border-color)',
@@ -44,7 +39,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     fontSize: '0.9rem',
     transition: 'border-color 0.2s',
   };
-
   return (
     <div className="login-overlay">
       <div className="login-card animate-fade-in">
@@ -67,10 +61,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#fff', letterSpacing: '-0.5px' }}>Periscope</span>
           </div>
         </div>
-
         <h2 className="login-title">Welcome Back</h2>
         <p className="login-subtitle">Sign in to manage your Kubernetes clusters</p>
-
         {error && (
           <div style={{
             display: 'flex',
@@ -88,7 +80,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             <span>{error}</span>
           </div>
         )}
-
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative' }}>
             <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 500 }}>Username</label>
@@ -106,7 +97,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               />
             </div>
           </div>
-
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative' }}>
             <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 500 }}>Password</label>
             <div style={{ position: 'relative' }}>
@@ -123,7 +113,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               />
             </div>
           </div>
-
           <button
             type="submit"
             className="btn btn-primary"

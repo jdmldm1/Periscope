@@ -3,12 +3,6 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { QueryProvider } from './utils/QueryProvider'
-
-// ============================================================
-// Global API & WebSocket Interceptors for Token Authentication
-// ============================================================
-
-// 1. Intercept window.fetch
 const originalFetch = window.fetch;
 window.fetch = function(input, init) {
     const token = localStorage.getItem('periscope_token');
@@ -26,37 +20,26 @@ window.fetch = function(input, init) {
                 init.headers.push(['Authorization', `Bearer ${token}`]);
             }
         } else {
-            // @ts-ignore
             init.headers['Authorization'] = `Bearer ${token}`;
         }
     }
     return originalFetch.call(this, input, init);
 };
-
 const originalOpen = XMLHttpRequest.prototype.open;
-// @ts-ignore
-XMLHttpRequest.prototype.open = function(method: string, url: string | URL, ...args: any[]) {
-    // @ts-ignore
+XMLHttpRequest.prototype.open = function(this: XMLHttpRequest & { _url?: string | URL }, method: string, url: string | URL) {
     this._url = url;
-    // @ts-ignore
-    return originalOpen.apply(this, [method, url, ...args]);
+    return originalOpen.call(this, method, url, true);
 } as any;
-
 const originalSend = XMLHttpRequest.prototype.send;
-XMLHttpRequest.prototype.send = function(...args) {
+XMLHttpRequest.prototype.send = function(this: XMLHttpRequest & { _url?: string | URL }, body?: Document | XMLHttpRequestBodyInit | null) {
     const token = localStorage.getItem('periscope_token');
-    // @ts-ignore
     const isApiUrl = typeof this._url === 'string' && (this._url.startsWith('/api') || this._url.startsWith('api') || !this._url.includes('://'));
     if (token && isApiUrl) {
-        // @ts-ignore
         this.setRequestHeader('Authorization', `Bearer ${token}`);
     }
-    return originalSend.apply(this, args);
+    return originalSend.call(this, body);
 };
-
-// 3. Intercept WebSocket connections to inject session token parameter
 const OriginalWebSocket = window.WebSocket;
-// @ts-ignore
 window.WebSocket = function(url: string | URL, protocols?: string | string[]) {
   const urlStr = url.toString();
   if (urlStr.includes('/api/') && (urlStr.includes('/ws') || urlStr.includes('/ws?'))) {
@@ -70,17 +53,11 @@ window.WebSocket = function(url: string | URL, protocols?: string | string[]) {
     }
   }
   return new OriginalWebSocket(url, protocols);
-};
-// Copy prototype and static properties
-window.WebSocket.prototype = OriginalWebSocket.prototype;
-// @ts-ignore
-Object.keys(OriginalWebSocket).forEach(key => {
-  // @ts-ignore
-  window.WebSocket[key] = OriginalWebSocket[key];
+} as any;
+(window.WebSocket as any).prototype = OriginalWebSocket.prototype;
+Object.keys(OriginalWebSocket).forEach((key) => {
+  (window.WebSocket as any)[key] = (OriginalWebSocket as any)[key];
 });
-
-// ============================================================
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryProvider>

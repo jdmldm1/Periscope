@@ -7,12 +7,12 @@ const k8sService = require('./k8sService');
 
 const REGISTRY_URL = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
 
-// Strip ANSI terminal escape sequences from CLI output before parsing tables.
+
 const ANSI_RE = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 
-// Every zarf invocation goes through run() with an argv array (no shell), so
-// package names, image refs, repo names, file paths and registry credentials are
-// passed as single arguments and can't be interpreted as shell syntax.
+
+
+
 class ZarfService {
     async getStatus() {
         try {
@@ -66,7 +66,7 @@ class ZarfService {
                     results.push({ repository: repo, tag, full: `${repo}:${tag}` });
                 });
             } catch (err) {
-                // Skip repos we can't list.
+
             }
         }));
         return results;
@@ -97,13 +97,8 @@ class ZarfService {
         }
     }
 
-    /**
-     * Ensure we're authenticated to the in-cluster Zarf registry. Resolves on
-     * success, rejects with an Error on failure.
-     *
-     * Accepts optional (onSuccess, onError) callbacks for legacy callers; when
-     * provided it invokes them, otherwise it behaves as a normal promise.
-     */
+    
+
     async _ensureRegistryLogin(onSuccess, onError) {
         const done = (err) => {
             if (err) {
@@ -123,7 +118,7 @@ class ZarfService {
             }
         }
 
-        // Unauthorized — fetch creds and log in.
+
         let credStdout;
         try {
             ({ stdout: credStdout } = await run('zarf', ['tools', 'get-creds']));
@@ -206,9 +201,9 @@ class ZarfService {
         const yamlPath = path.join(tempDir, 'zarf.yaml');
         fs.writeFileSync(yamlPath, configText, 'utf8');
 
-        // tempDir is server-generated (see unpackPackage); no user input is
-        // interpolated into this script. The shell is the package builder's, run
-        // via an explicit `sh -c`, not from spawn({shell:true}).
+
+
+
         const runScript = `
             cd "${tempDir}"
             zarf package create --confirm

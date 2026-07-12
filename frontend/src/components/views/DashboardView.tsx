@@ -41,7 +41,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     : null;
   const { data: issueDetail, isLoading: issueLoading } = useIssueDetail(issueDetailParams);
 
-  // History tracking state
   const [scoreHistory, setScoreHistory] = useState<number[]>([]);
   const [podUnhealthyHistory, setPodUnhealthyHistory] = useState<number[]>([]);
   const [deploymentDegradedHistory, setDeploymentDegradedHistory] = useState<number[]>([]);
@@ -123,7 +122,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="dashboard-container animate-fade-in">
-      {/* Cluster Health Banner */}
+      {}
       <div style={{
         background: `linear-gradient(135deg, ${overallMeta.color}1a 0%, rgba(27, 38, 59, 0.15) 100%)`,
         border: `1px solid ${overallMeta.color}40`,
@@ -153,11 +152,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 strokeDashoffset={`${2 * Math.PI * 26 * (1 - (health.score ?? 100) / 100)}`}
                 strokeLinecap="round"
                 transform="rotate(-90 30 30)"
-                style={{ 
-                  transition: 'stroke-dashoffset 1s ease-in-out',
-                  // @ts-ignore
-                  '--pulse-color': overallMeta.color 
-                }}
+                style={{
+                  transition: 'stroke-dashoffset 1s ease-in-out'
+                } as React.CSSProperties & { '--pulse-color'?: string }}
               />
               <line 
                 x1="30" y1="30" x2="30" y2="4" 
@@ -220,7 +217,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
 
 
-      {/* Active issues & deployments — primary top row */}
+      {}
       <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))' }}>
         <IssuesPanel
           issues={issues}
@@ -232,7 +229,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <DeploymentsPanel deployments={recentDeployments} onViewHelm={() => setActiveTab('helm')} />
       </div>
 
-      {/* Cluster state overview: health (healthy vs unhealthy) + resource utilization */}
+      {}
       <h2 style={{ fontSize: '1.1rem', margin: '4px 0 0', letterSpacing: 0.5 }}>CLUSTER STATE OVERVIEW</h2>
       <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
         <HealthStat icon={<Server size={14} />} label="Nodes" healthy={nodes.ready} total={nodes.total} bad={nodes.notReady} badLabel="not ready" onClick={() => setActiveTab('nodes')} />
@@ -244,7 +241,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Pod health + recent warnings */}
+      {}
       <div className="dashboard-charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))' }}>
         <div className="dashboard-chart-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('pods')}
           onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)')}
@@ -258,7 +255,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <WarningsPanel warnings={recentWarnings} onViewEvents={() => setActiveTab('events')} />
       </div>
 
-      {/* Inventory + security */}
+      {}
       <div className="dashboard-charts-grid">
         <div className="dashboard-chart-card">
           <div className="dashboard-chart-title">RESOURCE INVENTORY</div>
@@ -270,7 +267,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       <SecuritySection scanResults={runningImagesScanResults} kubescapeReport={kubescapeReport} onNavigate={setActiveTab} />
 
-      {/* Quick Action Console */}
+      {}
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontSize: '1.1rem', marginBottom: 14, letterSpacing: 0.5 }}>QUICK ACTION CONSOLE</h2>
         <div className="dashboard-quick-actions">

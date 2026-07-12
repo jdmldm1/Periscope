@@ -5,7 +5,7 @@ const k8sService = require('../services/k8sService');
 const pvcService = require('../services/pvcService');
 const logger = require('../utils/logger');
 
-// Context Comparisons
+
 router.get('/kube/contexts/comparison', async (req, res) => {
     try {
         const contexts = k8sService.kc.contexts;
@@ -19,7 +19,7 @@ router.get('/kube/contexts/comparison', async (req, res) => {
                 kc.setCurrentContext(ctx.name);
                 const core = kc.makeApiClient(k8s.CoreV1Api);
                 
-                // Fetch basic metrics
+
                 const [nodesRes, podsRes, nsRes] = await Promise.all([
                     core.listNode(),
                     core.listPodForAllNamespaces(),
@@ -41,7 +41,7 @@ router.get('/kube/contexts/comparison', async (req, res) => {
                     isCurrent: ctx.name === currentContext
                 });
             } catch (err) {
-                // Unreachable or offline context
+
                 comparisonList.push({
                     name: ctx.name,
                     cluster: ctx.cluster,
@@ -62,7 +62,7 @@ router.get('/kube/contexts/comparison', async (req, res) => {
     }
 });
 
-// PVC Folder Browser
+
 router.get('/volumes/:namespace/:pvcName/browse', async (req, res) => {
     const { namespace, pvcName } = req.params;
     const { path } = req.query;
