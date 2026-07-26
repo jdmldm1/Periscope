@@ -83,7 +83,7 @@ airgap: false
 # environments (e.g. k3d) don't provide it, so it is left out of the default
 # plugin set. Add "dns" back on clusters that support it.
 retina:
-  enabled: false
+  enabled: true
   image:
     repository: ghcr.io/microsoft/retina/retina-agent
     tag: v0.0.2
