@@ -17,6 +17,7 @@ components:
 
     images:
       - ghcr.io/jdmldm1/periscope:1.3.2
+      - ghcr.io/microsoft/retina/retina-agent:v0.0.2
       - alpine:latest
 
     charts:
