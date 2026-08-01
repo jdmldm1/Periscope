@@ -63,6 +63,11 @@ persistence:
   accessMode: ReadWriteOnce
   size: 5Gi
 
+# Host path mounting to interact with host folders inside the webterm
+hostMounts:
+  hostPath: ""
+  mountPath: ""
+
 auth:
   # Set an API key to require authentication for all API requests.
   # When empty, authentication is disabled (default for backward compatibility).

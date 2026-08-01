@@ -49,15 +49,29 @@ spec:
               value: {{ .Values.auth.enabled | quote }}
             - name: AIRGAP
               value: {{ .Values.airgap | quote }}
-          {{- if .Values.persistence.enabled }}
+          {{- if or .Values.persistence.enabled (and .Values.hostMounts.hostPath .Values.hostMounts.mountPath) }}
           volumeMounts:
+            {{- if .Values.persistence.enabled }}
             - name: cache-volume
               mountPath: /app/.cache
+            {{- end }}
+            {{- if and .Values.hostMounts.hostPath .Values.hostMounts.mountPath }}
+            - name: host-mount
+              mountPath: {{ .Values.hostMounts.mountPath | quote }}
+            {{- end }}
           {{- end }}
-      {{- if .Values.persistence.enabled }}
+      {{- if or .Values.persistence.enabled (and .Values.hostMounts.hostPath .Values.hostMounts.mountPath) }}
       volumes:
+        {{- if .Values.persistence.enabled }}
         - name: cache-volume
           persistentVolumeClaim:
             claimName: {{ include "periscope.fullname" . }}-cache
+        {{- end }}
+        {{- if and .Values.hostMounts.hostPath .Values.hostMounts.mountPath }}
+        - name: host-mount
+          hostPath:
+            path: {{ .Values.hostMounts.hostPath | quote }}
+            type: DirectoryOrCreate
+        {{- end }}
       {{- end }}
 

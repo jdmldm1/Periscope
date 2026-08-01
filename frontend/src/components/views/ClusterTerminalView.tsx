@@ -204,8 +204,9 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
           background: 'rgba(255,255,255,0.03)', 
           backdropFilter: 'blur(10px)', 
           border: '1px solid var(--border-color)', 
-          borderRadius: 8, 
-          padding: '12px 20px' 
+          borderRadius: 12, 
+          padding: '12px 20px',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)'
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -220,28 +221,28 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}>
             {status === 'connected' ? (
-              <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '4px 10px', borderRadius: 20 }}>
                 <CheckCircle size={14} style={{ color: '#10b981' }} />
-                <span style={{ color: '#10b981', fontWeight: 500 }}>Online</span>
-              </>
+                <span style={{ color: '#10b981', fontWeight: 600 }}>Online</span>
+              </div>
             ) : status === 'connecting' ? (
-              <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '4px 10px', borderRadius: 20 }}>
                 <div className="spinner-border spinner-border-sm" role="status" style={{ width: 12, height: 12, border: '2px solid var(--accent-cyan)', borderRightColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                <span style={{ color: 'var(--text-muted)' }}>Connecting...</span>
-              </>
+                <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>Connecting...</span>
+              </div>
             ) : (
-              <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '4px 10px', borderRadius: 20 }}>
                 <AlertTriangle size={14} style={{ color: '#ef4444' }} />
-                <span style={{ color: '#ef4444', fontWeight: 500 }}>Offline</span>
-              </>
+                <span style={{ color: '#ef4444', fontWeight: 600 }}>Offline</span>
+              </div>
             )}
           </div>
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn" onClick={handleClear} disabled={status !== 'connected'} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem' }}>
+            <button className="btn" onClick={handleClear} disabled={status !== 'connected'} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem', borderRadius: 8, transition: 'all 0.2s' }}>
               <Trash2 size={12} /> Clear
             </button>
-            <button className="btn btn-primary" onClick={handleReconnect} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem' }}>
+            <button className="btn btn-primary" onClick={handleReconnect} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.8rem', borderRadius: 8, transition: 'all 0.2s' }}>
               <RotateCcw size={12} /> Reconnect
             </button>
           </div>
@@ -254,27 +255,33 @@ export const ClusterTerminalView: React.FC<ClusterTerminalViewProps> = ({
         </div>
       )}
 
-      <div 
-        style={{ 
-          flex: 1, 
-          background: '#0a0d1a', 
-          border: '1px solid var(--border-color)', 
-          borderRadius: 8, 
-          padding: 12, 
-          boxSizing: 'border-box',
-          overflow: 'hidden',
-          boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)',
-          position: 'relative'
-        }}
-      >
-        <div ref={terminalRef} style={{ width: '100%', height: '100%' }} />
-        {booting && (
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,13,26,0.9)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, zIndex: 5, borderRadius: 8 }}>
-            <div style={{ width: 46, height: 46, border: '3px solid rgba(0,188,212,0.15)', borderTopColor: 'var(--accent-cyan)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-            <div style={{ color: 'var(--text-main)', fontWeight: 600, fontSize: '1rem' }}>{bootLabel}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Launching the cluster TUI — this takes a few seconds.</div>
+      <div className="terminal-window">
+        <div className="terminal-window-header">
+          <div className="terminal-window-dots">
+            <span className="terminal-window-dot close" />
+            <span className="terminal-window-dot minimize" />
+            <span className="terminal-window-dot maximize" />
           </div>
-        )}
+          <div className="terminal-window-title">
+            <span className="terminal-window-tab-active">
+              <TerminalIcon size={12} style={{ display: 'inline-block', marginRight: 6, verticalAlign: 'text-bottom', color: 'var(--accent-cyan)' }} />
+              {title}
+            </span>
+          </div>
+          <div className="terminal-window-meta">
+            sh ({status})
+          </div>
+        </div>
+        <div className="terminal-window-body">
+          <div ref={terminalRef} style={{ width: '100%', height: '100%' }} />
+          {booting && (
+            <div className="terminal-boot-overlay">
+              <div className="terminal-boot-spinner" />
+              <div className="terminal-boot-label">{bootLabel}</div>
+              <div className="terminal-boot-subtext">Launching the cluster TUI shell — this takes a few seconds.</div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
