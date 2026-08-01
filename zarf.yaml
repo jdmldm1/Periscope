@@ -10,6 +10,14 @@ variables:
     description: "Enable username/password authentication"
     default: "true"
     prompt: true
+  - name: HOST_MOUNT_PATH
+    description: "Optional host folder path to mount into the Periscope pod (leave blank to skip)"
+    default: ""
+    prompt: true
+  - name: CONTAINER_MOUNT_PATH
+    description: "Optional folder path inside the pod to mount the host folder (leave blank to skip)"
+    default: ""
+    prompt: true
 
 components:
   - name: periscope
@@ -32,3 +40,9 @@ components:
           - name: AUTH_ENABLED
             description: "Enable username/password authentication"
             path: auth.enabled
+          - name: HOST_MOUNT_PATH
+            description: "Optional host folder path to mount into the Periscope pod"
+            path: hostMounts.hostPath
+          - name: CONTAINER_MOUNT_PATH
+            description: "Optional folder path inside the pod to mount the host folder"
+            path: hostMounts.mountPath

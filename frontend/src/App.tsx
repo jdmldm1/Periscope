@@ -538,9 +538,11 @@ function App() {
 
   useEffect(() => {
     const checkAuthStatus = async () => {
+      const minDelay = new Promise(resolve => setTimeout(resolve, 1000));
       try {
         const { data } = await axios.get('/api/auth/status');
         const token = localStorage.getItem('periscope_token');
+        await minDelay;
         if (data.enabled) {
           if (token) {
             setAuthState({
@@ -571,6 +573,7 @@ function App() {
       } catch (err) {
         console.error('Failed to check auth status:', err);
         const token = localStorage.getItem('periscope_token');
+        await minDelay;
         setAuthState({
           checked: true,
           enabled: true,
@@ -638,7 +641,34 @@ function App() {
   }, []);
 
   if (!authState.checked) {
-    return <div className="loader-container"><div className="loader"></div></div>;
+    return (
+      <div className="splash-container">
+        <div className="splash-glow" />
+        <div className="splash-content">
+          <div className="splash-logo-wrapper">
+            <div className="sonar-wave sonar-wave-1" />
+            <div className="sonar-wave sonar-wave-2" />
+            <div className="sonar-wave sonar-wave-3" />
+            <img 
+              src="/logo.png" 
+              className="splash-logo" 
+              alt="Periscope Logo" 
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }} 
+            />
+          </div>
+          <h1 className="splash-title">Periscope</h1>
+          <div className="splash-subtitle">Kubernetes Control Plane</div>
+          
+          <div className="splash-progress-container">
+            <div className="splash-progress-bar" />
+          </div>
+          
+          <div className="splash-status">Initializing secure console session...</div>
+        </div>
+      </div>
+    );
   }
 
   if (authState.enabled && !authState.authenticated) {

@@ -31,7 +31,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 # curl/ca-certificates (also used at runtime by ORAS/bin-bootstrap downloads),
 # zstd (Grype DB decompression), util-linux (PTY script tool), tcpdump
 # (network sniffer), libcap (setcap, below).
-RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump libcap
+RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump libcap nano
 
 ENV ZARF_VERSION=${ZARF_VERSION} \
     KUBECTL_VERSION=${KUBECTL_VERSION} \

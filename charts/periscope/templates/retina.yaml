@@ -1,4 +1,12 @@
+{{- $alreadyInstalled := false }}
 {{- if .Values.retina.enabled }}
+  {{- range $ns := list "kube-system" "default" "zarf" "retina" }}
+    {{- if lookup "apps/v1" "DaemonSet" $ns "retina-agent" }}
+      {{- $alreadyInstalled = true }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- if and .Values.retina.enabled (not $alreadyInstalled) }}
 # Microsoft Retina eBPF flow-observability agent. Rendered only when
 # retina.enabled=true. This mirrors the upstream Retina agent, with two defaults
 # chosen for portability: a numeric metricsInterval (older agent builds panic

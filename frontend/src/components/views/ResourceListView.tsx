@@ -458,6 +458,75 @@ export const ResourceListView = ({
                       )}
                     </div>
                   )})()}
+                  {activeTab === 'ingresses' && (() => {
+                    const rules = res.spec?.rules || [];
+                    const tls = res.spec?.tls || [];
+                    const lbIngress = res.status?.loadBalancer?.ingress || [];
+                    
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                        {lbIngress.length > 0 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>ADDRESS:</span>
+                            {lbIngress.map((lb: any, idx: number) => (
+                              <span key={idx} className="badge" style={{ background: 'rgba(6, 182, 212, 0.1)', color: 'var(--accent-cyan)', fontSize: '0.72rem', textTransform: 'none', fontFamily: 'var(--font-mono)' }}>
+                                {lb.ip || lb.hostname}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {rules.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', padding: 8, borderRadius: 6 }}>
+                            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.5px' }}>ROUTING RULES</span>
+                            {rules.map((rule: any, rIdx: number) => {
+                              const host = rule.host || '*';
+                              const paths = rule.http?.paths || [];
+                              return (
+                                <div key={rIdx} style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 4 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem' }}>
+                                    <Globe size={11} style={{ color: 'var(--accent-cyan)' }} />
+                                    <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{host}</span>
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, paddingLeft: 14 }}>
+                                    {paths.map((p: any, pIdx: number) => {
+                                      const svcName = p.backend?.service?.name;
+                                      const svcPort = p.backend?.service?.port?.number || p.backend?.service?.port?.name;
+                                      return (
+                                        <div key={pIdx} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.72rem' }}>
+                                          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', background: 'rgba(6,182,212,0.05)', padding: '1px 6px', borderRadius: 4 }}>
+                                            {p.path || '/'}
+                                          </span>
+                                          <span style={{ color: 'var(--text-muted)' }}>➔</span>
+                                          <span style={{ color: 'var(--accent-green)', fontWeight: 500 }}>
+                                            {svcName}:{svcPort}
+                                          </span>
+                                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', padding: '0 4px', borderRadius: 2 }}>
+                                            {p.pathType}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        
+                        {tls.length > 0 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem' }}>
+                            <span style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>TLS Enabled:</span>
+                            {tls.map((t: any, tIdx: number) => (
+                              <span key={tIdx} className="badge" style={{ background: 'rgba(168, 85, 247, 0.05)', color: 'var(--accent-purple)', border: '1px solid rgba(168, 85, 247, 0.15)', textTransform: 'none' }}>
+                                {t.secretName || 'Default Cert'} ({t.hosts?.join(', ') || '*'})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 {activeTab !== 'events' && <div className="row-status">{renderStatusBadge(res)}</div>}
               </div>
