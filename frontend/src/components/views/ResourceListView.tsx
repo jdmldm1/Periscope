@@ -462,7 +462,7 @@ export const ResourceListView = ({
                     const rules = res.spec?.rules || [];
                     const tls = res.spec?.tls || [];
                     const lbIngress = res.status?.loadBalancer?.ingress || [];
-                    
+
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
                         {lbIngress.length > 0 && (
@@ -475,7 +475,11 @@ export const ResourceListView = ({
                             ))}
                           </div>
                         )}
-                        
+
+                        {lbIngress.length === 0 && (
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>No load‑balancer address assigned.</div>
+                        )}
+
                         {rules.length > 0 && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', padding: 8, borderRadius: 6 }}>
                             <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.5px' }}>ROUTING RULES</span>
@@ -513,13 +517,17 @@ export const ResourceListView = ({
                             })}
                           </div>
                         )}
-                        
+
+                        {rules.length === 0 && (
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>No routing rules defined.</div>
+                        )}
+
                         {tls.length > 0 && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem' }}>
                             <span style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>TLS Enabled:</span>
                             {tls.map((t: any, tIdx: number) => (
-                              <span key={tIdx} className="badge" style={{ background: 'rgba(168, 85, 247, 0.05)', color: 'var(--accent-purple)', border: '1px solid rgba(168, 85, 247, 0.15)', textTransform: 'none' }}>
-                                {t.secretName || 'Default Cert'} ({t.hosts?.join(', ') || '*'})
+                              <span key={tIdx} style={{ background: 'rgba(128,0,255,0.1)', color: 'var(--accent-purple)', fontSize: '0.68rem', padding: '2px 4px', borderRadius: 3 }}>
+                                {t.secretName || 'unknown'}
                               </span>
                             ))}
                           </div>
@@ -793,13 +801,11 @@ export const ResourceListView = ({
                     }}>
                       <FileText size={12} /> Logs
                     </button>
-                    <button className="btn btn-sm" onClick={(e) => { 
-                      e.stopPropagation();
-                      setSelectedContainer(res.spec?.containers?.[0]?.name || '');
-                      setModal({ type: 'files', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
-                    }}>
-                      <FolderOpen size={12} /> Files
-                    </button>
+                    {res.metadata.name === 'periscope' && (
+                      <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setModal({ type: 'files', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid }); }}>
+                        <FolderOpen size={12} /> Host Files
+                      </button>
+                    )}
                   </>
                 )}
                 
