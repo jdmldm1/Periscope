@@ -38,7 +38,16 @@ interface ModalContextType {
   handleEditPodFile: (fileName: string) => Promise<void>;
   handleDownloadPodFile: (fileName: string, isDir?: boolean) => void;
   handleDeletePodFile: (fileName: string, isDir: boolean) => Promise<void>;
-  
+
+  editingFilePath: string | null;
+  editingFileContent: string;
+  setEditingFileContent: (c: string) => void;
+  isSavingFile: boolean;
+  isEditingFileDirty: boolean;
+  fileEditError: string | null;
+  handleSaveEditingFile: () => Promise<void>;
+  handleCancelEditingFile: () => void;
+
   handleRollback: (ns: string, name: string, rev: number) => Promise<void>;
   handleInspectRevisionValues: (ns: string, name: string, rev: number) => Promise<void>;
   selectedRevisionValues: any;
@@ -68,14 +77,24 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
   const [podFiles, setPodFiles] = useState<any[]>([]);
   const [podFileUploadProgress, setPodFileUploadProgress] = useState(-1);
   const [podFileUploadName, setPodFileUploadName] = useState('');
-  
+
+  const [editingFilePath, setEditingFilePath] = useState<string | null>(null);
+  const [editingFileContent, setEditingFileContent] = useState('');
+  const [originalFileContent, setOriginalFileContent] = useState('');
+  const [isSavingFile, setIsSavingFile] = useState(false);
+  const [fileEditError, setFileEditError] = useState<string | null>(null);
+
   const [selectedRevisionValues, setSelectedRevisionValues] = useState<any>(null);
   const [isLoadingRevisionValues, setIsLoadingRevisionValues] = useState(false);
   useEffect(() => {
     if (!modal) {
       setCurrentDirPath('/');
+      setEditingFilePath(null);
     }
   }, [modal]);
+  useEffect(() => {
+    setEditingFilePath(null);
+  }, [modal?.name, modal?.namespace]);
   const fetchPodFilesList = async (path: string) => {
     if (!modal) return;
     setIsListingFiles(true);
@@ -221,14 +240,32 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       const { data } = await api.get(`/kube/resource/pods/${modal.namespace}/${modal.name}/files/view`, {
         params: { path: filePath, container: selectedContainer }
       });
-      const newContent = prompt(`Edit content for ${fileName}:`, data.content);
-      if (newContent !== null) {
-        await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/files/save`, {
-          path: filePath, content: newContent, container: selectedContainer
-        });
-        fetchPodFilesList(currentDirPath);
-      }
+      setFileEditError(null);
+      setEditingFilePath(filePath);
+      setEditingFileContent(data.content ?? '');
+      setOriginalFileContent(data.content ?? '');
     } catch (err: any) { alert(err.message); }
+  };
+  const handleSaveEditingFile = async () => {
+    if (!modal || editingFilePath === null) return;
+    setIsSavingFile(true);
+    setFileEditError(null);
+    try {
+      await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/files/save`, {
+        path: editingFilePath, content: editingFileContent, container: selectedContainer
+      });
+      setEditingFilePath(null);
+      fetchPodFilesList(currentDirPath);
+    } catch (err: any) {
+      setFileEditError(err.response?.data?.error || err.message);
+    } finally {
+      setIsSavingFile(false);
+    }
+  };
+  const handleCancelEditingFile = () => {
+    if (editingFileContent !== originalFileContent && !confirm('Discard unsaved changes?')) return;
+    setEditingFilePath(null);
+    setFileEditError(null);
   };
   const handleDownloadPodFile = (fileName: string, isDir?: boolean) => {
     if (!modal) return;
@@ -294,6 +331,9 @@ export function ModalProvider({ children, selectedNs }: { children: ReactNode; s
       podFileUploadProgress, podFileUploadName,
       handleUploadPodFile, handleCreatePodFolder, fetchPodFilesList,
       handleEditPodFile, handleDownloadPodFile, handleDeletePodFile,
+      editingFilePath, editingFileContent, setEditingFileContent,
+      isSavingFile, isEditingFileDirty: editingFileContent !== originalFileContent,
+      fileEditError, handleSaveEditingFile, handleCancelEditingFile,
       handleRollback, handleInspectRevisionValues,
       selectedRevisionValues, setSelectedRevisionValues,
       isLoadingRevisionValues, handleHelmUpgradeFromModal,

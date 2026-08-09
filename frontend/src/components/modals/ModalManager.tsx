@@ -3,6 +3,7 @@ import Editor from '@monaco-editor/react';
 import { X, FileText, Terminal, Radio, Activity, SlidersHorizontal, Key, Copy, Save, ArrowDown, RefreshCw, Search, Microscope, FolderOpen } from 'lucide-react';
 import { SecretDecoderPanel } from '../panels/SecretDecoderPanel';
 import { PodFilesExplorer } from '../panels/PodFilesExplorer';
+import { PodFileEditor } from '../panels/PodFileEditor';
 import { InteractiveTerminal } from '../panels/InteractiveTerminal';
 import { PvcExplorerView } from '../views/PvcExplorerView';
 import { useAppContext } from '../../contexts/AppContext';
@@ -40,6 +41,14 @@ interface ModalManagerProps {
   handleEditPodFile: (name: string) => void;
   handleDownloadPodFile: (name: string, isDir?: boolean) => void;
   handleDeletePodFile: (name: string, isDir: boolean) => void;
+  editingFilePath: string | null;
+  editingFileContent: string;
+  setEditingFileContent: (c: string) => void;
+  isSavingFile: boolean;
+  isEditingFileDirty: boolean;
+  fileEditError: string | null;
+  handleSaveEditingFile: () => void;
+  handleCancelEditingFile: () => void;
   saveYaml: () => void;
   helmValuesEdit: string;
   setHelmValuesEdit: (v: string) => void;
@@ -60,6 +69,9 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
   scrollToBottomLogs, fetchModalData, currentDirPath, setCurrentDirPath, isListingFiles,
   podFiles, podFileUploadProgress, podFileUploadName, handleUploadPodFile, handleCreatePodFolder,
   fetchPodFilesList, handleEditPodFile, handleDownloadPodFile, handleDeletePodFile,
+  editingFilePath, editingFileContent, setEditingFileContent,
+  isSavingFile, isEditingFileDirty, fileEditError,
+  handleSaveEditingFile, handleCancelEditingFile,
   saveYaml, isSavingHelmValues, handleHelmUpgradeFromModal,
   handleRollback, handleInspectRevisionValues, selectedRevisionValues, setSelectedRevisionValues,
   isLoadingRevisionValues, renderDiffView
@@ -166,21 +178,34 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
               initialPvcName={modal.name}
             />
           ) : modal.type === 'files' ? (
-            <PodFilesExplorer
-              modal={modal}
-              currentDirPath={currentDirPath}
-              setCurrentDirPath={setCurrentDirPath}
-              isListingFiles={isListingFiles}
-              podFiles={podFiles}
-              podFileUploadProgress={podFileUploadProgress}
-              podFileUploadName={podFileUploadName}
-              handleUploadPodFile={handleUploadPodFile}
-              handleCreatePodFolder={handleCreatePodFolder}
-              fetchPodFilesList={fetchPodFilesList}
-              handleEditPodFile={handleEditPodFile}
-              handleDownloadPodFile={handleDownloadPodFile}
-              handleDeletePodFile={handleDeletePodFile}
-            />
+            editingFilePath ? (
+              <PodFileEditor
+                filePath={editingFilePath}
+                content={editingFileContent}
+                onChange={setEditingFileContent}
+                onSave={handleSaveEditingFile}
+                onCancel={handleCancelEditingFile}
+                isSaving={isSavingFile}
+                isDirty={isEditingFileDirty}
+                error={fileEditError}
+              />
+            ) : (
+              <PodFilesExplorer
+                modal={modal}
+                currentDirPath={currentDirPath}
+                setCurrentDirPath={setCurrentDirPath}
+                isListingFiles={isListingFiles}
+                podFiles={podFiles}
+                podFileUploadProgress={podFileUploadProgress}
+                podFileUploadName={podFileUploadName}
+                handleUploadPodFile={handleUploadPodFile}
+                handleCreatePodFolder={handleCreatePodFolder}
+                fetchPodFilesList={fetchPodFilesList}
+                handleEditPodFile={handleEditPodFile}
+                handleDownloadPodFile={handleDownloadPodFile}
+                handleDeletePodFile={handleDeletePodFile}
+              />
+            )
           ) : modal.type === 'terminal' ? (
              <div className="exec-terminal" style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', height: '100%' }}>
                <div style={{ color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 10 }}>
