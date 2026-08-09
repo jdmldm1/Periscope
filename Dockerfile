@@ -25,6 +25,11 @@ ARG KUBECTL_VERSION=v1.36.3
 ARG AIRGAP=false
 
 WORKDIR /app
+# Bump the npm CLI itself off the version bundled with the base image —
+# npm vendors its own copy of tar/brace-expansion/picomatch/sigstore
+# internally, and the stock node:22-alpine npm pins CVE-flagged versions
+# of those regardless of what's in our own package-lock.json.
+RUN npm install -g npm@12.0.2
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
@@ -62,7 +67,7 @@ RUN setcap cap_net_raw+ep "$(command -v tcpdump)" && getcap "$(command -v tcpdum
 RUN if [ "$AIRGAP" = "true" ]; then \
         ARCH=$(uname -m) && \
         if [ "$ARCH" = "x86_64" ]; then ORAS_ARCH="amd64"; else ORAS_ARCH="arm64"; fi && \
-        curl -sSL "https://github.com/oras-project/oras/releases/download/v1.2.0/oras_1.2.0_linux_${ORAS_ARCH}.tar.gz" -o oras.tar.gz && \
+        curl -sSL "https://github.com/oras-project/oras/releases/download/v1.3.3/oras_1.3.3_linux_${ORAS_ARCH}.tar.gz" -o oras.tar.gz && \
         tar -zxf oras.tar.gz -C /app/bin oras && \
         rm -f oras.tar.gz && \
         oras version; \
