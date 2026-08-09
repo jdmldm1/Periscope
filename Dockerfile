@@ -14,9 +14,9 @@ ARG CACHE_GRYPE_DB=true
 # Pin the Grype version (and its installer) instead of curling the install
 # script off the moving `main` branch — closes a supply-chain hole where an
 # upstream change to main could alter what gets baked into the image.
-ARG GRYPE_VERSION=v0.74.0
-ARG ZARF_VERSION=v0.75.1
-ARG KUBECTL_VERSION=v1.30.0
+ARG GRYPE_VERSION=v0.116.1
+ARG ZARF_VERSION=v0.83.0
+ARG KUBECTL_VERSION=v1.36.3
 # Airgap builds bake zarf/kubectl/grype into the image (no network at
 # runtime). Connected builds skip that and let bin-bootstrap.sh fetch them on
 # first container boot instead — trades ~280MB of pulled image size for a
