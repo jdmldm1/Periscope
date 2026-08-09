@@ -79,6 +79,9 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
     podFileUploadProgress, podFileUploadName,
     handleUploadPodFile, handleCreatePodFolder, fetchPodFilesList,
     handleEditPodFile, handleDownloadPodFile, handleDeletePodFile,
+    editingFilePath, editingFileContent, setEditingFileContent,
+    isSavingFile, isEditingFileDirty, fileEditError,
+    handleSaveEditingFile, handleCancelEditingFile,
     handleRollback, handleInspectRevisionValues,
     selectedRevisionValues, setSelectedRevisionValues,
     isLoadingRevisionValues, handleHelmUpgradeFromModal,
@@ -496,6 +499,14 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
         handleEditPodFile={handleEditPodFile}
         handleDownloadPodFile={handleDownloadPodFile}
         handleDeletePodFile={handleDeletePodFile}
+        editingFilePath={editingFilePath}
+        editingFileContent={editingFileContent}
+        setEditingFileContent={setEditingFileContent}
+        isSavingFile={isSavingFile}
+        isEditingFileDirty={isEditingFileDirty}
+        fileEditError={fileEditError}
+        handleSaveEditingFile={handleSaveEditingFile}
+        handleCancelEditingFile={handleCancelEditingFile}
         saveYaml={saveYaml}
         helmValuesEdit={yamlEdit}
         setHelmValuesEdit={setYamlEdit}
