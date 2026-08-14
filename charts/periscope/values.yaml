@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/jdmldm1/periscope
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 serviceAccount:
   create: true

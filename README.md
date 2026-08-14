@@ -73,7 +73,7 @@ Manage Helm releases and deploy / inspect Zarf packages.
 
 ```bash
 helm upgrade --install periscope oci://ghcr.io/jdmldm1/charts/periscope \
-  --version 0.3.2 \
+  --version 0.3.3 \
   --namespace periscope --create-namespace
 ```
 
@@ -120,7 +120,7 @@ Example with ingress and auth:
 
 ```bash
 helm upgrade --install periscope oci://ghcr.io/jdmldm1/charts/periscope \
-  --version 0.3.2 \
+  --version 0.3.3 \
   --namespace periscope --create-namespace \
   --set ingress.enabled=true \
   --set ingress.hosts[0].host=periscope.example.com \
@@ -135,7 +135,7 @@ helm upgrade --install periscope oci://ghcr.io/jdmldm1/charts/periscope \
 k3d cluster create mycluster -p "30080:30080@server:0"
 
 helm upgrade --install periscope oci://ghcr.io/jdmldm1/charts/periscope \
-  --version 0.3.2 \
+  --version 0.3.3 \
   --namespace periscope --create-namespace \
   --set service.type=NodePort \
   --set service.nodePort=30080
@@ -167,10 +167,10 @@ node server.js
 
 ```bash
 # Zarf connected package
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.2
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.3
 
 # Zarf air-gap package
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.2
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.3
 ```
 
 ---
