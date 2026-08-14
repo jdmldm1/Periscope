@@ -59,6 +59,12 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
     const saved = localStorage.getItem('imageScannerActiveTab');
     return (saved as any) || 'vulnerabilities';
   });
+  const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
+  const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
+
+  useEffect(() => {
+    localStorage.setItem('imageScannerActiveTab', imageScannerActiveTab);
+  }, [imageScannerActiveTab]);
 
   const triggerDbUpdate = async () => {
     try {
@@ -97,13 +103,6 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
       </div>
     );
   }
-
-  const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
-
-  useEffect(() => {
-    localStorage.setItem('imageScannerActiveTab', imageScannerActiveTab);
-  }, [imageScannerActiveTab]);
-  const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
 
   const filters = { image: selectedScanFilterImage, severity: imageScanSeverityFilter, search: imageScanSearchQuery };
 

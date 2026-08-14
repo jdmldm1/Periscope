@@ -1,4 +1,4 @@
-FROM node:22-alpine3.20 AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 COPY frontend/package*.json ./frontend/
@@ -8,13 +8,13 @@ RUN cd frontend && npm ci
 COPY frontend ./frontend
 RUN cd frontend && npm run build
 
-FROM node:22-alpine3.20
+FROM node:22-alpine
 
 ARG CACHE_GRYPE_DB=true
 # Pin the Grype version (and its installer) instead of curling the install
 # script off the moving `main` branch — closes a supply-chain hole where an
 # upstream change to main could alter what gets baked into the image.
-ARG GRYPE_VERSION=v0.116.1
+ARG GRYPE_VERSION=v0.117.0
 ARG ZARF_VERSION=v0.83.0
 ARG KUBECTL_VERSION=v1.36.3
 # Airgap builds bake zarf/kubectl/grype into the image (no network at
@@ -29,7 +29,7 @@ WORKDIR /app
 # npm vendors its own copy of tar/brace-expansion/picomatch/sigstore
 # internally, and the stock node:22-alpine npm pins CVE-flagged versions
 # of those regardless of what's in our own package-lock.json.
-# npm upgrade skipped – current npm (10.9.2) is compatible with Node 22.16.0
+RUN npm install -g npm@12.0.2
 COPY package*.json ./
 RUN npm ci --omit=dev && npm audit fix --force && npm cache clean --force
 
