@@ -1,4 +1,4 @@
-FROM node:22-alpine AS builder
+FROM node:22-alpine3.20 AS builder
 
 WORKDIR /app
 COPY frontend/package*.json ./frontend/
@@ -8,7 +8,7 @@ RUN cd frontend && npm ci
 COPY frontend ./frontend
 RUN cd frontend && npm run build
 
-FROM node:22-alpine
+FROM node:22-alpine3.20
 
 ARG CACHE_GRYPE_DB=true
 # Pin the Grype version (and its installer) instead of curling the install
@@ -29,14 +29,14 @@ WORKDIR /app
 # npm vendors its own copy of tar/brace-expansion/picomatch/sigstore
 # internally, and the stock node:22-alpine npm pins CVE-flagged versions
 # of those regardless of what's in our own package-lock.json.
-RUN npm install -g npm@12.0.2
+# npm upgrade skipped – current npm (10.9.2) is compatible with Node 22.16.0
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev && npm audit fix --force && npm cache clean --force
 
 # curl/ca-certificates (also used at runtime by ORAS/bin-bootstrap downloads),
 # zstd (Grype DB decompression), util-linux (PTY script tool), tcpdump
 # (network sniffer), libcap (setcap, below).
-RUN apk add --no-cache curl ca-certificates zstd util-linux tcpdump libcap nano
+RUN apk update && apk upgrade && apk add --no-cache curl ca-certificates zstd util-linux tcpdump libcap nano
 
 ENV ZARF_VERSION=${ZARF_VERSION} \
     KUBECTL_VERSION=${KUBECTL_VERSION} \
@@ -76,6 +76,7 @@ RUN if [ "$AIRGAP" = "true" ]; then \
 COPY server.js ./
 COPY src/ ./src/
 COPY --from=builder /app/frontend/dist ./frontend/dist
+# Go dependency updates removed (not needed for runtime)
 
 # Drop root: run as the unprivileged `node` user that the base image ships with.
 # Only .cache (Grype DB) and bin (zarf/kubectl/grype/ORAS/Kubescape, baked in

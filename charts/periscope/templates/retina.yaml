@@ -92,6 +92,16 @@ spec:
         kubernetes.io/os: linux
       tolerations:
         - operator: Exists
+      initContainers:
+        - name: bpf-mount
+          image: busybox:latest
+          command: ["sh", "-c", "mkdir -p /sys/fs/bpf && mount -t bpf bpf /sys/fs/bpf"]
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: bpf
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
       containers:
         - name: retina
           image: "{{ .Values.retina.image.repository }}:{{ .Values.retina.image.tag }}"
@@ -106,12 +116,13 @@ spec:
             - name: retina
               containerPort: {{ .Values.retina.metricsPort }}
           securityContext:
-            privileged: false
+            privileged: true
             capabilities:
               add: ["SYS_ADMIN", "NET_ADMIN", "IPC_LOCK"]
           volumeMounts:
             - name: bpf
               mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
             - name: cgroup
               mountPath: /sys/fs/cgroup
             - name: config
@@ -124,7 +135,7 @@ spec:
               mountPath: /tmp
       volumes:
         - name: bpf
-          hostPath: { path: /sys/fs/bpf }
+          emptyDir: {}
         - name: cgroup
           hostPath: { path: /sys/fs/cgroup }
         - name: config
