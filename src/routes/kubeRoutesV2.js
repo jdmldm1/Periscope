@@ -4,32 +4,25 @@ const k8s = require('@kubernetes/client-node');
 const k8sService = require('../services/k8sService');
 const pvcService = require('../services/pvcService');
 const logger = require('../utils/logger');
-
-
 router.get('/kube/contexts/comparison', async (req, res) => {
     try {
         const contexts = k8sService.kc.contexts;
         const currentContext = k8sService.kc.currentContext;
         const comparisonList = [];
-
         for (const ctx of contexts) {
             const kc = new k8s.KubeConfig();
             kc.loadFromDefault();
             try {
                 kc.setCurrentContext(ctx.name);
                 const core = kc.makeApiClient(k8s.CoreV1Api);
-                
-
                 const [nodesRes, podsRes, nsRes] = await Promise.all([
                     core.listNode(),
                     core.listPodForAllNamespaces(),
                     core.listNamespace()
                 ]);
-
                 const nodes = nodesRes.items || nodesRes.body?.items || [];
                 const pods = podsRes.items || podsRes.body?.items || [];
                 const namespaces = nsRes.items || nsRes.body?.items || [];
-
                 comparisonList.push({
                     name: ctx.name,
                     cluster: ctx.cluster,
@@ -40,8 +33,8 @@ router.get('/kube/contexts/comparison', async (req, res) => {
                     namespaceCount: namespaces.length,
                     isCurrent: ctx.name === currentContext
                 });
-            } catch (err) {
-
+            }
+            catch (err) {
                 comparisonList.push({
                     name: ctx.name,
                     cluster: ctx.cluster,
@@ -56,54 +49,53 @@ router.get('/kube/contexts/comparison', async (req, res) => {
             }
         }
         res.json(comparisonList);
-    } catch (err) {
+    }
+    catch (err) {
         logger.error(err, 'Failed to compare cluster contexts');
         res.status(500).json({ error: err.message });
     }
 });
-
-
 router.get('/volumes/:namespace/:pvcName/browse', async (req, res) => {
     const { namespace, pvcName } = req.params;
     const { path } = req.query;
     try {
         const files = await pvcService.listFiles(namespace, pvcName, path);
         res.json(files);
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-
 router.get('/volumes/:namespace/:pvcName/view', async (req, res) => {
     const { namespace, pvcName } = req.params;
     const { path } = req.query;
     try {
         const content = await pvcService.viewFile(namespace, pvcName, path);
         res.json({ content });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-
 router.delete('/volumes/:namespace/:pvcName/delete', async (req, res) => {
     const { namespace, pvcName } = req.params;
     const { path } = req.query;
     try {
         await pvcService.deleteFile(namespace, pvcName, path);
         res.json({ success: true });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-
 router.post('/volumes/:namespace/:pvcName/cleanup', async (req, res) => {
     const { namespace, pvcName } = req.params;
     try {
         await pvcService.deleteHelperPod(namespace, pvcName);
         res.json({ success: true });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-
 module.exports = router;

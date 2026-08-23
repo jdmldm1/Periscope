@@ -3,9 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const logger = require('../utils/logger');
-
 const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/periscope-backups';
-
 class BackupService {
     constructor() {
         this.kc = new k8s.KubeConfig();
@@ -14,14 +12,13 @@ class BackupService {
         this.apps = this.kc.makeApiClient(k8s.AppsV1Api);
         this.batch = this.kc.makeApiClient(k8s.BatchV1Api);
         this.networking = this.kc.makeApiClient(k8s.NetworkingV1Api);
-
         if (!fs.existsSync(BACKUP_DIR)) {
             fs.mkdirSync(BACKUP_DIR, { recursive: true });
         }
     }
-
     _stripManagedFields(obj) {
-        if (!obj) return obj;
+        if (!obj)
+            return obj;
         const stripped = JSON.parse(JSON.stringify(obj));
         if (stripped.metadata) {
             delete stripped.metadata.resourceVersion;
@@ -38,11 +35,9 @@ class BackupService {
         delete stripped.status;
         return stripped;
     }
-
     async _fetchAll(namespace) {
         const ns = namespace === 'all' ? undefined : namespace;
         const resources = [];
-
         const fetchers = ns ? [
             { kind: 'Deployment', fn: () => this.apps.listNamespacedDeployment({ namespace: ns }) },
             { kind: 'StatefulSet', fn: () => this.apps.listNamespacedStatefulSet({ namespace: ns }) },
@@ -64,25 +59,21 @@ class BackupService {
             { kind: 'Ingress', fn: () => this.networking.listIngressForAllNamespaces() },
             { kind: 'PersistentVolumeClaim', fn: () => this.core.listPersistentVolumeClaimForAllNamespaces() },
         ];
-
-        await Promise.allSettled(
-            fetchers.map(async ({ kind, fn }) => {
-                try {
-                    const res = await fn();
-                    (res.items || []).forEach(item => {
-                        item.kind = kind;
-                        item.apiVersion = this._apiVersionFor(kind);
-                        resources.push(this._stripManagedFields(item));
-                    });
-                } catch (err) {
-                    logger.warn({ kind, err: err.message }, 'Skipping resource type in backup');
-                }
-            })
-        );
-
+        await Promise.allSettled(fetchers.map(async ({ kind, fn }) => {
+            try {
+                const res = await fn();
+                (res.items || []).forEach(item => {
+                    item.kind = kind;
+                    item.apiVersion = this._apiVersionFor(kind);
+                    resources.push(this._stripManagedFields(item));
+                });
+            }
+            catch (err) {
+                logger.warn({ kind, err: err.message }, 'Skipping resource type in backup');
+            }
+        }));
         return resources;
     }
-
     _apiVersionFor(kind) {
         const map = {
             Deployment: 'apps/v1',
@@ -97,16 +88,13 @@ class BackupService {
         };
         return map[kind] || 'v1';
     }
-
     async createBackup(namespace, label) {
         const resources = await this._fetchAll(namespace);
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const name = `${label || 'backup'}-${timestamp}`;
         const filePath = path.join(BACKUP_DIR, `${name}.yaml`);
-
         const yamlDocs = resources.map(r => yaml.dump(r)).join('---\n');
         fs.writeFileSync(filePath, yamlDocs, 'utf8');
-
         const meta = {
             name,
             namespace: namespace || 'all',
@@ -115,13 +103,12 @@ class BackupService {
             filePath,
             sizeMb: (fs.statSync(filePath).size / 1024 / 1024).toFixed(2),
         };
-
         logger.info(meta, 'Backup created');
         return meta;
     }
-
     listBackups() {
-        if (!fs.existsSync(BACKUP_DIR)) return [];
+        if (!fs.existsSync(BACKUP_DIR))
+            return [];
         const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.yaml'));
         return files.map(f => {
             const filePath = path.join(BACKUP_DIR, f);
@@ -135,30 +122,26 @@ class BackupService {
             };
         }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     }
-
     deleteBackup(name) {
         const filePath = path.join(BACKUP_DIR, `${name}.yaml`);
-        if (!fs.existsSync(filePath)) throw new Error('Backup not found');
+        if (!fs.existsSync(filePath))
+            throw new Error('Backup not found');
         fs.unlinkSync(filePath);
     }
-
     getBackupFile(name) {
         const filePath = path.join(BACKUP_DIR, `${name}.yaml`);
-        if (!fs.existsSync(filePath)) throw new Error('Backup not found');
+        if (!fs.existsSync(filePath))
+            throw new Error('Backup not found');
         return filePath;
     }
-
     async restoreBackup(name, dryRun = false) {
         const filePath = path.join(BACKUP_DIR, `${name}.yaml`);
-        if (!fs.existsSync(filePath)) throw new Error('Backup not found');
-
+        if (!fs.existsSync(filePath))
+            throw new Error('Backup not found');
         const content = fs.readFileSync(filePath, 'utf8');
         const docs = yaml.loadAll(content).filter(Boolean);
-
         const results = { applied: [], skipped: [], errors: [] };
-
         const drySuffix = dryRun ? ' (dry-run)' : '';
-
         for (const doc of docs) {
             const kind = doc.kind;
             const name = doc.metadata?.name;
@@ -166,23 +149,22 @@ class BackupService {
             try {
                 await this._applyResource(doc, dryRun);
                 results.applied.push({ kind, name, namespace: ns, status: `Applied${drySuffix}` });
-            } catch (err) {
+            }
+            catch (err) {
                 if (err.statusCode === 409) {
                     results.skipped.push({ kind, name, namespace: ns, status: 'Already exists' });
-                } else {
+                }
+                else {
                     results.errors.push({ kind, name, namespace: ns, error: err.message });
                 }
             }
         }
-
         return results;
     }
-
     async _applyResource(doc, dryRun) {
         const kind = doc.kind;
         const ns = doc.metadata?.namespace;
         const opts = dryRun ? { dryRun: 'All' } : {};
-
         const creators = {
             Deployment: () => this.apps.createNamespacedDeployment({ namespace: ns, body: doc, ...opts }),
             StatefulSet: () => this.apps.createNamespacedStatefulSet({ namespace: ns, body: doc, ...opts }),
@@ -194,11 +176,10 @@ class BackupService {
             Ingress: () => this.networking.createNamespacedIngress({ namespace: ns, body: doc, ...opts }),
             PersistentVolumeClaim: () => this.core.createNamespacedPersistentVolumeClaim({ namespace: ns, body: doc, ...opts }),
         };
-
         const fn = creators[kind];
-        if (!fn) throw new Error(`Unsupported kind: ${kind}`);
+        if (!fn)
+            throw new Error(`Unsupported kind: ${kind}`);
         await fn();
     }
 }
-
 module.exports = new BackupService();

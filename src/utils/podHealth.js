@@ -1,64 +1,51 @@
-
-
-
-
-
-
-
 const IMAGE_PULL_REASONS = ['ImagePullBackOff', 'ErrImagePull', 'ErrImageNeverPull', 'InvalidImageName'];
 const CONFIG_ERROR_REASONS = ['CreateContainerConfigError', 'CreateContainerError', 'RunContainerError', 'StartError'];
-
-
-
 const RESTART_WARN_THRESHOLD = 5;
-
 const STATUS_SEVERITY = {
     crashLooping: 'critical', imagePullError: 'critical', configError: 'critical',
     oomKilled: 'critical', failed: 'critical',
     pending: 'warning', notReady: 'warning', terminating: 'warning'
 };
-
 const STATUS_LABEL = {
     crashLooping: 'CrashLoopBackOff', imagePullError: 'Image Pull Error',
     configError: 'Container Config Error', oomKilled: 'OOMKilled', failed: 'Failed',
     pending: 'Pending / Unschedulable', notReady: 'Running (Not Ready)', terminating: 'Stuck Terminating'
 };
-
-
 function classifyPod(p) {
     const phase = p.status?.phase;
-    if (p.metadata?.deletionTimestamp) return 'terminating';
-    if (phase === 'Succeeded') return 'healthy';
-    if (phase === 'Failed') return 'failed';
-
+    if (p.metadata?.deletionTimestamp)
+        return 'terminating';
+    if (phase === 'Succeeded')
+        return 'healthy';
+    if (phase === 'Failed')
+        return 'failed';
     const allContainers = [
         ...(p.status?.containerStatuses || []),
         ...(p.status?.initContainerStatuses || [])
     ];
-
     for (const c of allContainers) {
         const reason = c.state?.waiting?.reason;
-        if (reason === 'CrashLoopBackOff') return 'crashLooping';
-        if (IMAGE_PULL_REASONS.includes(reason)) return 'imagePullError';
-        if (CONFIG_ERROR_REASONS.includes(reason)) return 'configError';
+        if (reason === 'CrashLoopBackOff')
+            return 'crashLooping';
+        if (IMAGE_PULL_REASONS.includes(reason))
+            return 'imagePullError';
+        if (CONFIG_ERROR_REASONS.includes(reason))
+            return 'configError';
     }
-
     for (const c of (p.status?.containerStatuses || [])) {
-        if (c.lastState?.terminated?.reason === 'OOMKilled') return 'oomKilled';
+        if (c.lastState?.terminated?.reason === 'OOMKilled')
+            return 'oomKilled';
     }
-
-    if (phase === 'Pending') return 'pending';
-
+    if (phase === 'Pending')
+        return 'pending';
     const readyCond = (p.status?.conditions || []).find(c => c.type === 'Ready');
-    if (readyCond && readyCond.status !== 'True') return 'notReady';
-
+    if (readyCond && readyCond.status !== 'True')
+        return 'notReady';
     return 'healthy';
 }
-
 function podRestarts(p) {
     return (p.status?.containerStatuses || []).reduce((sum, c) => sum + (c.restartCount || 0), 0);
 }
-
 function podIssueMessage(p, status) {
     const allContainers = [
         ...(p.status?.containerStatuses || []),
@@ -76,7 +63,8 @@ function podIssueMessage(p, status) {
     }
     if (status === 'pending') {
         const sched = (p.status?.conditions || []).find(c => c.type === 'PodScheduled');
-        if (sched && sched.status !== 'True') return sched.message || 'Pod cannot be scheduled';
+        if (sched && sched.status !== 'True')
+            return sched.message || 'Pod cannot be scheduled';
         return p.status?.reason || 'Pod is pending';
     }
     if (status === 'notReady') {
@@ -88,16 +76,12 @@ function podIssueMessage(p, status) {
     }
     return status;
 }
-
-
-
-
 function podOwner(p) {
     const ref = (p.metadata?.ownerReferences || [])[0];
-    if (ref) return { kind: ref.kind, name: ref.name };
+    if (ref)
+        return { kind: ref.kind, name: ref.name };
     return { kind: 'Pod', name: p.metadata?.name };
 }
-
 module.exports = {
     IMAGE_PULL_REASONS,
     CONFIG_ERROR_REASONS,

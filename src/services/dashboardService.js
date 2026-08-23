@@ -3,28 +3,9 @@ const helmService = require('./helmService');
 const zarfService = require('./zarfService');
 const logger = require('../utils/logger');
 const { parseCpu, parseMem, getItems } = require('../utils/k8sHelpers');
-const {
-    IMAGE_PULL_REASONS,
-    RESTART_WARN_THRESHOLD,
-    STATUS_SEVERITY,
-    STATUS_LABEL,
-    classifyPod,
-    podRestarts,
-    podIssueMessage,
-    podOwner,
-} = require('../utils/podHealth');
-
-
-
-
-
-
-
-
-
+const { IMAGE_PULL_REASONS, RESTART_WARN_THRESHOLD, STATUS_SEVERITY, STATUS_LABEL, classifyPod, podRestarts, podIssueMessage, podOwner, } = require('../utils/podHealth');
 async function getStats(ns) {
     const scoped = ns && ns !== 'all';
-
     const [nodesRaw, podsRaw, deploymentsRaw, servicesRaw, configmapsRaw, secretsRaw, helmreleases, zarfpackages, nodeMetricsRaw, eventsRaw] = await Promise.all([
         k8sService.core.listNode(),
         scoped ? k8sService.core.listNamespacedPod({ namespace: ns }) : k8sService.core.listPodForAllNamespaces(),
@@ -37,7 +18,6 @@ async function getStats(ns) {
         k8sService.custom.listClusterCustomObject({ group: 'metrics.k8s.io', version: 'v1beta1', plural: 'nodes' }).catch(() => ({ items: [] })),
         (scoped ? k8sService.core.listNamespacedEvent({ namespace: ns }) : k8sService.core.listEventForAllNamespaces()).catch(() => ({ items: [] }))
     ]);
-
     const nodes = getItems(nodesRaw);
     const pods = getItems(podsRaw);
     const deployments = getItems(deploymentsRaw);
@@ -46,22 +26,17 @@ async function getStats(ns) {
     const secrets = getItems(secretsRaw);
     const nodeMetrics = getItems(nodeMetricsRaw);
     const events = getItems(eventsRaw);
-
     const podPhases = {
         running: pods.filter(p => p.status?.phase === 'Running').length,
         pending: pods.filter(p => p.status?.phase === 'Pending').length,
         succeeded: pods.filter(p => p.status?.phase === 'Succeeded').length,
         failed: pods.filter(p => p.status?.phase === 'Failed').length
     };
-
     const issues = [];
-
-
     const podHealth = {
         healthy: 0, crashLooping: 0, imagePullError: 0, configError: 0,
         oomKilled: 0, failed: 0, pending: 0, notReady: 0, terminating: 0, restarts: 0
     };
-
     const podIssueGroups = new Map();
     const addPodIssue = (p, severity, reason, message, restarts) => {
         const owner = podOwner(p);
@@ -80,32 +55,28 @@ async function getStats(ns) {
             reason, message, restarts, count: 1
         });
     };
-
     pods.forEach(p => {
         const status = classifyPod(p);
         podHealth[status] = (podHealth[status] || 0) + 1;
         const restarts = podRestarts(p);
         podHealth.restarts += restarts;
-
         if (status !== 'healthy') {
             addPodIssue(p, STATUS_SEVERITY[status] || 'warning', STATUS_LABEL[status] || status, podIssueMessage(p, status), restarts);
-        } else if (restarts >= RESTART_WARN_THRESHOLD) {
+        }
+        else if (restarts >= RESTART_WARN_THRESHOLD) {
             addPodIssue(p, 'warning', 'High Restart Count', `Restarted ${restarts} times`, restarts);
         }
     });
     issues.push(...podIssueGroups.values());
-
     const podsUnhealthy = pods.length - podHealth.healthy;
-
-
     let nodesReady = 0;
     nodes.forEach(node => {
         const conditions = node.status?.conditions || [];
         const ready = conditions.find(c => c.type === 'Ready');
         const isReady = ready?.status === 'True';
-        if (isReady) nodesReady++;
+        if (isReady)
+            nodesReady++;
         const name = node.metadata?.name;
-
         if (!isReady) {
             issues.push({ severity: 'critical', kind: 'Node', namespace: '', name, reason: 'NotReady', message: ready?.message || 'Node is not Ready', restarts: 0, count: 1 });
         }
@@ -119,27 +90,23 @@ async function getStats(ns) {
             issues.push({ severity: 'warning', kind: 'Node', namespace: '', name, reason: 'SchedulingDisabled', message: 'Node is cordoned (unschedulable)', restarts: 0, count: 1 });
         }
     });
-
-
     let deploymentsHealthy = 0;
     deployments.forEach(d => {
         const desired = d.spec?.replicas ?? 0;
         const ready = d.status?.readyReplicas ?? 0;
         if (desired === 0 || ready >= desired) {
             deploymentsHealthy++;
-        } else {
+        }
+        else {
             issues.push({ severity: ready === 0 ? 'critical' : 'warning', kind: 'Deployment', namespace: d.metadata?.namespace, name: d.metadata?.name, reason: 'Degraded', message: `${ready}/${desired} replicas ready`, restarts: 0, count: 1 });
         }
     });
-
-
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     const warningEvents = events
         .filter(e => e.type === 'Warning')
         .map(e => ({ ...e, _ts: new Date(e.lastTimestamp || e.eventTime || e.metadata?.creationTimestamp || 0).getTime() }))
         .filter(e => e._ts >= oneHourAgo)
         .sort((a, b) => b._ts - a._ts);
-
     const recentWarnings = warningEvents.slice(0, 8).map(e => ({
         reason: e.reason,
         message: (e.message || '').slice(0, 240),
@@ -149,13 +116,10 @@ async function getStats(ns) {
         count: e.count || 1,
         timestamp: e.lastTimestamp || e.metadata?.creationTimestamp
     }));
-
     const sevRank = { critical: 0, warning: 1, info: 2 };
     issues.sort((a, b) => (sevRank[a.severity] - sevRank[b.severity]) || (b.restarts - a.restarts));
-
     const criticalCount = issues.filter(i => i.severity === 'critical').length;
     const warningCount = issues.filter(i => i.severity === 'warning').length;
-
     let cpuUse = 0, cpuCap = 0, memUse = 0, memCap = 0;
     nodes.forEach(node => {
         cpuCap += parseCpu(node.status?.capacity?.cpu);
@@ -166,14 +130,10 @@ async function getStats(ns) {
             memUse += parseMem(metric.usage?.memory);
         }
     });
-
     const allPodsRunning = pods.length === (podHealth.healthy || 0);
     const overall = criticalCount > 0 ? 'critical' : (warningCount > 0 && !allPodsRunning ? 'degraded' : 'healthy');
-
     const score = computeHealthScore({ nodes, nodesReady, deployments, deploymentsHealthy, podHealth });
-
     const recentDeployments = collectRecentDeployments(helmreleases, zarfpackages);
-
     return {
         counts: {
             nodes: nodes.length, pods: pods.length, deployments: deployments.length,
@@ -198,45 +158,30 @@ async function getStats(ns) {
         recentDeployments
     };
 }
-
-
-
 function computeHealthScore({ nodes, nodesReady, deployments, deploymentsHealthy, podHealth }) {
     let score = 100;
-
-
     const criticalPodsCount = (podHealth.crashLooping || 0) + (podHealth.imagePullError || 0) + (podHealth.configError || 0) + (podHealth.oomKilled || 0) + (podHealth.failed || 0);
     const warningPodsCount = (podHealth.pending || 0) + (podHealth.notReady || 0) + (podHealth.terminating || 0);
     score -= (criticalPodsCount * 6);
     score -= (warningPodsCount * 3);
-
-
     const nodesNotReadyCount = nodes.length - nodesReady;
     score -= (nodesNotReadyCount * 15);
-
     let nodePressureCount = 0;
     nodes.forEach(node => {
         const conditions = node.status?.conditions || [];
         ['MemoryPressure', 'DiskPressure', 'PIDPressure'].forEach(type => {
             const c = conditions.find(cond => cond.type === type);
-            if (c?.status === 'True') nodePressureCount++;
+            if (c?.status === 'True')
+                nodePressureCount++;
         });
     });
     score -= (nodePressureCount * 4);
-
-
     const degradedDeploymentsCount = deployments.length - deploymentsHealthy;
     score -= (degradedDeploymentsCount * 5);
-
     return Math.max(0, Math.min(100, score));
 }
-
-
-
-
 function collectRecentDeployments(helmreleases, zarfpackages) {
     const recentDeployments = [];
-
     (helmreleases || []).forEach(r => {
         recentDeployments.push({
             type: 'helm',
@@ -247,7 +192,6 @@ function collectRecentDeployments(helmreleases, zarfpackages) {
             timestamp: r.updated || r.metadata?.creationTimestamp || ''
         });
     });
-
     (zarfpackages || []).forEach(p => {
         recentDeployments.push({
             type: 'zarf',
@@ -258,7 +202,6 @@ function collectRecentDeployments(helmreleases, zarfpackages) {
             timestamp: p.timestamp || p.metadata?.creationTimestamp || ''
         });
     });
-
     recentDeployments.forEach(d => {
         let ts = 0;
         if (d.timestamp) {
@@ -273,12 +216,6 @@ function collectRecentDeployments(helmreleases, zarfpackages) {
     recentDeployments.sort((a, b) => b._ts - a._ts);
     return recentDeployments.slice(0, 8);
 }
-
-
-
-
-
-
 async function eventsForObject(namespace, name, clusterScoped) {
     try {
         const raw = clusterScoped
@@ -286,29 +223,29 @@ async function eventsForObject(namespace, name, clusterScoped) {
             : await k8sService.core.listNamespacedEvent({ namespace, fieldSelector: `involvedObject.name=${name}` });
         return getItems(raw)
             .map(e => ({
-                type: e.type, reason: e.reason, message: (e.message || '').slice(0, 300),
-                count: e.count || 1,
-                timestamp: e.lastTimestamp || e.eventTime || e.metadata?.creationTimestamp
-            }))
+            type: e.type, reason: e.reason, message: (e.message || '').slice(0, 300),
+            count: e.count || 1,
+            timestamp: e.lastTimestamp || e.eventTime || e.metadata?.creationTimestamp
+        }))
             .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
             .slice(0, 25);
-    } catch (e) {
+    }
+    catch (e) {
         logger.warn({ error: e.message, name }, 'Could not list events for object');
         return [];
     }
 }
-
 async function readPodLog(namespace, name, container, previous) {
     try {
         const resp = await k8sService.core.readNamespacedPodLog({
             name, namespace, container, tailLines: 150, previous: !!previous
         });
         return resp.body || resp || '';
-    } catch (e) {
+    }
+    catch (e) {
         return null;
     }
 }
-
 async function getNodeIssueDetail(name) {
     const nodeRaw = await k8sService.core.readNode({ name });
     const node = nodeRaw.body || nodeRaw;
@@ -322,7 +259,6 @@ async function getNodeIssueDetail(name) {
         events: await eventsForObject('', name, true)
     };
 }
-
 async function getDeploymentIssueDetail(namespace, name) {
     const depRaw = await k8sService.apps.readNamespacedDeployment({ name, namespace });
     const dep = depRaw.body || depRaw;
@@ -337,7 +273,8 @@ async function getDeploymentIssueDetail(namespace, name) {
             status: classifyPod(p),
             restarts: podRestarts(p)
         }));
-    } catch (e) {  }
+    }
+    catch (e) { }
     return {
         kind: 'Deployment', namespace, name,
         replicas: {
@@ -351,7 +288,6 @@ async function getDeploymentIssueDetail(namespace, name) {
         events: await eventsForObject(namespace, name, false)
     };
 }
-
 async function getPodIssueDetail(namespace, name) {
     const podRaw = await k8sService.core.readNamespacedPod({ name, namespace });
     const pod = podRaw.body || podRaw;
@@ -359,7 +295,6 @@ async function getPodIssueDetail(namespace, name) {
         ...(pod.status?.initContainerStatuses || []).map(c => ({ ...c, _init: true })),
         ...(pod.status?.containerStatuses || [])
     ];
-
     const containers = allStatuses.map(cs => {
         const stateKey = cs.state?.waiting ? 'waiting' : cs.state?.terminated ? 'terminated' : cs.state?.running ? 'running' : 'unknown';
         const lt = cs.lastState?.terminated;
@@ -371,24 +306,19 @@ async function getPodIssueDetail(namespace, name) {
             lastTerminated: lt ? { reason: lt.reason, exitCode: lt.exitCode, finishedAt: lt.finishedAt } : null
         };
     });
-
-
     const failing = allStatuses.find(cs => cs.state?.waiting || (cs.state?.terminated && cs.state.terminated.exitCode !== 0) || cs.lastState?.terminated)
         || allStatuses[0]
         || { name: pod.spec?.containers?.[0]?.name };
     const targetContainer = failing?.name;
-
     let logs = null;
     if (targetContainer) {
-
-
         const hadRestart = (failing.restartCount || 0) > 0 || !!failing.lastState?.terminated;
         let text = hadRestart ? await readPodLog(namespace, name, targetContainer, true) : null;
         let previous = text != null;
-        if (text == null) text = await readPodLog(namespace, name, targetContainer, false);
+        if (text == null)
+            text = await readPodLog(namespace, name, targetContainer, false);
         logs = { container: targetContainer, previous, text: (text || '').slice(-20000), available: text != null };
     }
-
     return {
         kind: 'Pod', namespace, name,
         phase: pod.status?.phase,
@@ -402,48 +332,37 @@ async function getPodIssueDetail(namespace, name) {
         events: await eventsForObject(namespace, name, false)
     };
 }
-
 function getIssueDetail({ kind, namespace, name }) {
-    if (kind === 'Node') return getNodeIssueDetail(name);
-    if (kind === 'Deployment') return getDeploymentIssueDetail(namespace, name);
+    if (kind === 'Node')
+        return getNodeIssueDetail(name);
+    if (kind === 'Deployment')
+        return getDeploymentIssueDetail(namespace, name);
     return getPodIssueDetail(namespace, name);
 }
-
-
-
-
-
-
 function registryOf(image) {
-    if (!image) return 'docker.io';
+    if (!image)
+        return 'docker.io';
     const first = image.split('/')[0];
     return (first.includes('.') || first.includes(':')) ? first : 'docker.io';
 }
-
 async function getIntegrationReadiness(ns) {
     const scoped = ns && ns !== 'all';
-
     const [podsRaw, quotasRaw, limitRangesRaw, podMetricsRaw] = await Promise.all([
         scoped ? k8sService.core.listNamespacedPod({ namespace: ns }) : k8sService.core.listPodForAllNamespaces(),
         (scoped ? k8sService.core.listNamespacedResourceQuota({ namespace: ns }) : k8sService.core.listResourceQuotaForAllNamespaces()).catch(() => ({ items: [] })),
         (scoped ? k8sService.core.listNamespacedLimitRange({ namespace: ns }) : k8sService.core.listLimitRangeForAllNamespaces()).catch(() => ({ items: [] })),
         k8sService.custom.listClusterCustomObject({ group: 'metrics.k8s.io', version: 'v1beta1', plural: 'pods' }).catch(() => ({ items: [] }))
     ]);
-
     const pods = getItems(podsRaw);
     const quotasItems = getItems(quotasRaw);
     const limitRangeItems = getItems(limitRangesRaw);
     const podMetrics = getItems(podMetricsRaw);
-
-
     const quotas = quotasItems.map(q => {
         const hard = q.status?.hard || q.spec?.hard || {};
         const used = q.status?.used || {};
         const entries = Object.keys(hard).map(k => ({ resource: k, used: used[k] || '0', hard: hard[k] }));
         return { namespace: q.metadata?.namespace, name: q.metadata?.name, entries };
     });
-
-
     const imagePullMap = new Map();
     pods.forEach(p => {
         (p.status?.containerStatuses || []).forEach(cs => {
@@ -457,20 +376,15 @@ async function getIntegrationReadiness(ns) {
         });
     });
     const imagePullIssues = [...imagePullMap.values()].sort((a, b) => b.count - a.count).slice(0, 20);
-
-
     const restartList = [];
     const unschedulable = [];
     pods.forEach(p => {
-        if (p.status?.phase === 'Succeeded') return;
-
-
+        if (p.status?.phase === 'Succeeded')
+            return;
         const rCount = podRestarts(p);
         if (rCount > 0) {
-            const isOOMKilled = (p.status?.containerStatuses || []).some(cs =>
-                cs.state?.terminated?.reason === 'OOMKilled' ||
-                cs.lastState?.terminated?.reason === 'OOMKilled'
-            );
+            const isOOMKilled = (p.status?.containerStatuses || []).some(cs => cs.state?.terminated?.reason === 'OOMKilled' ||
+                cs.lastState?.terminated?.reason === 'OOMKilled');
             restartList.push({
                 namespace: p.metadata?.namespace,
                 name: p.metadata?.name,
@@ -478,8 +392,6 @@ async function getIntegrationReadiness(ns) {
                 isOOMKilled
             });
         }
-
-
         if (p.status?.phase === 'Pending') {
             const schedCond = (p.status?.conditions || []).find(c => c.type === 'PodScheduled');
             if (schedCond && schedCond.status === 'False' && (schedCond.reason === 'Unschedulable' || schedCond.message?.includes('Insufficient') || schedCond.message?.includes('fit'))) {
@@ -494,8 +406,6 @@ async function getIntegrationReadiness(ns) {
     });
     const podRestartsData = restartList.sort((a, b) => b.restarts - a.restarts).slice(0, 20);
     const unschedulableData = unschedulable.slice(0, 20);
-
-
     const usageByPod = new Map();
     podMetrics.forEach(pm => {
         const key = `${pm.metadata?.namespace}/${pm.metadata?.name}`;
@@ -504,10 +414,12 @@ async function getIntegrationReadiness(ns) {
     });
     const overMem = [];
     pods.forEach(p => {
-        if (p.status?.phase !== 'Running') return;
+        if (p.status?.phase !== 'Running')
+            return;
         const key = `${p.metadata?.namespace}/${p.metadata?.name}`;
         const usage = usageByPod.get(key);
-        if (!usage) return;
+        if (!usage)
+            return;
         const reqMem = (p.spec?.containers || []).reduce((s, c) => s + parseMem(c.resources?.requests?.memory), 0);
         if (reqMem > 0 && usage > reqMem) {
             overMem.push({
@@ -518,7 +430,6 @@ async function getIntegrationReadiness(ns) {
         }
     });
     overMem.sort((a, b) => b.ratio - a.ratio);
-
     return {
         metricsAvailable: podMetrics.length > 0,
         quotas,
@@ -529,22 +440,18 @@ async function getIntegrationReadiness(ns) {
         overMemory: overMem.slice(0, 15)
     };
 }
-
 async function runDiagnostic(action, ns) {
     const scoped = ns && ns !== 'all';
-    
     if (action === 'restarts') {
-        const podsRaw = scoped 
-            ? await k8sService.core.listNamespacedPod({ namespace: ns }) 
+        const podsRaw = scoped
+            ? await k8sService.core.listNamespacedPod({ namespace: ns })
             : await k8sService.core.listPodForAllNamespaces();
         const pods = getItems(podsRaw);
-        
         const restarting = [];
         pods.forEach(p => {
             const containerStatuses = p.status?.containerStatuses || [];
             const initContainerStatuses = p.status?.initContainerStatuses || [];
             const allStatuses = [...containerStatuses, ...initContainerStatuses];
-            
             const hasRestarts = allStatuses.some(s => s.restartCount > 0);
             if (hasRestarts) {
                 const containers = allStatuses.map(s => {
@@ -563,11 +470,9 @@ async function runDiagnostic(action, ns) {
                 });
             }
         });
-        
         if (restarting.length === 0) {
             return `SUCCESS: No pods with container restart history detected in namespace "${ns || 'all'}".`;
         }
-        
         let output = `DIAGNOSTIC REPORT: POD CONTAINER RESTARTS\n`;
         output += `Namespace Scope: ${ns || 'all'}\n`;
         output += `Found ${restarting.length} pod(s) with restart history:\n\n`;
@@ -580,21 +485,17 @@ async function runDiagnostic(action, ns) {
         });
         return output;
     }
-    
     if (action === 'pvcs') {
         const pvcRaw = scoped
             ? await k8sService.core.listNamespacedPersistentVolumeClaim({ namespace: ns })
             : await k8sService.core.listPersistentVolumeClaimForAllNamespaces();
         const pvcs = getItems(pvcRaw);
-        
         if (pvcs.length === 0) {
             return `INFO: No Persistent Volume Claims (PVCs) found in namespace "${ns || 'all'}".`;
         }
-        
         let output = `DIAGNOSTIC REPORT: PERSISTENT VOLUME CLAIMS (PVCs)\n`;
         output += `Namespace Scope: ${ns || 'all'}\n`;
         output += `Found ${pvcs.length} PVC(s):\n\n`;
-        
         pvcs.forEach((pvc, idx) => {
             const name = pvc.metadata.name;
             const namespace = pvc.metadata.namespace;
@@ -602,7 +503,6 @@ async function runDiagnostic(action, ns) {
             const storageClass = pvc.spec?.storageClassName || 'default';
             const capacity = pvc.status?.capacity?.storage || pvc.spec?.resources?.requests?.storage || 'unknown';
             const volume = pvc.spec?.volumeName || 'unbound';
-            
             output += `[${idx + 1}] ${namespace}/${name}\n`;
             output += `    - Status:        ${phase}\n`;
             output += `    - Capacity:      ${capacity}\n`;
@@ -611,24 +511,19 @@ async function runDiagnostic(action, ns) {
         });
         return output;
     }
-    
     if (action === 'network') {
         const [servicesRaw, podsRaw] = await Promise.all([
             scoped ? k8sService.core.listNamespacedService({ namespace: ns }) : k8sService.core.listServiceForAllNamespaces(),
             scoped ? k8sService.core.listNamespacedPod({ namespace: ns }) : k8sService.core.listPodForAllNamespaces()
         ]);
-        
         const services = getItems(servicesRaw);
         const pods = getItems(podsRaw);
-        
         if (services.length === 0) {
             return `INFO: No Services found in namespace "${ns || 'all'}".`;
         }
-        
         let output = `DIAGNOSTIC REPORT: SERVICES & NETWORK SELECTORS\n`;
         output += `Namespace Scope: ${ns || 'all'}\n`;
         output += `Found ${services.length} Service(s):\n\n`;
-        
         services.forEach((svc, idx) => {
             const name = svc.metadata.name;
             const namespace = svc.metadata.namespace;
@@ -636,32 +531,29 @@ async function runDiagnostic(action, ns) {
             const type = svc.spec?.type || 'ClusterIP';
             const clusterIP = svc.spec?.clusterIP || 'None';
             const ports = (svc.spec?.ports || []).map(p => `${p.port}:${p.targetPort}/${p.protocol}`).join(', ');
-            
             output += `[${idx + 1}] ${namespace}/${name} (Type: ${type}, IP: ${clusterIP})\n`;
             output += `    - Ports:     ${ports}\n`;
-            
             if (!selector || Object.keys(selector).length === 0) {
                 if (type === 'ExternalName') {
                     output += `    - Target:    ExternalName (${svc.spec.externalName})\n\n`;
-                } else {
+                }
+                else {
                     output += `    - Selector:  None (No selector configured)\n\n`;
                 }
                 return;
             }
-            
             const selectorStr = Object.entries(selector).map(([k, v]) => `${k}=${v}`).join(', ');
             output += `    - Selector:  ${selectorStr}\n`;
-            
-
             const svcPods = pods.filter(p => {
-                if (p.metadata?.namespace !== namespace) return false;
+                if (p.metadata?.namespace !== namespace)
+                    return false;
                 const labels = p.metadata?.labels || {};
                 return Object.entries(selector).every(([k, v]) => labels[k] === v);
             });
-            
             if (svcPods.length === 0) {
                 output += `    - WARNING:   No matching pods found! Traffic sent to this service will fail.\n\n`;
-            } else {
+            }
+            else {
                 const runningCount = svcPods.filter(p => p.status?.phase === 'Running').length;
                 output += `    - Endpoints: ${runningCount}/${svcPods.length} matching pods are Running/Healthy\n`;
                 output += `                 [Pods: ${svcPods.map(p => p.metadata.name).slice(0, 3).join(', ')}${svcPods.length > 3 ? '...' : ''}]\n\n`;
@@ -669,10 +561,8 @@ async function runDiagnostic(action, ns) {
         });
         return output;
     }
-    
     return `ERROR: Unknown diagnostic action: ${action}`;
 }
-
 module.exports = {
     getStats,
     getIssueDetail,

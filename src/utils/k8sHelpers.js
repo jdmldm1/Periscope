@@ -1,27 +1,28 @@
 function parseCpu(cpuStr) {
-    if (!cpuStr) return 0;
-    if (cpuStr.endsWith('n')) return parseFloat(cpuStr) / 1000000;
-    if (cpuStr.endsWith('u')) return parseFloat(cpuStr) / 1000;
-    if (cpuStr.endsWith('m')) return parseFloat(cpuStr);
+    if (!cpuStr)
+        return 0;
+    if (cpuStr.endsWith('n'))
+        return parseFloat(cpuStr) / 1000000;
+    if (cpuStr.endsWith('u'))
+        return parseFloat(cpuStr) / 1000;
+    if (cpuStr.endsWith('m'))
+        return parseFloat(cpuStr);
     return parseFloat(cpuStr) * 1000;
 }
-
 function parseMem(memStr) {
-    if (!memStr) return 0;
-    if (memStr.endsWith('Ki')) return parseFloat(memStr);
-    if (memStr.endsWith('Mi')) return parseFloat(memStr) * 1024;
-    if (memStr.endsWith('Gi')) return parseFloat(memStr) * 1024 * 1024;
+    if (!memStr)
+        return 0;
+    if (memStr.endsWith('Ki'))
+        return parseFloat(memStr);
+    if (memStr.endsWith('Mi'))
+        return parseFloat(memStr) * 1024;
+    if (memStr.endsWith('Gi'))
+        return parseFloat(memStr) * 1024 * 1024;
     return parseFloat(memStr) / 1024;
 }
-
 function getItems(raw) {
     return raw?.items || raw?.body?.items || [];
 }
-
-
-
-
-
 const KIND_GVK = {
     pods: { apiVersion: 'v1', kind: 'Pod' },
     services: { apiVersion: 'v1', kind: 'Service' },
@@ -43,15 +44,14 @@ const KIND_GVK = {
     crds: { apiVersion: 'apiextensions.k8s.io/v1', kind: 'CustomResourceDefinition' },
     customresourcedefinitions: { apiVersion: 'apiextensions.k8s.io/v1', kind: 'CustomResourceDefinition' },
 };
-
-
-
 function ensureTypeMeta(item, kind) {
-    if (!item || typeof item !== 'object') return item;
+    if (!item || typeof item !== 'object')
+        return item;
     const gvk = KIND_GVK[String(kind || '').toLowerCase()];
-    if (!item.apiVersion) item.apiVersion = gvk?.apiVersion || item.apiVersion;
-    if (!item.kind) item.kind = gvk?.kind || item.kind;
+    if (!item.apiVersion)
+        item.apiVersion = gvk?.apiVersion || item.apiVersion;
+    if (!item.kind)
+        item.kind = gvk?.kind || item.kind;
     return item;
 }
-
 module.exports = { parseCpu, parseMem, getItems, KIND_GVK, ensureTypeMeta };

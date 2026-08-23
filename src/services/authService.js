@@ -2,20 +2,16 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
-
 const AUTH_DIR = '/app/.cache';
 const AUTH_FILE = path.join(AUTH_DIR, 'auth-config.json');
-
 const ENCRYPTION_KEY = crypto.scryptSync(process.env.PERISCOPE_API_KEY || 'periscope-auth-salt-key-9988', 'salt-key', 32);
 const IV_LENGTH = 16;
-
 class AuthService {
     constructor() {
         this.configPath = this._getAuthFilePath();
         this.activeTokens = new Set();
         this.config = this._loadConfig();
     }
-
     _encrypt(text) {
         const iv = crypto.randomBytes(IV_LENGTH);
         const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
@@ -23,7 +19,6 @@ class AuthService {
         encrypted += cipher.final('hex');
         return iv.toString('hex') + ':' + encrypted;
     }
-
     _decrypt(text) {
         const textParts = text.split(':');
         if (textParts.length < 2) {
@@ -36,44 +31,40 @@ class AuthService {
         decrypted += decipher.final('utf8');
         return decrypted;
     }
-
     _getAuthFilePath() {
         try {
             if (!fs.existsSync(AUTH_DIR)) {
                 fs.mkdirSync(AUTH_DIR, { recursive: true });
             }
-
             const testFile = path.join(AUTH_DIR, '.write-test');
             fs.writeFileSync(testFile, 'test');
             fs.unlinkSync(testFile);
             return AUTH_FILE;
-        } catch (e) {
-
+        }
+        catch (e) {
             return path.join(__dirname, '../../auth-config.json');
         }
     }
-
     _loadConfig() {
         if (fs.existsSync(this.configPath)) {
             try {
                 const fileData = fs.readFileSync(this.configPath, 'utf8');
                 let decryptedData;
                 if (fileData.startsWith('{')) {
-
                     decryptedData = fileData;
-                } else {
+                }
+                else {
                     decryptedData = this._decrypt(fileData);
                 }
                 const data = JSON.parse(decryptedData);
                 if (data && data.username && data.passwordHash && data.salt) {
                     return data;
                 }
-            } catch (e) {
+            }
+            catch (e) {
                 logger.error(e, 'Failed to parse auth config file, using defaults');
             }
         }
-        
-
         const salt = crypto.randomBytes(16).toString('hex');
         const hash = this._hashPassword('periscope', salt);
         return {
@@ -83,21 +74,19 @@ class AuthService {
             isDefault: true
         };
     }
-
     _saveConfig() {
         try {
             const rawData = JSON.stringify(this.config);
             const encryptedData = this._encrypt(rawData);
             fs.writeFileSync(this.configPath, encryptedData, 'utf8');
-        } catch (e) {
+        }
+        catch (e) {
             logger.error(e, 'Failed to write auth config file');
         }
     }
-
     _hashPassword(password, salt) {
         return crypto.scryptSync(password, salt, 64).toString('hex');
     }
-
     verifyCredentials(username, password) {
         if (username !== this.config.username) {
             return false;
@@ -105,7 +94,6 @@ class AuthService {
         const hash = this._hashPassword(password, this.config.salt);
         return hash === this.config.passwordHash;
     }
-
     changePassword(newPassword) {
         const salt = crypto.randomBytes(16).toString('hex');
         const hash = this._hashPassword(newPassword, salt);
@@ -113,43 +101,36 @@ class AuthService {
         this.config.salt = salt;
         this.config.isDefault = false;
         this._saveConfig();
-
         this.activeTokens.clear();
         logger.info('User password changed successfully');
         return true;
     }
-
     createSession() {
         const token = crypto.randomBytes(32).toString('hex');
         this.activeTokens.add(token);
         return token;
     }
-
     verifySession(token) {
         return this.activeTokens.has(token);
     }
-
     destroySession(token) {
         this.activeTokens.delete(token);
     }
-
     isDefaultPassword() {
         return this.config.isDefault;
     }
-
     isAuthEnabled() {
         return process.env.AUTH_ENABLED !== 'false';
     }
-
     resetConfig() {
         if (fs.existsSync(this.configPath)) {
             try {
                 fs.unlinkSync(this.configPath);
-            } catch (e) {}
+            }
+            catch (e) { }
         }
         this.config = this._loadConfig();
         this.activeTokens.clear();
     }
 }
-
 module.exports = new AuthService();

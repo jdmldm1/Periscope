@@ -1,86 +1,75 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, RefreshCw, Search, Download, AlertTriangle } from 'lucide-react';
 import { SbomDiffView } from './SbomDiffView';
-import {
-  getRemediationList,
-  getFilteredRemediations,
-  getFilteredVulnerabilities,
-  getFilteredPackages,
-  exportVulnerabilitiesJson,
-  exportVulnerabilitiesCsv,
-  exportPackagesJson,
-  exportPackagesCsv,
-} from '../../utils/imageScan';
-
+import { getRemediationList, getFilteredRemediations, getFilteredVulnerabilities, getFilteredPackages, exportVulnerabilitiesJson, exportVulnerabilitiesCsv, exportPackagesJson, exportPackagesCsv, } from '../../utils/imageScan';
 interface ImageScannerViewProps {
-  runningImages: string[];
-  runningImagesScanResults: Record<string, { sbom: any; vulnerabilities: any; status: 'pending' | 'scanning' | 'success' | 'failed' | 'notScanned'; error?: string }>;
-  isScanningAllRunningImages: boolean;
-  scanSingleImage: (img: string) => Promise<void>;
-  fetchRunningImagesAndScan: () => Promise<void>;
-  enableAutoScan: boolean;
-  handleToggleAutoScan: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
-  grypeDbStatus?: { isUpdating: boolean; error: string | null; lastCheck: string | null };
+    runningImages: string[];
+    runningImagesScanResults: Record<string, {
+        sbom: any;
+        vulnerabilities: any;
+        status: 'pending' | 'scanning' | 'success' | 'failed' | 'notScanned';
+        error?: string;
+    }>;
+    isScanningAllRunningImages: boolean;
+    scanSingleImage: (img: string) => Promise<void>;
+    fetchRunningImagesAndScan: () => Promise<void>;
+    enableAutoScan: boolean;
+    handleToggleAutoScan: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+    grypeDbStatus?: {
+        isUpdating: boolean;
+        error: string | null;
+        lastCheck: string | null;
+    };
 }
-
-export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
-  runningImages,
-  runningImagesScanResults,
-  isScanningAllRunningImages,
-  scanSingleImage,
-  fetchRunningImagesAndScan,
-  enableAutoScan,
-  handleToggleAutoScan,
-}) => {
-  const [dbStatus, setDbStatus] = useState<{ isUpdating: boolean; error: string | null; lastCheck: string | null }>({
-    isUpdating: false,
-    error: null,
-    lastCheck: null
-  });
-
-  const fetchDbStatus = async () => {
-    try {
-      const res = await fetch('/api/zarf/scanner/grype/db-status');
-      const data = await res.json();
-      setDbStatus(data);
-    } catch (err) {
-      console.error('Failed to fetch Grype DB status:', err);
-    }
-  };
-
-  useEffect(() => {
-    fetchDbStatus();
-    const interval = setInterval(fetchDbStatus, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const [selectedScanFilterImage, setSelectedScanFilterImage] = useState<string>('all');
-  const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'remediation' | 'drift' | 'images'>(() => {
-    const saved = localStorage.getItem('imageScannerActiveTab');
-    return (saved as any) || 'vulnerabilities';
-  });
-  const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
-  const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
-
-  useEffect(() => {
-    localStorage.setItem('imageScannerActiveTab', imageScannerActiveTab);
-  }, [imageScannerActiveTab]);
-
-  const triggerDbUpdate = async () => {
-    try {
-      await fetch('/api/zarf/scanner/grype/db-update', { method: 'POST' });
-      fetchDbStatus();
-    } catch (err) {
-      console.error('Failed to trigger Grype DB update:', err);
-    }
-  };
-
-  if (dbStatus.isUpdating && !dbStatus.lastCheck) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 24, animation: 'fadeIn 0.5s' }}>
+export const ImageScannerView: React.FC<ImageScannerViewProps> = ({ runningImages, runningImagesScanResults, isScanningAllRunningImages, scanSingleImage, fetchRunningImagesAndScan, enableAutoScan, handleToggleAutoScan, }) => {
+    const [dbStatus, setDbStatus] = useState<{
+        isUpdating: boolean;
+        error: string | null;
+        lastCheck: string | null;
+    }>({
+        isUpdating: false,
+        error: null,
+        lastCheck: null
+    });
+    const fetchDbStatus = async () => {
+        try {
+            const res = await fetch('/api/zarf/scanner/grype/db-status');
+            const data = await res.json();
+            setDbStatus(data);
+        }
+        catch (err) {
+            console.error('Failed to fetch Grype DB status:', err);
+        }
+    };
+    useEffect(() => {
+        fetchDbStatus();
+        const interval = setInterval(fetchDbStatus, 5000);
+        return () => clearInterval(interval);
+    }, []);
+    const [selectedScanFilterImage, setSelectedScanFilterImage] = useState<string>('all');
+    const [imageScannerActiveTab, setImageScannerActiveTab] = useState<'vulnerabilities' | 'packages' | 'remediation' | 'drift' | 'images'>(() => {
+        const saved = localStorage.getItem('imageScannerActiveTab');
+        return (saved as any) || 'vulnerabilities';
+    });
+    const [imageScanSearchQuery, setImageScanSearchQuery] = useState<string>('');
+    const [imageScanSeverityFilter, setImageScanSeverityFilter] = useState<string>('all');
+    useEffect(() => {
+        localStorage.setItem('imageScannerActiveTab', imageScannerActiveTab);
+    }, [imageScannerActiveTab]);
+    const triggerDbUpdate = async () => {
+        try {
+            await fetch('/api/zarf/scanner/grype/db-update', { method: 'POST' });
+            fetchDbStatus();
+        }
+        catch (err) {
+            console.error('Failed to trigger Grype DB update:', err);
+        }
+    };
+    if (dbStatus.isUpdating && !dbStatus.lastCheck) {
+        return (<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 24, animation: 'fadeIn 0.5s' }}>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="spin" style={{ width: 80, height: 80, border: '4px solid rgba(0,188,212,0.1)', borderTopColor: 'var(--accent-blue)', borderRadius: '50%' }}></div>
-          <Shield size={32} style={{ position: 'absolute', color: 'var(--accent-blue)' }} />
+          <Shield size={32} style={{ position: 'absolute', color: 'var(--accent-blue)' }}/>
         </div>
         <div style={{ textAlign: 'center', maxWidth: '450px' }}>
           <h2 style={{ fontSize: '1.4rem', marginBottom: 10, color: 'var(--text-main)' }}>Initializing Security Database</h2>
@@ -100,171 +89,117 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             100% { opacity: 0.4; transform: translateX(100%); }
           }
         `}</style>
-      </div>
-    );
-  }
-
-  const filters = { image: selectedScanFilterImage, severity: imageScanSeverityFilter, search: imageScanSearchQuery };
-
-  const totalCount = runningImages.length;
-  const scannedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'success').length;
-  const scanningCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'scanning').length;
-  const failedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'failed').length;
-
-  const filteredVulns = getFilteredVulnerabilities(runningImagesScanResults, filters);
-  const filteredPkgs = getFilteredPackages(runningImagesScanResults, filters);
-
-  const criticalCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'critical').length;
-  const highCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'high').length;
-  const mediumCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'medium').length;
-  const lowCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'low').length;
-  const negligibleCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'negligible').length;
-
-  const renderTablePlaceholder = (tab: 'vulnerabilities' | 'packages') => {
-    if (selectedScanFilterImage === 'all') {
-      if (scannedCount === 0) {
-        return (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
+      </div>);
+    }
+    const filters = { image: selectedScanFilterImage, severity: imageScanSeverityFilter, search: imageScanSearchQuery };
+    const totalCount = runningImages.length;
+    const scannedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'success').length;
+    const scanningCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'scanning').length;
+    const failedCount = Object.values(runningImagesScanResults).filter((r: any) => r.status === 'failed').length;
+    const filteredVulns = getFilteredVulnerabilities(runningImagesScanResults, filters);
+    const filteredPkgs = getFilteredPackages(runningImagesScanResults, filters);
+    const criticalCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'critical').length;
+    const highCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'high').length;
+    const mediumCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'medium').length;
+    const lowCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'low').length;
+    const negligibleCount = filteredVulns.filter((m: any) => (m.vulnerability?.severity || '').toLowerCase() === 'negligible').length;
+    const renderTablePlaceholder = (tab: 'vulnerabilities' | 'packages') => {
+        if (selectedScanFilterImage === 'all') {
+            if (scannedCount === 0) {
+                return (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
             <div style={{ color: 'var(--text-muted)', marginBottom: 16 }}>No container images have been scanned yet.</div>
-            <button 
-              className="btn btn-primary"
-              onClick={fetchRunningImagesAndScan}
-              disabled={isScanningAllRunningImages}
-              style={{ margin: '0 auto' }}
-            >
-              <RefreshCw size={14} className={isScanningAllRunningImages ? 'spin' : ''} style={{ marginRight: 6 }} />
+            <button className="btn btn-primary" onClick={fetchRunningImagesAndScan} disabled={isScanningAllRunningImages} style={{ margin: '0 auto' }}>
+              <RefreshCw size={14} className={isScanningAllRunningImages ? 'spin' : ''} style={{ marginRight: 6 }}/>
               {isScanningAllRunningImages ? 'Scanning All...' : 'Scan All Running Images'}
             </button>
-          </div>
-        );
-      }
-      return (
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+          </div>);
+            }
+            return (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
           No {tab} found matching current filters.
-        </div>
-      );
-    }
-
-    const scan = runningImagesScanResults[selectedScanFilterImage];
-    const cleanedImg = selectedScanFilterImage.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
-
-    if (!scan) {
-      return (
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
+        </div>);
+        }
+        const scan = runningImagesScanResults[selectedScanFilterImage];
+        const cleanedImg = selectedScanFilterImage.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
+        if (!scan) {
+            return (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
           <div style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
             Image <strong>{cleanedImg}</strong> has not been scanned yet.
           </div>
-          <button 
-            className="btn btn-primary"
-            onClick={() => scanSingleImage(selectedScanFilterImage)}
-            disabled={dbStatus.isUpdating}
-            style={{ margin: '0 auto' }}
-          >
+          <button className="btn btn-primary" onClick={() => scanSingleImage(selectedScanFilterImage)} disabled={dbStatus.isUpdating} style={{ margin: '0 auto' }}>
             {dbStatus.isUpdating ? 'Waiting for Security DB...' : 'Scan Image'}
           </button>
-        </div>
-      );
-    }
-
-    if (scan.status === 'scanning') {
-      return (
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+        </div>);
+        }
+        if (scan.status === 'scanning') {
+            return (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
           <div className="loader" style={{ margin: '0 auto 12px auto' }}></div>
           Scanning image <strong>{cleanedImg}</strong>...
-        </div>
-      );
-    }
-
-    if (scan.status === 'failed') {
-      return (
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
+        </div>);
+        }
+        if (scan.status === 'failed') {
+            return (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center' }}>
           <div style={{ color: '#ef4444', marginBottom: 8, fontWeight: 600 }}>Scan Failed</div>
           <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16, maxWidth: '500px', margin: '0 auto 16px auto' }}>
             {scan.error || 'Unknown error occurred during scan.'}
           </div>
-          <button 
-            className="btn"
-            onClick={() => scanSingleImage(selectedScanFilterImage)}
-            disabled={dbStatus.isUpdating}
-            style={{ margin: '0 auto', background: 'rgba(255,255,255,0.02)' }}
-          >
+          <button className="btn" onClick={() => scanSingleImage(selectedScanFilterImage)} disabled={dbStatus.isUpdating} style={{ margin: '0 auto', background: 'rgba(255,255,255,0.02)' }}>
             {dbStatus.isUpdating ? 'Waiting for Security DB...' : 'Retry Scan'}
           </button>
-        </div>
-      );
-    }
-
-    return (
-      <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+        </div>);
+        }
+        return (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
         No {tab} found for this container image.
-      </div>
-    );
-  };
-
-  return (
-    <div className="image-scanner-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {}
-      {dbStatus.error && (
-        <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      </div>);
+    };
+    return (<div className="image-scanner-view animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      
+      {dbStatus.error && (<div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ color: '#ef4444', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertTriangle size={16} />
+            <AlertTriangle size={16}/>
             <span><strong>Database Error:</strong> {dbStatus.error}</span>
           </div>
           <button className="btn btn-sm" onClick={triggerDbUpdate} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
             Retry Update
           </button>
-        </div>
-      )}
+        </div>)}
 
-      {dbStatus.isUpdating && dbStatus.lastCheck && (
-        <div style={{ background: 'rgba(0, 188, 212, 0.05)', border: '1px solid rgba(0, 188, 212, 0.2)', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <RefreshCw size={16} className="spin" style={{ color: 'var(--accent-blue)' }} />
+      {dbStatus.isUpdating && dbStatus.lastCheck && (<div style={{ background: 'rgba(0, 188, 212, 0.05)', border: '1px solid rgba(0, 188, 212, 0.2)', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <RefreshCw size={16} className="spin" style={{ color: 'var(--accent-blue)' }}/>
           <div style={{ color: 'var(--accent-cyan)', fontSize: '0.85rem' }}>
             <strong>Updating Vulnerability Database:</strong> Scans are temporarily disabled while we refresh security definitions...
           </div>
-        </div>
-      )}
+        </div>)}
 
-      {}
+      
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h3 style={{ fontSize: '1.1rem', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Shield size={18} style={{ color: 'var(--accent-blue)' }} /> Real-time Container Vulnerabilities
+            <Shield size={18} style={{ color: 'var(--accent-blue)' }}/> Real-time Container Vulnerabilities
           </h3>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             Images Scanned: <strong style={{ color: 'var(--text-main)' }}>{scannedCount}</strong> / {totalCount}
             {scanningCount > 0 && <span style={{ marginLeft: 10, color: 'var(--accent-cyan)' }}>({scanningCount} scanning...)</span>}
             {failedCount > 0 && <span style={{ marginLeft: 10, color: '#ef4444' }}>({failedCount} failed)</span>}
             <div style={{ width: '250px', height: '6px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '3px', marginTop: '6px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', background: 'var(--accent-blue)', width: `${totalCount > 0 ? (scannedCount / totalCount) * 100 : 0}%`, transition: 'width 0.4s ease' }} />
+              <div style={{ height: '100%', background: 'var(--accent-blue)', width: `${totalCount > 0 ? (scannedCount / totalCount) * 100 : 0}%`, transition: 'width 0.4s ease' }}/>
             </div>
           </div>
         </div>
         
-        {}
+        
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
-            <input 
-              type="checkbox" 
-              checked={enableAutoScan} 
-              onChange={handleToggleAutoScan} 
-              style={{ cursor: 'pointer', width: '15px', height: '15px' }}
-            />
+            <input type="checkbox" checked={enableAutoScan} onChange={handleToggleAutoScan} style={{ cursor: 'pointer', width: '15px', height: '15px' }}/>
             <span>Auto-scan in background</span>
           </label>
-          <button 
-            className="btn btn-primary"
-            onClick={fetchRunningImagesAndScan}
-            disabled={isScanningAllRunningImages || dbStatus.isUpdating}
-            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-          >
-            <RefreshCw size={16} className={isScanningAllRunningImages ? 'spin' : ''} />
+          <button className="btn btn-primary" onClick={fetchRunningImagesAndScan} disabled={isScanningAllRunningImages || dbStatus.isUpdating} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <RefreshCw size={16} className={isScanningAllRunningImages ? 'spin' : ''}/>
             {isScanningAllRunningImages ? 'Scanning Cluster...' : dbStatus.isUpdating ? 'Waiting for DB...' : 'Scan All Running Images'}
           </button>
         </div>
       </div>
 
-      {}
+      
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
         <div style={{ background: 'rgba(239, 68, 68, 0.03)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: 8, padding: '14px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>{criticalCount}</div>
@@ -288,12 +223,9 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
         </div>
       </div>
 
-      {}
+      
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', gap: 16 }}>
-        <button 
-          className={`tab-btn ${imageScannerActiveTab === 'vulnerabilities' ? 'active' : ''}`}
-          onClick={() => setImageScannerActiveTab('vulnerabilities')}
-          style={{
+        <button className={`tab-btn ${imageScannerActiveTab === 'vulnerabilities' ? 'active' : ''}`} onClick={() => setImageScannerActiveTab('vulnerabilities')} style={{
             padding: '10px 20px',
             background: 'none',
             border: 'none',
@@ -302,14 +234,10 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             cursor: 'pointer',
             fontWeight: 600,
             fontSize: '0.9rem'
-          }}
-        >
+        }}>
           🛡️ Vulnerabilities ({filteredVulns.length})
         </button>
-        <button 
-          className={`tab-btn ${imageScannerActiveTab === 'packages' ? 'active' : ''}`}
-          onClick={() => setImageScannerActiveTab('packages')}
-          style={{
+        <button className={`tab-btn ${imageScannerActiveTab === 'packages' ? 'active' : ''}`} onClick={() => setImageScannerActiveTab('packages')} style={{
             padding: '10px 20px',
             background: 'none',
             border: 'none',
@@ -318,14 +246,10 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             cursor: 'pointer',
             fontWeight: 600,
             fontSize: '0.9rem'
-          }}
-        >
+        }}>
           📦 Packages ({filteredPkgs.length})
         </button>
-        <button 
-          className={`tab-btn ${imageScannerActiveTab === 'remediation' ? 'active' : ''}`}
-          onClick={() => setImageScannerActiveTab('remediation')}
-          style={{
+        <button className={`tab-btn ${imageScannerActiveTab === 'remediation' ? 'active' : ''}`} onClick={() => setImageScannerActiveTab('remediation')} style={{
             padding: '10px 20px',
             background: 'none',
             border: 'none',
@@ -334,14 +258,10 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             cursor: 'pointer',
             fontWeight: 600,
             fontSize: '0.9rem'
-          }}
-        >
+        }}>
           💡 Remediation Advisor ({getRemediationList(runningImagesScanResults, filters.image).length})
         </button>
-        <button 
-          className={`tab-btn ${imageScannerActiveTab === 'drift' ? 'active' : ''}`}
-          onClick={() => setImageScannerActiveTab('drift')}
-          style={{
+        <button className={`tab-btn ${imageScannerActiveTab === 'drift' ? 'active' : ''}`} onClick={() => setImageScannerActiveTab('drift')} style={{
             padding: '10px 20px',
             background: 'none',
             border: 'none',
@@ -350,14 +270,10 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             cursor: 'pointer',
             fontWeight: 600,
             fontSize: '0.9rem'
-          }}
-        >
+        }}>
           🔄 SBOM Drift & Diff
         </button>
-        <button 
-          className={`tab-btn ${imageScannerActiveTab === 'images' ? 'active' : ''}`}
-          onClick={() => setImageScannerActiveTab('images')}
-          style={{
+        <button className={`tab-btn ${imageScannerActiveTab === 'images' ? 'active' : ''}`} onClick={() => setImageScannerActiveTab('images')} style={{
             padding: '10px 20px',
             background: 'none',
             border: 'none',
@@ -366,92 +282,57 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             cursor: 'pointer',
             fontWeight: 600,
             fontSize: '0.9rem'
-          }}
-        >
+        }}>
           📷 Scanned Images ({totalCount})
         </button>
       </div>
 
-      {}
-      {imageScannerActiveTab !== 'images' && imageScannerActiveTab !== 'drift' && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.1)', borderRadius: 6, padding: 12, flexWrap: 'wrap', gap: 10 }}>
-          {}
+      
+      {imageScannerActiveTab !== 'images' && imageScannerActiveTab !== 'drift' && (<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.1)', borderRadius: 6, padding: 12, flexWrap: 'wrap', gap: 10 }}>
+          
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <div className="search-box" style={{ width: 220, position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
-              <input 
-                type="text" 
-                placeholder={
-                  imageScannerActiveTab === 'vulnerabilities' 
-                    ? "Search CVEs/packages..." 
-                    : imageScannerActiveTab === 'remediation' 
-                      ? "Search suggestions..." 
-                      : "Search packages..."
-                }
-                value={imageScanSearchQuery}
-                onChange={e => setImageScanSearchQuery(e.target.value)}
-                style={{ padding: '6px 10px 6px 30px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, width: '100%', outline: 'none', color: 'var(--text-main)' }}
-              />
+              <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }}/>
+              <input type="text" placeholder={imageScannerActiveTab === 'vulnerabilities'
+                ? "Search CVEs/packages..."
+                : imageScannerActiveTab === 'remediation'
+                    ? "Search suggestions..."
+                    : "Search packages..."} value={imageScanSearchQuery} onChange={e => setImageScanSearchQuery(e.target.value)} style={{ padding: '6px 10px 6px 30px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, width: '100%', outline: 'none', color: 'var(--text-main)' }}/>
             </div>
 
-            {}
-            <select
-              value={selectedScanFilterImage}
-              onChange={e => setSelectedScanFilterImage(e.target.value)}
-              style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem', outline: 'none' }}
-            >
+            
+            <select value={selectedScanFilterImage} onChange={e => setSelectedScanFilterImage(e.target.value)} style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem', outline: 'none' }}>
               <option value="all">All Images ({totalCount})</option>
               {runningImages.map(img => {
                 const cleaned = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
                 return <option key={img} value={img}>{cleaned}</option>;
-              })}
+            })}
             </select>
 
-            {}
-            {imageScannerActiveTab === 'vulnerabilities' && (
-              <select
-                value={imageScanSeverityFilter}
-                onChange={e => setImageScanSeverityFilter(e.target.value)}
-                style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem', outline: 'none' }}
-              >
+            
+            {imageScannerActiveTab === 'vulnerabilities' && (<select value={imageScanSeverityFilter} onChange={e => setImageScanSeverityFilter(e.target.value)} style={{ padding: '6px 12px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-main)', fontSize: '0.85rem', outline: 'none' }}>
                 <option value="all">All Severities</option>
                 <option value="Critical">Critical</option>
                 <option value="High">High</option>
                 <option value="Medium">Medium</option>
                 <option value="Low">Low</option>
                 <option value="Negligible">Negligible</option>
-              </select>
-            )}
+              </select>)}
           </div>
 
-          {}
-          {(imageScannerActiveTab === 'vulnerabilities' || imageScannerActiveTab === 'packages') && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button 
-                className="btn btn-primary" 
-                onClick={() => imageScannerActiveTab === 'vulnerabilities' ? exportVulnerabilitiesCsv(runningImagesScanResults, filters) : exportPackagesCsv(runningImagesScanResults, filters)}
-                style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Download size={14} /> Export CSV
+          
+          {(imageScannerActiveTab === 'vulnerabilities' || imageScannerActiveTab === 'packages') && (<div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary" onClick={() => imageScannerActiveTab === 'vulnerabilities' ? exportVulnerabilitiesCsv(runningImagesScanResults, filters) : exportPackagesCsv(runningImagesScanResults, filters)} style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Download size={14}/> Export CSV
               </button>
-              <button 
-                className="btn" 
-                onClick={() => imageScannerActiveTab === 'vulnerabilities' ? exportVulnerabilitiesJson(runningImagesScanResults, filters) : exportPackagesJson(runningImagesScanResults, filters)}
-                style={{ fontSize: '0.8rem', padding: '6px 12px', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <Download size={14} /> Export JSON
+              <button className="btn" onClick={() => imageScannerActiveTab === 'vulnerabilities' ? exportVulnerabilitiesJson(runningImagesScanResults, filters) : exportPackagesJson(runningImagesScanResults, filters)} style={{ fontSize: '0.8rem', padding: '6px 12px', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Download size={14}/> Export JSON
               </button>
-            </div>
-          )}
-        </div>
-      )}
+            </div>)}
+        </div>)}
 
-      {}
-      {imageScannerActiveTab === 'vulnerabilities' && (
-        filteredVulns.length === 0 ? (
-          renderTablePlaceholder('vulnerabilities')
-        ) : (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflowX: 'auto' }}>
+      
+      {imageScannerActiveTab === 'vulnerabilities' && (filteredVulns.length === 0 ? (renderTablePlaceholder('vulnerabilities')) : (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
@@ -465,69 +346,51 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
               </thead>
               <tbody>
                 {filteredVulns.map((m: any, idx: number) => {
-                  const vuln = m.vulnerability || {};
-                  const art = m.artifact || {};
-                  const severity = vuln.severity || 'Unknown';
-                  const badgeColor = 
-                    severity === 'Critical' ? '#ef4444' :
+                const vuln = m.vulnerability || {};
+                const art = m.artifact || {};
+                const severity = vuln.severity || 'Unknown';
+                const badgeColor = severity === 'Critical' ? '#ef4444' :
                     severity === 'High' ? '#f59e0b' :
-                    severity === 'Medium' ? '#fbbf24' :
-                    severity === 'Low' ? '#60a5fa' : 'var(--text-muted)';
-                  
-                  const badgeBg = 
-                    severity === 'Critical' ? 'rgba(239, 68, 68, 0.08)' :
+                        severity === 'Medium' ? '#fbbf24' :
+                            severity === 'Low' ? '#60a5fa' : 'var(--text-muted)';
+                const badgeBg = severity === 'Critical' ? 'rgba(239, 68, 68, 0.08)' :
                     severity === 'High' ? 'rgba(245, 158, 11, 0.08)' :
-                    severity === 'Medium' ? 'rgba(251, 191, 36, 0.08)' :
-                    severity === 'Low' ? 'rgba(96, 165, 250, 0.08)' : 'rgba(255, 255, 255, 0.03)';
-                  
-                  const fixedIn = vuln.fix?.versions?.join(', ') || 'Not Fixed';
-                  const cleanedImg = m.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
-
-                  return (
-                    <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                        severity === 'Medium' ? 'rgba(251, 191, 36, 0.08)' :
+                            severity === 'Low' ? 'rgba(96, 165, 250, 0.08)' : 'rgba(255, 255, 255, 0.03)';
+                const fixedIn = vuln.fix?.versions?.join(', ') || 'Not Fixed';
+                const cleanedImg = m.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
+                return (<tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', color: 'var(--accent-blue)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.imageRef}>
                         {cleanedImg}
                       </td>
                       <td style={{ padding: '10px 14px' }}>
-                        <a 
-                          href={`https://osv.dev/vulnerability/${vuln.id}`} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}
-                        >
+                        <a href={`https://osv.dev/vulnerability/${vuln.id}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>
                           {vuln.id}
                         </a>
                       </td>
                       <td style={{ padding: '10px 14px' }}>
-                        <span style={{ 
-                          fontSize: '0.7rem', 
-                          fontWeight: 700, 
-                          color: badgeColor, 
-                          background: badgeBg, 
-                          border: `1px solid ${badgeColor}22`,
-                          borderRadius: 4,
-                          padding: '2px 8px'
-                        }}>
+                        <span style={{
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        color: badgeColor,
+                        background: badgeBg,
+                        border: `1px solid ${badgeColor}22`,
+                        borderRadius: 4,
+                        padding: '2px 8px'
+                    }}>
                           {severity}
                         </span>
                       </td>
                       <td style={{ padding: '10px 14px', fontWeight: 600 }}>{art.name}</td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>{art.version}</td>
                       <td style={{ padding: '10px 14px', color: fixedIn === 'Not Fixed' ? 'var(--text-muted)' : '#10b981' }}>{fixedIn}</td>
-                    </tr>
-                  );
-                })}
+                    </tr>);
+            })}
               </tbody>
             </table>
-          </div>
-        )
-      )}
+          </div>))}
 
-      {imageScannerActiveTab === 'packages' && (
-        filteredPkgs.length === 0 ? (
-          renderTablePlaceholder('packages')
-        ) : (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflowX: 'auto' }}>
+      {imageScannerActiveTab === 'packages' && (filteredPkgs.length === 0 ? (renderTablePlaceholder('packages')) : (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
@@ -541,13 +404,11 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
               </thead>
               <tbody>
                 {filteredPkgs.map((art: any, idx: number) => {
-                  const licenseStrs = Array.isArray(art.licenses)
+                const licenseStrs = Array.isArray(art.licenses)
                     ? art.licenses.map((l: any) => typeof l === 'string' ? l : (l.value || ''))
                     : [];
-                  const cleanedImg = art.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
-
-                  return (
-                    <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                const cleanedImg = art.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
+                return (<tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', color: 'var(--accent-blue)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={art.imageRef}>
                         {cleanedImg}
                       </td>
@@ -562,22 +423,15 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                         {licenseStrs.length > 0 ? licenseStrs.join(', ') : <span style={{ color: 'var(--text-muted)' }}>None</span>}
                       </td>
                       <td style={{ padding: '10px 14px', color: 'var(--text-muted)' }}>{art.language || 'N/A'}</td>
-                    </tr>
-                  );
-                })}
+                    </tr>);
+            })}
               </tbody>
             </table>
-          </div>
-        )
-      )}
+          </div>))}
 
-      {imageScannerActiveTab === 'remediation' && (
-        getFilteredRemediations(runningImagesScanResults, filters).length === 0 ? (
-          <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+      {imageScannerActiveTab === 'remediation' && (getFilteredRemediations(runningImagesScanResults, filters).length === 0 ? (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             No remediation suggestions found matching current filters.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          </div>) : (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', background: 'rgba(57,255,20,0.03)', border: '1px solid rgba(57,255,20,0.15)', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: '1.2rem' }}>💡</span>
               <div>
@@ -587,44 +441,37 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
               {getFilteredRemediations(runningImagesScanResults, filters).map((item, idx) => {
                 const maxSeverity = item.vulnerabilities.reduce((acc, v) => {
-                  const s = v.severity.toLowerCase();
-                  if (s === 'critical') return 'Critical';
-                  if (s === 'high' && acc !== 'Critical') return 'High';
-                  if (acc !== 'Critical' && acc !== 'High' && s === 'medium') return 'Medium';
-                  return acc;
+                    const s = v.severity.toLowerCase();
+                    if (s === 'critical')
+                        return 'Critical';
+                    if (s === 'high' && acc !== 'Critical')
+                        return 'High';
+                    if (acc !== 'Critical' && acc !== 'High' && s === 'medium')
+                        return 'Medium';
+                    return acc;
                 }, 'Low');
-
-                const severityColor = 
-                  maxSeverity === 'Critical' ? '#ef4444' :
-                  maxSeverity === 'High' ? '#f59e0b' :
-                  maxSeverity === 'Medium' ? '#fbbf24' : '#60a5fa';
-
+                const severityColor = maxSeverity === 'Critical' ? '#ef4444' :
+                    maxSeverity === 'High' ? '#f59e0b' :
+                        maxSeverity === 'Medium' ? '#fbbf24' : '#60a5fa';
                 const cleanedImg = item.imageRef.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
-
-                return (
-                  <div 
-                    key={idx} 
-                    style={{ 
-                      background: 'var(--bg-card)', 
-                      border: '1px solid var(--border-color)', 
-                      borderRadius: 8, 
-                      padding: 16, 
-                      display: 'flex', 
-                      flexDirection: 'column', 
-                      gap: 12,
-                      boxShadow: 'var(--shadow-card)',
-                      transition: 'transform 0.2s, border-color 0.2s',
-                      cursor: 'default'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = severityColor;
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = 'var(--border-color)';
-                      e.currentTarget.style.transform = 'none';
-                    }}
-                  >
+                return (<div key={idx} style={{
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 8,
+                        padding: 16,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                        boxShadow: 'var(--shadow-card)',
+                        transition: 'transform 0.2s, border-color 0.2s',
+                        cursor: 'default'
+                    }} onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = severityColor;
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                    }} onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--border-color)';
+                        e.currentTarget.style.transform = 'none';
+                    }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div style={{ maxWidth: '75%' }}>
                         <h4 style={{ margin: '0 0 4px 0', fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -634,15 +481,15 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                           in {cleanedImg}
                         </div>
                       </div>
-                      <span style={{ 
-                        fontSize: '0.65rem', 
-                        fontWeight: 700, 
-                        color: severityColor, 
-                        background: `${severityColor}15`, 
+                      <span style={{
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                        color: severityColor,
+                        background: `${severityColor}15`,
                         border: `1px solid ${severityColor}33`,
                         borderRadius: 4,
                         padding: '2px 6px'
-                      }}>
+                    }}>
                         {maxSeverity} Max
                       </span>
                     </div>
@@ -664,45 +511,28 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
                         Resolves {item.vulnerabilities.length} Vulnerabilit{item.vulnerabilities.length === 1 ? 'y' : 'ies'}:
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: '80px', overflowY: 'auto' }}>
-                        {item.vulnerabilities.map(v => (
-                          <a 
-                            key={v.id}
-                            href={`https://osv.dev/vulnerability/${v.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ 
-                              fontSize: '0.7rem', 
-                              color: 'var(--accent-cyan)', 
-                              background: 'rgba(0,188,212,0.08)', 
-                              border: '1px solid rgba(0,188,212,0.2)',
-                              padding: '2px 6px',
-                              borderRadius: 4,
-                              textDecoration: 'none',
-                              fontWeight: 500
-                            }}
-                          >
+                        {item.vulnerabilities.map(v => (<a key={v.id} href={`https://osv.dev/vulnerability/${v.id}`} target="_blank" rel="noopener noreferrer" style={{
+                            fontSize: '0.7rem',
+                            color: 'var(--accent-cyan)',
+                            background: 'rgba(0,188,212,0.08)',
+                            border: '1px solid rgba(0,188,212,0.2)',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            textDecoration: 'none',
+                            fontWeight: 500
+                        }}>
                             {v.id} ({v.severity[0]})
-                          </a>
-                        ))}
+                          </a>))}
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  </div>);
+            })}
             </div>
-          </div>
-        )
-      )}
+          </div>))}
 
-      {imageScannerActiveTab === 'drift' && (
-        <SbomDiffView 
-          runningImages={runningImages}
-          runningImagesScanResults={runningImagesScanResults}
-        />
-      )}
+      {imageScannerActiveTab === 'drift' && (<SbomDiffView runningImages={runningImages} runningImagesScanResults={runningImagesScanResults}/>)}
 
-      {imageScannerActiveTab === 'images' && (
-        <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+      {imageScannerActiveTab === 'images' && (<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
           <table className="crd-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
@@ -717,72 +547,49 @@ export const ImageScannerView: React.FC<ImageScannerViewProps> = ({
               {runningImages.map((img: string, idx: number) => {
                 const scan = runningImagesScanResults[img];
                 const cleanedName = img.replace(/^zarf-docker-registry\.zarf\.svc\.cluster\.local:5000\//, '');
-
                 let cCount = 0, hCount = 0, mCount = 0, lCount = 0;
                 if (scan && scan.status === 'success' && scan.vulnerabilities && scan.vulnerabilities.matches) {
-                  scan.vulnerabilities.matches.forEach((m: any) => {
-                    const sev = (m.vulnerability?.severity || '').toLowerCase();
-                    if (sev === 'critical') cCount++;
-                    else if (sev === 'high') hCount++;
-                    else if (sev === 'medium') mCount++;
-                    else if (sev === 'low') lCount++;
-                  });
+                    scan.vulnerabilities.matches.forEach((m: any) => {
+                        const sev = (m.vulnerability?.severity || '').toLowerCase();
+                        if (sev === 'critical')
+                            cCount++;
+                        else if (sev === 'high')
+                            hCount++;
+                        else if (sev === 'medium')
+                            mCount++;
+                        else if (sev === 'low')
+                            lCount++;
+                    });
                 }
-
-                return (
-                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                return (<tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                     <td style={{ padding: '12px 16px', fontFamily: 'var(--font-mono)', fontWeight: 600 }} title={img}>
                       {cleanedName}
                     </td>
                     <td style={{ padding: '12px 16px' }}>
-                      {!scan || scan.status === 'notScanned' ? (
-                        <span style={{ color: 'var(--text-muted)' }}>Not Scanned</span>
-                      ) : scan.status === 'scanning' ? (
-                        <span style={{ color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <RefreshCw size={12} className="spin" /> Scanning...
-                        </span>
-                      ) : scan.status === 'success' ? (
-                        <span style={{ color: '#10b981' }}>✓ Success</span>
-                      ) : (
-                        <span style={{ color: '#ef4444' }} title={scan.error || 'Unknown error'}>✗ Failed</span>
-                      )}
+                      {!scan || scan.status === 'notScanned' ? (<span style={{ color: 'var(--text-muted)' }}>Not Scanned</span>) : scan.status === 'scanning' ? (<span style={{ color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <RefreshCw size={12} className="spin"/> Scanning...
+                        </span>) : scan.status === 'success' ? (<span style={{ color: '#10b981' }}>✓ Success</span>) : (<span style={{ color: '#ef4444' }} title={scan.error || 'Unknown error'}>✗ Failed</span>)}
                     </td>
                     <td style={{ padding: '12px 16px' }}>
-                      {scan && scan.status === 'success' ? (
-                        <div style={{ display: 'flex', gap: 6 }}>
+                      {scan && scan.status === 'success' ? (<div style={{ display: 'flex', gap: 6 }}>
                           <span style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{cCount}</span>
                           <span style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{hCount}</span>
                           <span style={{ background: 'rgba(251,191,36,0.1)', color: '#fbbf24', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{mCount}</span>
                           <span style={{ background: 'rgba(96,165,250,0.1)', color: '#60a5fa', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{lCount}</span>
-                        </div>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>-</span>
-                      )}
+                        </div>) : (<span style={{ color: 'var(--text-muted)' }}>-</span>)}
                     </td>
                     <td style={{ padding: '12px 16px' }}>
-                      {scan && scan.status === 'success' ? (
-                        <span>{scan.sbom?.artifacts?.length || 0} packages</span>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>-</span>
-                      )}
+                      {scan && scan.status === 'success' ? (<span>{scan.sbom?.artifacts?.length || 0} packages</span>) : (<span style={{ color: 'var(--text-muted)' }}>-</span>)}
                     </td>
                     <td style={{ padding: '12px 16px' }}>
-                      <button
-                        className="btn"
-                        style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)' }}
-                        onClick={() => scanSingleImage(img)}
-                        disabled={scan?.status === 'scanning' || dbStatus.isUpdating}
-                      >
+                      <button className="btn" style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)' }} onClick={() => scanSingleImage(img)} disabled={scan?.status === 'scanning' || dbStatus.isUpdating}>
                         {scan?.status === 'scanning' ? 'Scanning...' : dbStatus.isUpdating ? 'DB Updating' : (scan && scan.status !== 'notScanned') ? 'Rescan' : 'Scan'}
                       </button>
                     </td>
-                  </tr>
-                );
-              })}
+                  </tr>);
+            })}
             </tbody>
           </table>
-        </div>
-      )}
-    </div>
-  );
+        </div>)}
+    </div>);
 };

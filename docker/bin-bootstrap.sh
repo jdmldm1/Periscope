@@ -1,10 +1,4 @@
 #!/bin/sh
-# Fetches zarf/kubectl/grype (+ the helm-via-zarf shim) into BIN_DIR if not
-# already present there. Idempotent, so it's cheap to run unconditionally:
-#  - at image build time for the airgap variant (bakes binaries in, no
-#    network needed at runtime)
-#  - at container startup for the connected variant (keeps the pulled image
-#    ~280MB smaller; trades that for a one-time download on first boot)
 set -e
 
 BIN_DIR="${BIN_DIR:-/app/bin}"

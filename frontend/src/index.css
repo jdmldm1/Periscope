@@ -1,24 +1,24 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg-main: #030712; 
-  --bg-panel: rgba(17, 24, 39, 0.7); 
-  --bg-card: rgba(31, 41, 55, 0.35); 
+  --bg-main: #030712;
+  --bg-panel: rgba(17, 24, 39, 0.7);
+  --bg-card: rgba(31, 41, 55, 0.35);
   --bg-card-hover: rgba(55, 65, 81, 0.5);
-  
+
   --border-color: rgba(255, 255, 255, 0.06);
   --border-glow: rgba(59, 130, 246, 0.25);
   --border-active: rgba(255, 255, 255, 0.2);
-  
-  --text-main: #f3f4f6; 
-  --text-muted: #9ca3af; 
-  
-  --accent-primary: #3b82f6; 
+
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+
+  --accent-primary: #3b82f6;
   --accent-blue: #2563eb;
-  --accent-cyan: #06b6d4; 
-  --accent-purple: #a855f7; 
-  --accent-pink: #ec4899; 
-  --accent-green: #10b981; 
+  --accent-cyan: #06b6d4;
+  --accent-purple: #a855f7;
+  --accent-pink: #ec4899;
+  --accent-green: #10b981;
   --accent-success: #10b981;
   --accent-warning: #f59e0b;
   --accent-error: #ef4444;
@@ -26,7 +26,7 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   --font-mono: 'JetBrains Mono', Menlo, Monaco, Consolas, "Courier New", monospace;
 
-  --radius-lg: 12px; 
+  --radius-lg: 12px;
   --radius-md: 8px;
   --radius-sm: 6px;
 
@@ -48,29 +48,26 @@ body {
   overflow: hidden;
 }
 
-
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-main); 
+  background: var(--bg-main);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08); 
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 99px;
   border: 2px solid var(--bg-main);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.16); 
+  background: rgba(255, 255, 255, 0.16);
 }
-
 
 .layout-container {
   display: flex;
   height: 100vh;
 }
-
 
 .sidebar {
   width: 240px;
@@ -163,7 +160,6 @@ body {
   box-shadow: 0 4px 15px rgba(59, 130, 246, 0.08);
 }
 
-
 .main-content {
   flex: 1;
   display: flex;
@@ -248,7 +244,6 @@ body {
   padding: 32px;
   overflow-y: auto;
 }
-
 
 .stats-grid {
   display: grid;
@@ -346,7 +341,6 @@ body {
   margin-top: 4px;
 }
 
-
 .resource-list {
   display: flex;
   flex-direction: column;
@@ -372,7 +366,6 @@ body {
   transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
 }
-
 
 .row-main {
   display: flex;
@@ -402,14 +395,12 @@ body {
   min-width: 0;
 }
 
-
 .row-status {
   flex: 0 0 auto;
   width: 110px;
   display: flex;
   align-items: center;
 }
-
 
 .row-meta {
   color: var(--text-muted);
@@ -419,7 +410,6 @@ body {
   gap: 20px;
   flex-wrap: wrap;
 }
-
 
 .meta-cell {
   display: flex;
@@ -643,7 +633,6 @@ body {
   background: var(--accent-purple);
 }
 
-
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -742,7 +731,6 @@ body {
   background: rgba(10, 10, 15, 0.2);
 }
 
-
 .editor-container {
   display: flex;
   flex-direction: column;
@@ -777,11 +765,10 @@ body {
   font-family: var(--font-mono);
   font-size: 0.85rem;
   line-height: 1.5;
-  color: #38bdf8; 
+  color: #38bdf8;
   white-space: pre-wrap;
   box-shadow: inset 0 6px 24px rgba(0, 0, 0, 0.9);
 }
-
 
 .crd-table {
   width: 100%;
@@ -854,7 +841,6 @@ body {
   color: var(--text-muted);
 }
 
-
 .loader-container {
   display: flex;
   justify-content: center;
@@ -882,9 +868,6 @@ body {
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out forwards;
 }
-
-
-
 
 .metric-bar-group {
   margin-top: 8px;
@@ -923,7 +906,6 @@ body {
   background: var(--accent-error);
   box-shadow: 0 0 6px rgba(238, 0, 0, 0.4);
 }
-
 
 .exec-terminal {
   flex: 1;
@@ -966,7 +948,6 @@ body {
   font-family: var(--font-mono);
   font-size: 0.85rem;
 }
-
 
 .topology-container {
   display: flex;
@@ -1043,13 +1024,11 @@ body {
   z-index: 1;
 }
 
-
 .yaml-key { color: #f97583; font-weight: 500; }
 .yaml-string { color: #9ecbff; }
 .yaml-number { color: #ffab70; }
 .yaml-boolean { color: #ffab70; font-weight: 500; }
 .yaml-null { color: #f97583; font-style: italic; }
-
 
 .log-line {
   display: block;
@@ -1072,7 +1051,6 @@ body {
   border-bottom: 2px solid rgba(255, 243, 102, 0.6);
   color: #fff;
 }
-
 
 .log-controls {
   display: flex;
@@ -1103,7 +1081,6 @@ body {
   width: 100%;
   font-size: 0.8rem;
 }
-
 
 .dashboard-container {
   display: flex;
@@ -1170,7 +1147,6 @@ body {
   font-weight: normal;
 }
 
-
 .circular-gauge-text {
   font-size: 1.5rem;
   font-weight: 700;
@@ -1184,7 +1160,6 @@ body {
   text-transform: uppercase;
   letter-spacing: 1px;
 }
-
 
 .svg-animate-draw {
   stroke-dasharray: 1000;
@@ -1256,12 +1231,10 @@ div.vis-tooltip {
   cursor: grabbing;
 }
 
-
 @keyframes slideInRight {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
-
 
 @keyframes pulseRed {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
@@ -1274,7 +1247,6 @@ div.vis-tooltip {
   color: var(--accent-error) !important;
 }
 
-
 @keyframes pulseDot {
   0% { opacity: 1; }
   50% { opacity: 0.35; }
@@ -1283,7 +1255,6 @@ div.vis-tooltip {
 .pulse-dot {
   animation: pulseDot 1.6s ease-in-out infinite;
 }
-
 
 .diagnostics-log-tail {
   background: #000;
@@ -1298,7 +1269,6 @@ div.vis-tooltip {
   max-height: 250px;
   white-space: pre-wrap;
 }
-
 
 .diff-container {
   display: flex;
@@ -1328,7 +1298,6 @@ div.vis-tooltip {
 .diff-line-unchanged {
   color: #888;
 }
-
 
 .secret-badge {
   position: relative;
@@ -1363,7 +1332,6 @@ div.vis-tooltip {
   opacity: 1;
 }
 
-
 .menu-toggle {
   display: none;
   background: rgba(255, 255, 255, 0.04);
@@ -1382,13 +1350,11 @@ div.vis-tooltip {
   display: none;
 }
 
-
 @media (hover: none) {
   .row-actions {
     opacity: 1 !important;
   }
 }
-
 
 @media (max-width: 900px) {
   .content-area {
@@ -1411,7 +1377,6 @@ div.vis-tooltip {
     gap: 12px;
   }
 
-  
   .menu-toggle {
     display: inline-flex;
   }
@@ -1443,12 +1408,10 @@ div.vis-tooltip {
     z-index: 1050;
   }
 
-
   .resource-row {
     flex-wrap: wrap;
     row-gap: 12px;
   }
-
 
   .row-main {
     flex-wrap: wrap;
@@ -1465,14 +1428,12 @@ div.vis-tooltip {
     flex-wrap: wrap;
   }
 
-  
   .controls-bar {
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 8px;
   }
 }
-
 
 @media (max-width: 600px) {
   .topbar {
@@ -1509,13 +1470,12 @@ div.vis-tooltip {
   }
 }
 
-
 .login-overlay {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: radial-gradient(circle at top right, rgba(59, 130, 246, 0.1), transparent), 
+  background: radial-gradient(circle at top right, rgba(59, 130, 246, 0.1), transparent),
               radial-gradient(circle at bottom left, rgba(168, 85, 247, 0.05), transparent),
               var(--bg-main);
   padding: 20px;
@@ -1558,7 +1518,6 @@ div.vis-tooltip {
   margin-bottom: 32px;
 }
 
-
 @keyframes critical-pulse {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
@@ -1573,7 +1532,6 @@ div.vis-tooltip {
 .pulse-critical-card {
   animation: critical-pulse 2s infinite ease-in-out;
 }
-
 
 .sidebar-user {
   margin-top: auto;
@@ -1620,7 +1578,6 @@ div.vis-tooltip {
   color: var(--text-muted);
 }
 
-
 .oras-dropzone {
   border: 2px dashed rgba(255, 255, 255, 0.1);
   border-radius: 8px;
@@ -1650,7 +1607,6 @@ div.vis-tooltip {
   white-space: pre-wrap;
   box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
 }
-
 
 @keyframes health-pulse {
   0%, 100% {
@@ -1735,7 +1691,6 @@ div.vis-tooltip {
   text-decoration: underline;
 }
 
-
 .pod-heatmap-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
@@ -1811,7 +1766,6 @@ div.vis-tooltip {
   border-radius: 2px;
 }
 
-/* Premium Terminal Window Frame */
 .terminal-window {
   display: flex;
   flex-direction: column;
@@ -1914,7 +1868,6 @@ div.vis-tooltip {
   background: #060814;
 }
 
-/* Boot overlays and animations */
 .terminal-boot-overlay {
   position: absolute;
   inset: 0;
@@ -1949,7 +1902,6 @@ div.vis-tooltip {
   font-size: 0.8rem;
 }
 
-/* Premium Loading Splash Screen */
 .splash-container {
   position: fixed;
   inset: 0;
@@ -2006,7 +1958,6 @@ div.vis-tooltip {
   z-index: 2;
 }
 
-/* Sonar/Radar waves expanding outward representing Periscope scan */
 .sonar-wave {
   position: absolute;
   width: 80px;
@@ -2119,5 +2070,3 @@ div.vis-tooltip {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-

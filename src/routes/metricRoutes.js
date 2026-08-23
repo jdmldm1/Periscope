@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const k8sService = require('../services/k8sService');
 const logger = require('../utils/logger');
-
 router.get('/nodes', async (req, res) => {
     try {
         const [metricsResponse, nodesResponse] = await Promise.allSettled([
@@ -13,13 +12,10 @@ router.get('/nodes', async (req, res) => {
             }),
             k8sService.core.listNode()
         ]);
-        
         const metricsRaw = metricsResponse.status === 'fulfilled' ? metricsResponse.value : { items: [] };
         const metrics = metricsRaw.items || metricsRaw.body?.items || [];
-        
         const nodesRaw = nodesResponse.status === 'fulfilled' ? nodesResponse.value : { items: [] };
         const nodes = nodesRaw.items || nodesRaw.body?.items || [];
-        
         const items = metrics.map(nm => {
             const node = nodes.find(n => n.metadata?.name === nm.metadata?.name);
             return {
@@ -31,12 +27,12 @@ router.get('/nodes', async (req, res) => {
             };
         });
         res.json(items);
-    } catch (err) {
+    }
+    catch (err) {
         logger.error(err, 'Unexpected error getting node metrics');
         res.json([]);
     }
 });
-
 router.get('/pods', async (req, res) => {
     try {
         const response = await k8sService.custom.listClusterCustomObject({
@@ -45,10 +41,10 @@ router.get('/pods', async (req, res) => {
             plural: 'pods'
         });
         res.json(response.items || response.body?.items || []);
-    } catch (err) {
+    }
+    catch (err) {
         logger.warn({ error: err.message }, 'Metrics server might not be available');
         res.json([]);
     }
 });
-
 module.exports = router;
