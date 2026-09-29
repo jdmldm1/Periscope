@@ -1,0 +1,48 @@
+kind: ZarfPackageConfig
+
+metadata:
+  name: periscope-airgap-lite
+  description: A Periscope web console (airgap lite mode - scanning omitted) for exploring and managing Kubernetes resources
+  version: 1.3.3
+
+variables:
+  - name: AUTH_ENABLED
+    description: "Enable username/password authentication"
+    default: "true"
+    prompt: true
+  - name: HOST_MOUNT_PATH
+    description: "Optional host folder path to mount into the Periscope pod (leave blank to skip)"
+    default: ""
+    prompt: true
+  - name: CONTAINER_MOUNT_PATH
+    description: "Optional folder path inside the pod to mount the host folder (leave blank to skip)"
+    default: ""
+    prompt: true
+
+components:
+  - name: periscope
+    required: true
+
+    images:
+      - ghcr.io/jdmldm1/periscope:1.3.3-airgap-lite
+      - ghcr.io/microsoft/retina/retina-agent:v0.0.2
+      - alpine:latest
+
+    charts:
+      - name: periscope
+        version: 0.3.3
+        namespace: periscope
+        localPath: ./charts/periscope
+        valuesFiles:
+          - ./charts/periscope/values.yaml
+          - ./charts/periscope/values-airgap-lite.yaml
+        variables:
+          - name: AUTH_ENABLED
+            description: "Enable username/password authentication"
+            path: auth.enabled
+          - name: HOST_MOUNT_PATH
+            description: "Optional host folder path to mount into the Periscope pod"
+            path: hostMounts.hostPath
+          - name: CONTAINER_MOUNT_PATH
+            description: "Optional folder path inside the pod to mount the host folder"
+            path: hostMounts.mountPath

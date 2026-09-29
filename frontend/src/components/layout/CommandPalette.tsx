@@ -12,8 +12,9 @@ interface CommandPaletteProps {
     setActiveTab: (tab: any) => void;
     fetchResources: () => void;
     fetchRunningImagesAndScan: () => void;
+    scanningEnabled?: boolean;
 }
-export const CommandPalette = ({ isOpen, setIsOpen, search, setSearch, namespaces, setSelectedNs, contexts, handleContextChange, setActiveTab, fetchResources, fetchRunningImagesAndScan }: CommandPaletteProps) => {
+export const CommandPalette = ({ isOpen, setIsOpen, search, setSearch, namespaces, setSelectedNs, contexts, handleContextChange, setActiveTab, fetchResources, fetchRunningImagesAndScan, scanningEnabled = true }: CommandPaletteProps) => {
     const inputRef = useRef<HTMLInputElement>(null);
     const [activeIndex, setActiveIndex] = useState(0);
     useEffect(() => {
@@ -48,11 +49,15 @@ export const CommandPalette = ({ isOpen, setIsOpen, search, setSearch, namespace
         { name: 'Traffic Inspector (:traffic, :network)', aliases: ['traffic', 'network', 'traffic-inspector'], category: 'Views', action: () => { setActiveTab('traffic'); setIsOpen(false); } },
         { name: 'Helm Releases (:helm)', aliases: ['helm', 'helm-releases'], category: 'Views', action: () => { setActiveTab('helm'); setIsOpen(false); } },
         { name: 'Zarf Packages (:zarf)', aliases: ['zarf', 'zarf-packages'], category: 'Views', action: () => { setActiveTab('zarf'); setIsOpen(false); } },
-        { name: 'Image SBOM Scanner (:scanner)', aliases: ['scanner', 'image-scanner'], category: 'Views', action: () => { setActiveTab('image-scanner'); setIsOpen(false); } },
-        { name: 'Kubescape Compliance Audit (:security)', aliases: ['security', 'kubescape'], category: 'Views', action: () => { setActiveTab('kubescape'); setIsOpen(false); } },
+        ...(scanningEnabled ? [
+            { name: 'Image SBOM Scanner (:scanner)', aliases: ['scanner', 'image-scanner'], category: 'Views', action: () => { setActiveTab('image-scanner'); setIsOpen(false); } },
+            { name: 'Kubescape Compliance Audit (:security)', aliases: ['security', 'kubescape'], category: 'Views', action: () => { setActiveTab('kubescape'); setIsOpen(false); } },
+        ] : []),
         ...(namespaces || []).filter(ns => typeof ns === 'string' && ns.trim() !== '').map(ns => ({ name: `Switch Namespace: ${ns === 'all' ? 'All Namespaces' : ns}`, aliases: [ns, ns === 'all' ? 'all' : ''], category: 'Namespaces', action: () => { setSelectedNs(ns); setIsOpen(false); } })),
         ...(contexts || []).filter(c => c && typeof c.name === 'string' && c.name.trim() !== '').map(c => ({ name: `Switch Context: ${c.name}`, aliases: [c.name], category: 'Contexts', action: () => { handleContextChange(c.name); setIsOpen(false); } })),
-        { name: 'Scan All Running Images', aliases: ['scan-images', 'scan-all'], category: 'Security', action: () => { fetchRunningImagesAndScan(); setIsOpen(false); } },
+        ...(scanningEnabled ? [
+            { name: 'Scan All Running Images', aliases: ['scan-images', 'scan-all'], category: 'Security', action: () => { fetchRunningImagesAndScan(); setIsOpen(false); } },
+        ] : []),
         { name: 'Refresh View', aliases: ['refresh', 'reload'], category: 'Commands', action: () => { fetchResources(); setIsOpen(false); } },
     ];
     const queryClean = search.trim().startsWith(':') ? search.trim().slice(1).toLowerCase() : search.trim().toLowerCase();

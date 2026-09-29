@@ -72,3 +72,5 @@ require('./src/utils/podHealth.test');
 require('./src/services/helmService.test');
 require('./src/services/k8sService.test');
 require('./src/services/authService.test');
+require('./src/utils/featureFlags.test');
+require('./src/services/scannerDisabled.test');

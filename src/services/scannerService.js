@@ -3,8 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
 const zarfService = require('./zarfService');
+const { isScanningEnabled } = require('../utils/featureFlags');
 class ScannerService {
     constructor() {
+        this.scanningEnabled = isScanningEnabled();
         this.isGrypeDbUpdating = false;
         this.grypeDbUpdateError = null;
         this.lastGrypeDbCheck = null;
@@ -20,8 +22,10 @@ class ScannerService {
         this.currentlyScanning = new Set();
         this.initializeCache();
         this.loadScannerConfig();
-        setTimeout(() => this.backgroundScanLoop(), 10000);
-        this.startDbAutoUpdateLoop();
+        if (this.scanningEnabled) {
+            setTimeout(() => this.backgroundScanLoop(), 10000);
+            this.startDbAutoUpdateLoop();
+        }
     }
     initializeCache() {
         try {
@@ -96,7 +100,13 @@ class ScannerService {
             logger.error(err, 'Failed to save scanner config');
         }
     }
+    isScanningEnabled() {
+        return this.scanningEnabled;
+    }
     startDbAutoUpdateLoop() {
+        if (!this.scanningEnabled) {
+            return;
+        }
         if (this.dbAutoUpdateTimer) {
             clearInterval(this.dbAutoUpdateTimer);
             this.dbAutoUpdateTimer = null;
@@ -121,6 +131,9 @@ class ScannerService {
         this.saveVulnsCache();
     }
     async ensureGrypeDb() {
+        if (!this.scanningEnabled) {
+            return false;
+        }
         if (this.isGrypeDbUpdating)
             return;
         this.isGrypeDbUpdating = true;
@@ -157,9 +170,13 @@ class ScannerService {
             lastCheck: this.lastGrypeDbCheck,
             autoUpdate: this.autoUpdateDb,
             intervalHours: this.dbUpdateIntervalHours,
+            enabled: this.scanningEnabled,
         };
     }
     async performSbomScan(imageRef) {
+        if (!this.scanningEnabled) {
+            throw new Error('Scanning is disabled');
+        }
         this.currentlyScanning.add(imageRef);
         try {
             return await new Promise((resolve, reject) => {
@@ -212,6 +229,9 @@ class ScannerService {
         }
     }
     async performVulnsScan(imageRef) {
+        if (!this.scanningEnabled) {
+            throw new Error('Scanning is disabled');
+        }
         this.currentlyScanning.add(imageRef);
         try {
             return await new Promise((resolve, reject) => {
@@ -283,6 +303,9 @@ class ScannerService {
         }
     }
     async backgroundScanLoop() {
+        if (!this.scanningEnabled) {
+            return;
+        }
         if (!this.enableAutoScan) {
             setTimeout(() => this.backgroundScanLoop(), 15000);
             return;
@@ -327,6 +350,9 @@ class ScannerService {
         }
     }
     async getRunningImages() {
+        if (!this.scanningEnabled) {
+            return [];
+        }
         const k8sService = require('./k8sService');
         try {
             const pods = await k8sService.core.listPodForAllNamespaces();
@@ -347,6 +373,9 @@ class ScannerService {
         }
     }
     async getAllScans() {
+        if (!this.scanningEnabled) {
+            return {};
+        }
         const results = {};
         const runningImagesList = await this.getRunningImages();
         const runningImagesSet = new Set(runningImagesList);

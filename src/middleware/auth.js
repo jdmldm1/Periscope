@@ -11,7 +11,7 @@ function safeEqual(a, b) {
 }
 function authMiddleware(req, res, next) {
     const path = req.path;
-    if (path === '/auth/login' || path === '/auth/status') {
+    if (path === '/auth/login' || path === '/auth/status' || path === '/config') {
         return next();
     }
     const authEnabled = authService.isAuthEnabled();

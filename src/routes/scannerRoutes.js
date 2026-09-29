@@ -5,10 +5,16 @@ router.get('/grype/db-status', (req, res) => {
     res.json(scannerService.getDbStatus());
 });
 router.post('/grype/db-update', async (req, res) => {
+    if (!scannerService.scanningEnabled) {
+        return res.status(403).json({ error: 'Image vulnerability scanning is disabled in this edition' });
+    }
     const success = await scannerService.ensureGrypeDb();
     res.json({ success });
 });
 router.post('/sbom/scan', async (req, res) => {
+    if (!scannerService.scanningEnabled) {
+        return res.status(403).json({ error: 'Image vulnerability scanning is disabled in this edition' });
+    }
     const { imageRef, rescan } = req.body;
     if (!imageRef)
         return res.status(400).json({ error: 'imageRef is required' });
@@ -24,6 +30,9 @@ router.post('/sbom/scan', async (req, res) => {
     }
 });
 router.post('/sbom/vulnerabilities', async (req, res) => {
+    if (!scannerService.scanningEnabled) {
+        return res.status(403).json({ error: 'Image vulnerability scanning is disabled in this edition' });
+    }
     const { imageRef } = req.body;
     if (!imageRef)
         return res.status(400).json({ error: 'imageRef is required' });
@@ -65,6 +74,7 @@ router.get('/config', (req, res) => {
         enableAutoScan: scannerService.enableAutoScan,
         autoUpdateDb: scannerService.autoUpdateDb,
         dbUpdateIntervalHours: scannerService.dbUpdateIntervalHours,
+        scanningEnabled: scannerService.scanningEnabled,
     });
 });
 router.post('/config', (req, res) => {

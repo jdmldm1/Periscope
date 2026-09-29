@@ -1,0 +1,8 @@
+image:
+  tag: "1.3.3-airgap-lite"
+
+airgap: true
+airgapLite: true
+
+scanning:
+  enabled: false

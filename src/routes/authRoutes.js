@@ -1,5 +1,6 @@
 const express = require('express');
 const authService = require('../services/authService');
+const { isScanningEnabled, isAirgap, isAirgapLite } = require('../utils/featureFlags');
 const router = express.Router();
 router.post('/auth/login', (req, res) => {
     const { username, password } = req.body;
@@ -27,7 +28,10 @@ router.post('/auth/logout', (req, res) => {
 router.get('/auth/status', (req, res) => {
     res.json({
         enabled: authService.isAuthEnabled(),
-        isDefault: authService.isDefaultPassword()
+        isDefault: authService.isDefaultPassword(),
+        scanningEnabled: isScanningEnabled(),
+        airgap: isAirgap(),
+        airgapLite: isAirgapLite()
     });
 });
 router.post('/auth/change-password', (req, res) => {

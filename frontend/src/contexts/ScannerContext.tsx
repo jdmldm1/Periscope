@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSbomScans, useGrypeDbStatus, useKubescapeStatus } from '../utils/kubeHooks';
+import { useAppContext } from './AppContext';
 import axios from 'axios';
 const api = axios.create({ baseURL: '/api' });
 interface ScannerContextType {
@@ -25,14 +26,16 @@ export function useScannerContext() {
 export function ScannerProvider({ children }: {
     children: ReactNode;
 }) {
+    const { scanningEnabled } = useAppContext();
     const queryClient = useQueryClient();
-    const { data: sbomScansData } = useSbomScans();
-    const { data: grypeDbStatus } = useGrypeDbStatus();
-    const { data: kubescapeStatusData } = useKubescapeStatus();
-    const [enableAutoScan, setEnableAutoScan] = useState(true);
+    const { data: sbomScansData } = useSbomScans(scanningEnabled);
+    const { data: grypeDbStatus } = useGrypeDbStatus(scanningEnabled);
+    const { data: kubescapeStatusData } = useKubescapeStatus(scanningEnabled);
+    const [enableAutoScan, setEnableAutoScan] = useState(false);
     const [localScanningImages, setLocalScanningImages] = useState<Set<string>>(new Set());
     const [isScanningAllRunningImages, setIsScanningAllRunningImages] = useState(false);
     useEffect(() => {
+        if (!scanningEnabled) return;
         const fetchScannerConfig = async () => {
             try {
                 const { data } = await api.get('/zarf/scanner/config');
@@ -43,8 +46,9 @@ export function ScannerProvider({ children }: {
             }
         };
         fetchScannerConfig();
-    }, []);
+    }, [scanningEnabled]);
     const handleToggleAutoScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!scanningEnabled) return;
         const newVal = e.target.checked;
         setEnableAutoScan(newVal);
         try {
@@ -56,6 +60,7 @@ export function ScannerProvider({ children }: {
         }
     };
     const scanSingleImage = async (img: string) => {
+        if (!scanningEnabled) return;
         setLocalScanningImages(prev => {
             const next = new Set(prev);
             next.add(img);
@@ -79,6 +84,7 @@ export function ScannerProvider({ children }: {
         }
     };
     const fetchRunningImagesAndScan = async () => {
+        if (!scanningEnabled) return;
         try {
             setIsScanningAllRunningImages(true);
             const { data: images } = await api.get('/zarf/scanner/running-images');
@@ -95,6 +101,7 @@ export function ScannerProvider({ children }: {
         }
     };
     const triggerKubescapeScan = async () => {
+        if (!scanningEnabled) return;
         try {
             await api.post('/security/kubescape/scan');
             queryClient.invalidateQueries({ queryKey: ['kubescape-status'] });

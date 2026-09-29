@@ -6,6 +6,9 @@ router.get('/kubescape/status', async (req, res) => {
     res.json(status);
 });
 router.post('/kubescape/scan', async (req, res) => {
+    if (!securityService.scanningEnabled) {
+        return res.status(403).json({ error: 'Kubescape compliance auditing is disabled in this edition' });
+    }
     try {
         const result = await securityService.triggerScan();
         res.json(result);
@@ -18,6 +21,9 @@ router.get('/kubescape/db-status', (req, res) => {
     res.json(securityService.getDbStatus());
 });
 router.post('/kubescape/db-update', async (req, res) => {
+    if (!securityService.scanningEnabled) {
+        return res.status(403).json({ error: 'Kubescape compliance auditing is disabled in this edition' });
+    }
     const success = await securityService.ensureKubescapeArtifacts();
     res.json({ success, status: securityService.getDbStatus() });
 });
@@ -25,6 +31,7 @@ router.get('/kubescape/config', (req, res) => {
     res.json({
         autoUpdateArtifacts: securityService.autoUpdateArtifacts,
         artifactsUpdateIntervalHours: securityService.artifactsUpdateIntervalHours,
+        scanningEnabled: securityService.scanningEnabled,
     });
 });
 router.post('/kubescape/config', (req, res) => {

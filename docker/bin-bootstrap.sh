@@ -19,9 +19,11 @@ if [ ! -x "$BIN_DIR/kubectl" ]; then
     chmod +x "$BIN_DIR/kubectl"
 fi
 
-if [ ! -x "$BIN_DIR/grype" ]; then
-    echo "[bin-bootstrap] Fetching grype ${GRYPE_VERSION}..."
-    curl -sSfL "https://raw.githubusercontent.com/anchore/grype/${GRYPE_VERSION}/install.sh" | sh -s -- -b "$BIN_DIR" "${GRYPE_VERSION}"
+if [ "$SCANNING_ENABLED" != "false" ] && [ "$AIRGAP_LITE" != "true" ]; then
+    if [ ! -x "$BIN_DIR/grype" ]; then
+        echo "[bin-bootstrap] Fetching grype ${GRYPE_VERSION}..."
+        curl -sSfL "https://raw.githubusercontent.com/anchore/grype/${GRYPE_VERSION}/install.sh" | sh -s -- -b "$BIN_DIR" "${GRYPE_VERSION}"
+    fi
 fi
 
 if [ ! -x "$BIN_DIR/helm" ]; then

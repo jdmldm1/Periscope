@@ -57,6 +57,10 @@ auth:
   enabled: true
 
 airgap: false
+airgapLite: false
+
+scanning:
+  enabled: true
 
 retina:
   enabled: true

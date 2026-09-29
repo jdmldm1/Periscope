@@ -26,8 +26,9 @@ interface DashboardViewProps {
         error?: string;
     }>;
     kubescapeReport: any;
+    scanningEnabled?: boolean;
 }
-export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardData, namespace, setActiveTab, setSearch, setIsCmdPaletteOpen, zarfStatus, runningImagesScanResults, kubescapeReport, }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardData, namespace, setActiveTab, setSearch, setIsCmdPaletteOpen, zarfStatus, runningImagesScanResults, kubescapeReport, scanningEnabled = true }) => {
     const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
     const integration = useIntegrationReadiness(namespace);
     const issueDetailParams = selectedIssue
@@ -216,7 +217,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboardData, nam
 
       <IntegrationSection data={integration.data} namespace={namespace} onSelectPod={goToPod}/>
 
-      <SecuritySection scanResults={runningImagesScanResults} kubescapeReport={kubescapeReport} onNavigate={setActiveTab}/>
+      {scanningEnabled && (
+        <SecuritySection scanResults={runningImagesScanResults} kubescapeReport={kubescapeReport} onNavigate={setActiveTab}/>
+      )}
 
       
       <div style={{ marginBottom: 24 }}>

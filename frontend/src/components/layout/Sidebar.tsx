@@ -10,8 +10,9 @@ interface SidebarProps {
     onNavigate?: () => void;
     onLogout?: () => void;
     onChangePassword?: () => void;
+    scanningEnabled?: boolean;
 }
-export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections, toggleSection, setCustomCrd, isOpen, onNavigate, onLogout, onChangePassword }: SidebarProps) => {
+export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections, toggleSection, setCustomCrd, isOpen, onNavigate, onLogout, onChangePassword, scanningEnabled = true }: SidebarProps) => {
     const NavItem = ({ id, icon: Icon, label, color, onClick }: {
         id: string;
         icon: any;
@@ -147,8 +148,10 @@ export const Sidebar = ({ activeTab, setActiveTab, setSearch, collapsedSections,
           <span style={{ display: 'inline-block', fontSize: '0.8rem', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: collapsedSections['security'] ? 'rotate(-90deg)' : 'none' }}>▼</span>
         </div>
         {!collapsedSections['security'] && (<nav className="nav-menu">
-            <NavItem id="image-scanner" icon={Microscope} label="Image SBOM (Grype)"/>
-            <NavItem id="kubescape" icon={ShieldAlert} label="Kubescape Audit"/>
+            {scanningEnabled && (<>
+                <NavItem id="image-scanner" icon={Microscope} label="Image SBOM (Grype)"/>
+                <NavItem id="kubescape" icon={ShieldAlert} label="Kubescape Audit"/>
+              </>)}
             <NavItem id="networkpolicies" icon={Network} label="Network Policies"/>
           </nav>)}
       </div>

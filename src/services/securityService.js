@@ -4,8 +4,10 @@ const path = require('path');
 const os = require('os');
 const https = require('https');
 const logger = require('../utils/logger');
+const { isScanningEnabled } = require('../utils/featureFlags');
 class SecurityService {
     constructor() {
+        this.scanningEnabled = isScanningEnabled();
         this.isKubescapeScanning = false;
         this.kubescapeScanCache = null;
         this.cacheDir = '/app/.cache';
@@ -23,7 +25,9 @@ class SecurityService {
         this.artifactsAutoUpdateTimer = null;
         this.loadCache();
         this.loadSecurityConfig();
-        this.startArtifactsAutoUpdateLoop();
+        if (this.scanningEnabled) {
+            this.startArtifactsAutoUpdateLoop();
+        }
     }
     loadSecurityConfig() {
         try {
@@ -87,12 +91,16 @@ class SecurityService {
             isUpdating: this.isArtifactsUpdating,
             error: this.artifactsUpdateError,
             lastCheck: this.lastArtifactsCheck,
-            hasArtifacts: this.hasCachedArtifacts(),
+            hasArtifacts: this.scanningEnabled ? this.hasCachedArtifacts() : false,
             autoUpdate: this.autoUpdateArtifacts,
             intervalHours: this.artifactsUpdateIntervalHours,
+            enabled: this.scanningEnabled,
         };
     }
     async ensureKubescapeArtifacts() {
+        if (!this.scanningEnabled) {
+            return false;
+        }
         if (this.isArtifactsUpdating)
             return false;
         this.isArtifactsUpdating = true;
@@ -123,6 +131,9 @@ class SecurityService {
         }
     }
     startArtifactsAutoUpdateLoop() {
+        if (!this.scanningEnabled) {
+            return;
+        }
         if (this.artifactsAutoUpdateTimer) {
             clearInterval(this.artifactsAutoUpdateTimer);
             this.artifactsAutoUpdateTimer = null;
@@ -156,10 +167,14 @@ class SecurityService {
     async getStatus() {
         return {
             scanning: this.isKubescapeScanning,
-            report: this.kubescapeScanCache
+            report: this.scanningEnabled ? this.kubescapeScanCache : null,
+            enabled: this.scanningEnabled,
         };
     }
     async triggerScan() {
+        if (!this.scanningEnabled) {
+            throw new Error('Kubescape compliance auditing is disabled in this edition');
+        }
         if (this.isKubescapeScanning) {
             throw new Error('A scan is already in progress');
         }

@@ -14,6 +14,8 @@ ARG GRYPE_VERSION=v0.117.0
 ARG ZARF_VERSION=v0.83.0
 ARG KUBECTL_VERSION=v1.36.3
 ARG AIRGAP=false
+ARG AIRGAP_LITE=false
+ARG SCANNING_ENABLED=true
 
 WORKDIR /app
 RUN npm install -g npm@12.0.2
@@ -25,6 +27,9 @@ RUN apk update && apk upgrade && apk add --no-cache curl ca-certificates zstd ut
 ENV ZARF_VERSION=${ZARF_VERSION} \
     KUBECTL_VERSION=${KUBECTL_VERSION} \
     GRYPE_VERSION=${GRYPE_VERSION} \
+    AIRGAP=${AIRGAP} \
+    AIRGAP_LITE=${AIRGAP_LITE} \
+    SCANNING_ENABLED=${SCANNING_ENABLED} \
     BIN_DIR=/app/bin \
     PATH="/app/bin:${PATH}"
 
@@ -33,11 +38,15 @@ COPY docker/bin-bootstrap.sh /app/bin-bootstrap.sh
 RUN chmod +x /app/bin-bootstrap.sh
 
 RUN if [ "$AIRGAP" = "true" ]; then \
-        /app/bin-bootstrap.sh && \
-        grype version && \
-        if [ "$CACHE_GRYPE_DB" = "true" ]; then \
-            GRYPE_DB_CACHE_DIR=/app/.cache/grype grype db update && \
-            zstd -T0 -q --rm /app/.cache/grype/*/vulnerability.db; \
+        if [ "$AIRGAP_LITE" = "true" ] || [ "$SCANNING_ENABLED" = "false" ]; then \
+            SCANNING_ENABLED=false /app/bin-bootstrap.sh; \
+        else \
+            /app/bin-bootstrap.sh && \
+            grype version && \
+            if [ "$CACHE_GRYPE_DB" = "true" ]; then \
+                GRYPE_DB_CACHE_DIR=/app/.cache/grype grype db update && \
+                zstd -T0 -q --rm /app/.cache/grype/*/vulnerability.db; \
+            fi; \
         fi; \
     fi
 

@@ -35,6 +35,7 @@ interface AppContextType {
     setFocusedRowIndex: Dispatch<SetStateAction<number | null>>;
     api: typeof api;
     queryClient: ReturnType<typeof useQueryClient>;
+    scanningEnabled: boolean;
 }
 const AppContext = createContext<AppContextType | null>(null);
 export function useAppContext() {
@@ -43,16 +44,25 @@ export function useAppContext() {
         throw new Error('useAppContext must be used within AppProvider');
     return ctx;
 }
-export function AppProvider({ children }: {
+export function AppProvider({ children, scanningEnabled = true }: {
     children: ReactNode;
+    scanningEnabled?: boolean;
 }) {
     const queryClient = useQueryClient();
     const { data: namespacesData } = useNamespaces();
     const { data: contextsData } = useKubeContexts();
     const [activeTab, setActiveTab] = useState<ResourceKind>(() => {
         const saved = localStorage.getItem('activeTab');
+        if (!scanningEnabled && (saved === 'image-scanner' || saved === 'kubescape')) {
+            return 'dashboard';
+        }
         return (saved as ResourceKind) || 'dashboard';
     });
+    useEffect(() => {
+        if (!scanningEnabled && (activeTab === 'image-scanner' || activeTab === 'kubescape')) {
+            setActiveTab('dashboard');
+        }
+    }, [scanningEnabled, activeTab]);
     useEffect(() => {
         localStorage.setItem('activeTab', activeTab);
     }, [activeTab]);
@@ -127,6 +137,7 @@ export function AppProvider({ children }: {
             focusedRowIndex, setFocusedRowIndex,
             api,
             queryClient,
+            scanningEnabled,
         }}>
       {children}
     </AppContext.Provider>);

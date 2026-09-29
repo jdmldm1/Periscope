@@ -49,6 +49,14 @@ spec:
               value: {{ .Values.auth.enabled | quote }}
             - name: AIRGAP
               value: {{ .Values.airgap | quote }}
+            {{- if hasKey .Values "scanning" }}
+            - name: SCANNING_ENABLED
+              value: {{ .Values.scanning.enabled | quote }}
+            {{- end }}
+            {{- if .Values.airgapLite }}
+            - name: AIRGAP_LITE
+              value: {{ .Values.airgapLite | quote }}
+            {{- end }}
           {{- if or .Values.persistence.enabled (and .Values.hostMounts.hostPath .Values.hostMounts.mountPath) }}
           volumeMounts:
             {{- if .Values.persistence.enabled }}

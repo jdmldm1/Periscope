@@ -87,6 +87,21 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}
 
+      - name: Build and push Airgap Lite Docker image to OCI
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          build-args: |
+            CACHE_GRYPE_DB=false
+            AIRGAP=true
+            AIRGAP_LITE=true
+            SCANNING_ENABLED=false
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest-airgap-lite
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}-airgap-lite
+            ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}-airgap-lite
+
       - name: Build and push Connected Docker image to OCI
         uses: docker/build-push-action@v5
         with:
@@ -164,6 +179,7 @@ jobs:
         run: |
           docker pull ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}-connected
           docker pull ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}
+          docker pull ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}-airgap-lite
 
       - name: Log in to GHCR for Zarf OCI
         run: |
@@ -186,6 +202,7 @@ jobs:
           mkdir -p sbom-output
           sed -i "s|jdmldm1/periscope|${{ env.REPO_LOWER }}|g" zarf.yaml
           sed -i "s|jdmldm1/periscope|${{ env.REPO_LOWER }}|g" zarf-airgap.yaml
+          sed -i "s|jdmldm1/periscope|${{ env.REPO_LOWER }}|g" zarf-airgap-lite.yaml
           
           zarf package create --confirm --sbom-out ./sbom-output
           
@@ -194,6 +211,10 @@ jobs:
           zarf package create --confirm --sbom-out ./sbom-output
           
           mv zarf.yaml zarf-airgap.yaml
+          mv zarf-airgap-lite.yaml zarf.yaml
+          zarf package create --confirm --sbom-out ./sbom-output
+          
+          mv zarf.yaml zarf-airgap-lite.yaml
           mv zarf-connected.tmp zarf.yaml
           
           echo "Contents of sbom-output:"

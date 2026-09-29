@@ -112,13 +112,14 @@ export const useTopologyData = (namespace: string) => {
         refetchInterval: 10000,
     });
 };
-export const useKubescapeStatus = () => {
+export const useKubescapeStatus = (enabled: boolean = true) => {
     return useQuery({
         queryKey: ['kubescape-status'],
         queryFn: async () => {
             const { data } = await api.get('/security/kubescape/status');
             return data;
         },
+        enabled,
         refetchInterval: (query) => (query.state.data?.scanning ? 2000 : 30000),
     });
 };
@@ -131,23 +132,25 @@ export const useZarfStatus = () => {
         },
     });
 };
-export const useGrypeDbStatus = () => {
+export const useGrypeDbStatus = (enabled: boolean = true) => {
     return useQuery({
         queryKey: ['grype-db-status'],
         queryFn: async () => {
             const { data } = await api.get('/zarf/scanner/grype/db-status');
             return data;
         },
+        enabled,
         refetchInterval: (query) => (query.state.data?.isUpdating ? 2000 : 60000),
     });
 };
-export const useSbomScans = () => {
+export const useSbomScans = (enabled: boolean = true) => {
     return useQuery({
         queryKey: ['sbom-scans'],
         queryFn: async () => {
             const { data } = await api.get('/zarf/scanner/sbom/scans');
             return data;
         },
+        enabled,
         refetchInterval: 15000,
     });
 };

@@ -40,7 +40,7 @@ function AppContent({ onLogout, onChangePassword }: {
     onChangePassword: () => void;
 }) {
     useResourceWatcher();
-    const { activeTab, setActiveTab, namespaces, selectedNs, setSelectedNs, contexts, currentContext, handleContextChange, search, setSearch, filteredResources, loading, isCmdPaletteOpen, setIsCmdPaletteOpen, customCrd, setCustomCrd, collapsedSections, toggleSection, handleDrillDownToPods, isDeployZarfModalOpen, setIsDeployZarfModalOpen, isDeployHelmModalOpen, setIsDeployHelmModalOpen, focusedRowIndex, setFocusedRowIndex, api, queryClient, } = useAppContext();
+    const { activeTab, setActiveTab, namespaces, selectedNs, setSelectedNs, contexts, currentContext, handleContextChange, search, setSearch, filteredResources, loading, isCmdPaletteOpen, setIsCmdPaletteOpen, customCrd, setCustomCrd, collapsedSections, toggleSection, handleDrillDownToPods, isDeployZarfModalOpen, setIsDeployZarfModalOpen, isDeployHelmModalOpen, setIsDeployHelmModalOpen, focusedRowIndex, setFocusedRowIndex, api, queryClient, scanningEnabled, } = useAppContext();
     const { enableAutoScan, handleToggleAutoScan, scanSingleImage, fetchRunningImagesAndScan, isScanningAllRunningImages, runningImagesScanResults, sbomScansData, grypeDbStatus, kubescapeStatusData, triggerKubescapeScan, } = useScannerContext();
     const { modal, setModal, modalData, setModalData, fetchModalData, yamlEdit, setYamlEdit, isEditingYaml, setIsEditingYaml, saveYaml, copyToClipboard, downloadYaml, downloadLogs, selectedContainer, setSelectedContainer, getPodContainers, isStreamingLogs, setIsStreamingLogs, scrollToBottomLogs, currentDirPath, setCurrentDirPath, isListingFiles, podFiles, podFileUploadProgress, podFileUploadName, handleUploadPodFile, handleCreatePodFolder, fetchPodFilesList, handleEditPodFile, handleDownloadPodFile, handleDeletePodFile, editingFilePath, editingFileContent, setEditingFileContent, isSavingFile, isEditingFileDirty, fileEditError, handleSaveEditingFile, handleCancelEditingFile, handleRollback, handleInspectRevisionValues, selectedRevisionValues, setSelectedRevisionValues, isLoadingRevisionValues, handleHelmUpgradeFromModal, renderDiffView, } = useModalContext();
     const [topologyMode, setTopologyMode] = useState<'columns' | 'graph'>('graph');
@@ -172,7 +172,7 @@ function AppContent({ onLogout, onChangePassword }: {
     const tabTitle = activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ');
     return (<div className="layout-container">
       {mobileNavOpen && <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)}/>}
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} setSearch={setSearch} collapsedSections={collapsedSections} toggleSection={toggleSection} setCustomCrd={setCustomCrd} isOpen={mobileNavOpen} onNavigate={() => setMobileNavOpen(false)} onLogout={onLogout} onChangePassword={onChangePassword}/>
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} setSearch={setSearch} collapsedSections={collapsedSections} toggleSection={toggleSection} setCustomCrd={setCustomCrd} isOpen={mobileNavOpen} onNavigate={() => setMobileNavOpen(false)} onLogout={onLogout} onChangePassword={onChangePassword} scanningEnabled={scanningEnabled}/>
 
       <main className="main-content">
         <Header search={search} setSearch={setSearch} setIsCmdPaletteOpen={setIsCmdPaletteOpen} contexts={contexts} currentContext={currentContext} handleContextChange={handleContextChange} activeTab={activeTab} setActiveTab={setActiveTab} selectedNs={selectedNs} setSelectedNs={setSelectedNs} namespaces={namespaces} fetchResources={() => { }} setIsDeployZarfModalOpen={setIsDeployZarfModalOpen} setIsDeployHelmModalOpen={setIsDeployHelmModalOpen} onToggleSidebar={() => setMobileNavOpen(v => !v)}/>
@@ -207,12 +207,12 @@ function AppContent({ onLogout, onChangePassword }: {
           </div>
 
           <ErrorBoundary fallbackTitle={`${tabTitle} View`}>
-            {activeTab === 'topology' ? (<TopologyView topologyMode={topologyMode} topologyData={topologyData || { nodes: [], services: [], deployments: [], pods: [] }} selectedNs={selectedNs} hoveredTopologyItem={hoveredTopologyItem} setHoveredTopologyItem={setHoveredTopologyItem} podMetrics={podMetrics || []} setModal={setModal} handleOpenDiagnostics={handleOpenDiagnostics} nodeMetrics={nodeMetrics || []} getNodeUsagePercent={getNodeUsagePercent}/>) : activeTab === 'zarf' || activeTab === 'zarf-registry' ? (<ZarfManagerView {...zarf} search={search} activeTab={activeTab} setActiveTab={setActiveTab} zarfStatus={zarfStatusData || { installed: true }}/>) : activeTab === 'oras' ? (<OrasView />) : activeTab === 'logs' ? (<LogsView namespaces={namespaces} initialNamespace={selectedNs}/>) : activeTab === 'image-scanner' ? (<ImageScannerView runningImages={Object.keys(sbomScansData || {})} runningImagesScanResults={runningImagesScanResults} isScanningAllRunningImages={isScanningAllRunningImages} scanSingleImage={scanSingleImage} fetchRunningImagesAndScan={fetchRunningImagesAndScan} enableAutoScan={enableAutoScan} handleToggleAutoScan={handleToggleAutoScan} grypeDbStatus={grypeDbStatus}/>) : activeTab === 'kubescape' ? (<KubescapeView kubescapeReport={kubescapeStatusData?.report} isScanningKubescape={kubescapeStatusData?.scanning} triggerKubescapeScan={triggerKubescapeScan} kubescapeSearchQuery={kubescapeSearchQuery} setKubescapeSearchQuery={setKubescapeSearchQuery} kubescapeSeverityFilter={kubescapeSeverityFilter} setKubescapeSeverityFilter={setKubescapeSeverityFilter} expandedControlId={expandedControlId} setExpandedControlId={setExpandedControlId}/>) : activeTab === 'helm' || activeTab === 'helm-repos' ? (<HelmManagerView resources={filteredResources} selectedNs={selectedNs} search={search} activeTab={activeTab} setActiveTab={setActiveTab} setModal={setModal} handleDelete={(res) => handleDelete('helm', res.metadata.name, res.metadata.namespace)} isInstallModalOpen={false} setIsInstallModalOpen={() => { }} selectedHelmRelease={null} setSelectedHelmRelease={() => { }} fetchHelmInspect={fetchHelmInspect} helmInspectTab="values" setHelmInspectTab={() => { }} isFetchingHelmInspect={false} helmInspectData="" helmUpgradeChartRef="" setHelmUpgradeChartRef={() => { }} isUpgradingHelm={false} handleHelmUpgrade={() => { }} helmUpgradeValues="" setHelmUpgradeValues={() => { }} helmCustomInstall={{ ...helmDeployForm, repo: '', version: '' }} setHelmCustomInstall={(v: any) => setHelmDeployForm(v)} handleCustomHelmInstall={handleCustomHelmInstall} isSubmittingHelmDeploy={false} helmRepos={helmRepos || []} newHelmRepo={newHelmRepo} setNewHelmRepo={setNewHelmRepo} isSubmittingHelmRepo={false} handleAddHelmRepo={() => addRepo(newHelmRepo)} handleRemoveHelmRepo={removeRepo} handleUpdateHelmRepos={updateRepos} helmSearchQuery={search} setHelmSearchQuery={setSearch} helmSearchResults={helmSearchResults} isSearchingHelm={isSearchingHelm} handleSearchHelmRepo={(e) => { e.preventDefault(); searchRepos(search); }}/>) : activeTab === 'autoscale-manager' ? (<AutoscaleManagerView selectedNs={selectedNs}/>) : activeTab === 'backup-restore' ? (<BackupRestoreView selectedNs={selectedNs}/>) : activeTab === 'cronjobs' ? (<CronJobManagerView selectedNs={selectedNs}/>) : activeTab === 'cluster-terminal' ? (<ClusterTerminalView key="cluster-terminal"/>) : activeTab === 'k9s' ? (<ClusterTerminalView key="k9s" wsPath="/api/k9s/ws" title="K9s" subtitle="zarf tools k9s" stripReports awaitTui bootLabel="Starting k9s…"/>) : activeTab === 'traffic' ? (<TrafficInspectorView selectedNs={selectedNs}/>) : activeTab === 'dashboard' ? (<DashboardView dashboardData={dashboardData || {}} namespace={selectedNs} cpuHistory={[]} memHistory={[]} setActiveTab={setActiveTab} setSearch={setSearch} setIsCmdPaletteOpen={setIsCmdPaletteOpen} zarfStatus={zarfStatusData || { installed: true }} runningImagesScanResults={sbomScansData || {}} kubescapeReport={kubescapeStatusData?.report}/>) : (<ResourceListView activeTab={activeTab} filteredResources={filteredResources} focusedRowIndex={focusedRowIndex} setFocusedRowIndex={setFocusedRowIndex} setSearch={setSearch} setSelectedContainer={setSelectedContainer} setModal={setModal} podMetrics={podMetrics || []} podMetricsHistory={podMetricsHistory} nodeMetrics={nodeMetrics || []} getNodeUsagePercent={getNodeUsagePercent} customCrd={customCrd} setCustomCrd={setCustomCrd} setActiveTab={setActiveTab} associatedDeployments={allDeployments || []} associatedPods={allPods || []} matchesSelector={matchesSelector} pluralizeKind={pluralizeKind} handleRestart={handleRestart} handleScale={handleScale} handleStop={handleStop} handleStart={handleStart} handleDrillDownToPods={handleDrillDownToPods} handleOpenServiceWebsite={handleOpenServiceWebsite} establishingPortForward={establishingPortForward} handleOpenDiagnostics={handleOpenDiagnostics} handleDelete={(res) => handleDelete(activeTab, res.metadata.name, res.metadata.namespace)} setIsEditingYaml={setIsEditingYaml} renderStatusBadge={(res) => renderStatusBadge(res, activeTab)} renderSmallSparkline={renderSparkline}/>)}
+            {activeTab === 'topology' ? (<TopologyView topologyMode={topologyMode} topologyData={topologyData || { nodes: [], services: [], deployments: [], pods: [] }} selectedNs={selectedNs} hoveredTopologyItem={hoveredTopologyItem} setHoveredTopologyItem={setHoveredTopologyItem} podMetrics={podMetrics || []} setModal={setModal} handleOpenDiagnostics={handleOpenDiagnostics} nodeMetrics={nodeMetrics || []} getNodeUsagePercent={getNodeUsagePercent}/>) : activeTab === 'zarf' || activeTab === 'zarf-registry' ? (<ZarfManagerView {...zarf} search={search} activeTab={activeTab} setActiveTab={setActiveTab} zarfStatus={zarfStatusData || { installed: true }}/>) : activeTab === 'oras' ? (<OrasView />) : activeTab === 'logs' ? (<LogsView namespaces={namespaces} initialNamespace={selectedNs}/>) : activeTab === 'image-scanner' ? (scanningEnabled ? (<ImageScannerView runningImages={Object.keys(sbomScansData || {})} runningImagesScanResults={runningImagesScanResults} isScanningAllRunningImages={isScanningAllRunningImages} scanSingleImage={scanSingleImage} fetchRunningImagesAndScan={fetchRunningImagesAndScan} enableAutoScan={enableAutoScan} handleToggleAutoScan={handleToggleAutoScan} grypeDbStatus={grypeDbStatus}/>) : (<div className="card" style={{ padding: 40, textAlign: 'center' }}><h2 style={{ color: 'var(--text-muted)' }}>Image Scanning Disabled</h2><p style={{ color: 'var(--text-muted)', marginTop: 8 }}>Vulnerability scanning is disabled in this package.</p></div>)) : activeTab === 'kubescape' ? (scanningEnabled ? (<KubescapeView kubescapeReport={kubescapeStatusData?.report} isScanningKubescape={kubescapeStatusData?.scanning} triggerKubescapeScan={triggerKubescapeScan} kubescapeSearchQuery={kubescapeSearchQuery} setKubescapeSearchQuery={setKubescapeSearchQuery} kubescapeSeverityFilter={kubescapeSeverityFilter} setKubescapeSeverityFilter={setKubescapeSeverityFilter} expandedControlId={expandedControlId} setExpandedControlId={setExpandedControlId}/>) : (<div className="card" style={{ padding: 40, textAlign: 'center' }}><h2 style={{ color: 'var(--text-muted)' }}>Compliance Auditing Disabled</h2><p style={{ color: 'var(--text-muted)', marginTop: 8 }}>Kubescape compliance auditing is disabled in this package.</p></div>)) : activeTab === 'helm' || activeTab === 'helm-repos' ? (<HelmManagerView resources={filteredResources} selectedNs={selectedNs} search={search} activeTab={activeTab} setActiveTab={setActiveTab} setModal={setModal} handleDelete={(res) => handleDelete('helm', res.metadata.name, res.metadata.namespace)} isInstallModalOpen={false} setIsInstallModalOpen={() => { }} selectedHelmRelease={null} setSelectedHelmRelease={() => { }} fetchHelmInspect={fetchHelmInspect} helmInspectTab="values" setHelmInspectTab={() => { }} isFetchingHelmInspect={false} helmInspectData="" helmUpgradeChartRef="" setHelmUpgradeChartRef={() => { }} isUpgradingHelm={false} handleHelmUpgrade={() => { }} helmUpgradeValues="" setHelmUpgradeValues={() => { }} helmCustomInstall={{ ...helmDeployForm, repo: '', version: '' }} setHelmCustomInstall={(v: any) => setHelmDeployForm(v)} handleCustomHelmInstall={handleCustomHelmInstall} isSubmittingHelmDeploy={false} helmRepos={helmRepos || []} newHelmRepo={newHelmRepo} setNewHelmRepo={setNewHelmRepo} isSubmittingHelmRepo={false} handleAddHelmRepo={() => addRepo(newHelmRepo)} handleRemoveHelmRepo={removeRepo} handleUpdateHelmRepos={updateRepos} helmSearchQuery={search} setHelmSearchQuery={setSearch} helmSearchResults={helmSearchResults} isSearchingHelm={isSearchingHelm} handleSearchHelmRepo={(e) => { e.preventDefault(); searchRepos(search); }}/>) : activeTab === 'autoscale-manager' ? (<AutoscaleManagerView selectedNs={selectedNs}/>) : activeTab === 'backup-restore' ? (<BackupRestoreView selectedNs={selectedNs}/>) : activeTab === 'cronjobs' ? (<CronJobManagerView selectedNs={selectedNs}/>) : activeTab === 'cluster-terminal' ? (<ClusterTerminalView key="cluster-terminal"/>) : activeTab === 'k9s' ? (<ClusterTerminalView key="k9s" wsPath="/api/k9s/ws" title="K9s" subtitle="zarf tools k9s" stripReports awaitTui bootLabel="Starting k9s…"/>) : activeTab === 'traffic' ? (<TrafficInspectorView selectedNs={selectedNs}/>) : activeTab === 'dashboard' ? (<DashboardView dashboardData={dashboardData || {}} namespace={selectedNs} cpuHistory={[]} memHistory={[]} setActiveTab={setActiveTab} setSearch={setSearch} setIsCmdPaletteOpen={setIsCmdPaletteOpen} zarfStatus={zarfStatusData || { installed: true }} runningImagesScanResults={sbomScansData || {}} kubescapeReport={kubescapeStatusData?.report} scanningEnabled={scanningEnabled}/>) : (<ResourceListView activeTab={activeTab} filteredResources={filteredResources} focusedRowIndex={focusedRowIndex} setFocusedRowIndex={setFocusedRowIndex} setSearch={setSearch} setSelectedContainer={setSelectedContainer} setModal={setModal} podMetrics={podMetrics || []} podMetricsHistory={podMetricsHistory} nodeMetrics={nodeMetrics || []} getNodeUsagePercent={getNodeUsagePercent} customCrd={customCrd} setCustomCrd={setCustomCrd} setActiveTab={setActiveTab} associatedDeployments={allDeployments || []} associatedPods={allPods || []} matchesSelector={matchesSelector} pluralizeKind={pluralizeKind} handleRestart={handleRestart} handleScale={handleScale} handleStop={handleStop} handleStart={handleStart} handleDrillDownToPods={handleDrillDownToPods} handleOpenServiceWebsite={handleOpenServiceWebsite} establishingPortForward={establishingPortForward} handleOpenDiagnostics={handleOpenDiagnostics} handleDelete={(res) => handleDelete(activeTab, res.metadata.name, res.metadata.namespace)} setIsEditingYaml={setIsEditingYaml} renderStatusBadge={(res) => renderStatusBadge(res, activeTab)} renderSmallSparkline={renderSparkline}/>)}
           </ErrorBoundary>
         </div>
       </main>
 
-      <CommandPalette isOpen={isCmdPaletteOpen} setIsOpen={setIsCmdPaletteOpen} search={cmdPaletteSearch} setSearch={setCmdPaletteSearch} namespaces={namespaces} setSelectedNs={setSelectedNs} contexts={contexts} handleContextChange={handleContextChange} setActiveTab={setActiveTab} fetchResources={() => { }} fetchRunningImagesAndScan={fetchRunningImagesAndScan}/>
+      <CommandPalette isOpen={isCmdPaletteOpen} setIsOpen={setIsCmdPaletteOpen} search={cmdPaletteSearch} setSearch={setCmdPaletteSearch} namespaces={namespaces} setSelectedNs={setSelectedNs} contexts={contexts} handleContextChange={handleContextChange} setActiveTab={setActiveTab} fetchResources={() => { }} fetchRunningImagesAndScan={fetchRunningImagesAndScan} scanningEnabled={scanningEnabled}/>
 
       <ModalManager modal={modal} setModal={setModal} modalData={modalData} setModalData={setModalData} yamlEdit={yamlEdit} setYamlEdit={setYamlEdit} isEditingYaml={isEditingYaml} setIsEditingYaml={setIsEditingYaml} copyToClipboard={copyToClipboard} downloadYaml={downloadYaml} downloadLogs={downloadLogs} logSearch="" setLogSearch={() => { }} selectedContainer={selectedContainer} setSelectedContainer={setSelectedContainer} getPodContainers={getPodContainers} isStreamingLogs={isStreamingLogs} setIsStreamingLogs={setIsStreamingLogs} scrollToBottomLogs={scrollToBottomLogs} fetchModalData={fetchModalData} currentDirPath={currentDirPath} setCurrentDirPath={setCurrentDirPath} isListingFiles={isListingFiles} podFiles={podFiles} podFileUploadProgress={podFileUploadProgress} podFileUploadName={podFileUploadName} handleUploadPodFile={handleUploadPodFile} handleCreatePodFolder={handleCreatePodFolder} fetchPodFilesList={fetchPodFilesList} handleEditPodFile={handleEditPodFile} handleDownloadPodFile={handleDownloadPodFile} handleDeletePodFile={handleDeletePodFile} editingFilePath={editingFilePath} editingFileContent={editingFileContent} setEditingFileContent={setEditingFileContent} isSavingFile={isSavingFile} isEditingFileDirty={isEditingFileDirty} fileEditError={fileEditError} handleSaveEditingFile={handleSaveEditingFile} handleCancelEditingFile={handleCancelEditingFile} saveYaml={saveYaml} helmValuesEdit={yamlEdit} setHelmValuesEdit={setYamlEdit} isSavingHelmValues={false} handleHelmUpgradeFromModal={handleHelmUpgradeFromModal} handleRollback={handleRollback} handleInspectRevisionValues={handleInspectRevisionValues} selectedRevisionValues={selectedRevisionValues} setSelectedRevisionValues={setSelectedRevisionValues} isLoadingRevisionValues={isLoadingRevisionValues} renderDiffView={renderDiffView}/>
 
@@ -226,11 +226,13 @@ function App() {
         enabled: boolean;
         authenticated: boolean;
         isDefault: boolean;
+        scanningEnabled: boolean;
     }>({
         checked: false,
         enabled: true,
         authenticated: false,
-        isDefault: false
+        isDefault: false,
+        scanningEnabled: true
     });
     const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
     useEffect(() => {
@@ -239,6 +241,7 @@ function App() {
             try {
                 const { data } = await axios.get('/api/auth/status');
                 const token = localStorage.getItem('periscope_token');
+                const isScanning = data.scanningEnabled !== false;
                 await minDelay;
                 if (data.enabled) {
                     if (token) {
@@ -246,7 +249,8 @@ function App() {
                             checked: true,
                             enabled: true,
                             authenticated: true,
-                            isDefault: !!data.isDefault
+                            isDefault: !!data.isDefault,
+                            scanningEnabled: isScanning
                         });
                         if (data.isDefault) {
                             setIsChangePasswordOpen(true);
@@ -257,7 +261,8 @@ function App() {
                             checked: true,
                             enabled: true,
                             authenticated: false,
-                            isDefault: !!data.isDefault
+                            isDefault: !!data.isDefault,
+                            scanningEnabled: isScanning
                         });
                     }
                 }
@@ -266,7 +271,8 @@ function App() {
                         checked: true,
                         enabled: false,
                         authenticated: true,
-                        isDefault: false
+                        isDefault: false,
+                        scanningEnabled: isScanning
                     });
                 }
             }
@@ -278,7 +284,8 @@ function App() {
                     checked: true,
                     enabled: true,
                     authenticated: !!token,
-                    isDefault: false
+                    isDefault: false,
+                    scanningEnabled: true
                 });
             }
         };
@@ -286,12 +293,13 @@ function App() {
     }, []);
     const handleLoginSuccess = (token: string, isDefault: boolean) => {
         localStorage.setItem('periscope_token', token);
-        setAuthState({
+        setAuthState(prev => ({
+            ...prev,
             checked: true,
             enabled: true,
             authenticated: true,
             isDefault: isDefault
-        });
+        }));
         if (isDefault) {
             setIsChangePasswordOpen(true);
         }
@@ -358,7 +366,7 @@ function App() {
     if (authState.enabled && !authState.authenticated) {
         return <LoginView onLoginSuccess={handleLoginSuccess}/>;
     }
-    return (<AppProvider>
+    return (<AppProvider scanningEnabled={authState.scanningEnabled}>
       <AppProvidersInner onLogout={handleLogout} onChangePassword={() => setIsChangePasswordOpen(true)}/>
       <ChangePasswordModal isOpen={isChangePasswordOpen} forced={authState.isDefault} onPasswordChanged={handlePasswordChanged} onClose={() => setIsChangePasswordOpen(false)}/>
     </AppProvider>);

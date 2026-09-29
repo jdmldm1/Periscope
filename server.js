@@ -62,7 +62,10 @@ app.use('/api', (req, res, next) => {
     }
     next();
 });
-decompressGrypeDatabase();
+const { isScanningEnabled, isAirgap, isAirgapLite } = require('./src/utils/featureFlags');
+if (isScanningEnabled()) {
+    decompressGrypeDatabase();
+}
 app.use((req, res, next) => {
     if (!req.url.includes('/metrics')) {
         const safeUrl = req.url.replace(/([?&]token=)[^&]*/gi, '$1[redacted]');
@@ -85,6 +88,12 @@ app.get('/readyz', async (req, res) => {
             error: 'Kubernetes API unreachable'
         });
     }
+app.get('/api/config', (req, res) => {
+    res.json({
+        scanningEnabled: isScanningEnabled(),
+        airgap: isAirgap(),
+        airgapLite: isAirgapLite()
+    });
 });
 app.use('/api/kube', kubeRoutes);
 app.use('/api', kubeRoutesV2);

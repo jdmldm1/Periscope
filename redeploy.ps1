@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param (
     [Parameter()]
-    [ValidateSet("Airgap", "Connected", "Both")]
+    [ValidateSet("Airgap", "AirgapLite", "Connected", "Both")]
     [string]$Mode = "Connected",
 
     [Parameter()]
@@ -63,7 +63,14 @@ if ($Mode -eq "Connected") {
 elseif ($Mode -eq "Airgap") {
     Ensure-ZarfInit
     Write-Host "Deploying Airgap Zarf package..."
-    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.2 --confirm
+    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.3 --confirm
+    Write-Host "Restarting deployment..."
+    kubectl rollout restart deployment periscope -n periscope
+}
+elseif ($Mode -eq "AirgapLite") {
+    Ensure-ZarfInit
+    Write-Host "Deploying Airgap Lite Zarf package..."
+    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap-lite:1.3.3 --confirm
     Write-Host "Restarting deployment..."
     kubectl rollout restart deployment periscope -n periscope
 }
