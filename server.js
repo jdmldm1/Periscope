@@ -88,6 +88,8 @@ app.get('/readyz', async (req, res) => {
             error: 'Kubernetes API unreachable'
         });
     }
+});
+
 app.get('/api/config', (req, res) => {
     res.json({
         scanningEnabled: isScanningEnabled(),
