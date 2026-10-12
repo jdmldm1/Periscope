@@ -56,7 +56,7 @@ if ($Mode -eq "Connected") {
     
     Ensure-ZarfInit
     Write-Host "Deploying Connected Zarf package..."
-    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.2 --confirm
+    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.3 --confirm
     Write-Host "Restarting deployment..."
     kubectl rollout restart deployment periscope -n periscope
 }
