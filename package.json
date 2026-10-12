@@ -1,11 +1,11 @@
 {
   "name": "periscope",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "A web-based Kubernetes control plane for visualizing and managing cluster state, security, workloads, Helm releases, and Zarf packages.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test server.test.js"
+    "test": "node --test server.test.js \"src/**/*.test.js\""
   },
   "keywords": [
     "kubernetes",

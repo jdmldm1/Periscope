@@ -8,3 +8,6 @@ frontend/dist/
 dist/
 bin/
 .cache/
+
+# SonarQube scanner state
+.scannerwork/
