@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const logger = require('./logger');
 function decompressGrypeDatabase() {
     const dbBaseDir = '/app/.cache/grype';
@@ -25,7 +25,7 @@ function decompressGrypeDatabase() {
                 continue;
             }
             logger.info(`Found compressed Grype database in schema v${schema}. Decompressing in background...`);
-            exec(`zstd -d -f -q --rm "${compressedPath}" -o "${decompressedPath}"`, (err) => {
+            execFile('zstd', ['-d', '-f', '-q', '--rm', compressedPath, '-o', decompressedPath], (err) => {
                 if (err) {
                     logger.error(`Failed to decompress Grype database for schema v${schema}:`, err);
                 }

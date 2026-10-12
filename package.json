@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test server.test.js"
+    "test": "node --test server.test.js src/"
   },
   "keywords": [
     "kubernetes",
