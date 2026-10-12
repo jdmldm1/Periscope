@@ -1,0 +1,64 @@
+# ServiceAccount used by the self-hosted GitHub runner on shiloh to deploy Periscope.
+# Apply once as a cluster admin:  kubectl apply -f deploy/shiloh/runner-rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-deployer
+  namespace: periscope
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-deployer-token
+  namespace: periscope
+  annotations:
+    kubernetes.io/service-account.name: github-deployer
+type: kubernetes.io/service-account-token
+---
+# Full control inside the periscope namespace (workloads, services, PVCs, Helm release secrets).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: github-deployer-admin
+  namespace: periscope
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: github-deployer
+    namespace: periscope
+---
+# Manage only the chart's own cluster-scoped RBAC objects. The chart's ClusterRole is */*/*,
+# so escalate+bind are required to update it — this makes the deployer effectively
+# cluster-admin-equivalent, but scoped against accidental changes elsewhere and revocable.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: github-deployer-periscope
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
+    verbs: ["create"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["periscope"]
+    verbs: ["get", "update", "patch", "delete", "escalate", "bind"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterrolebindings"]
+    resourceNames: ["periscope"]
+    verbs: ["get", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: github-deployer-periscope
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: github-deployer-periscope
+subjects:
+  - kind: ServiceAccount
+    name: github-deployer
+    namespace: periscope

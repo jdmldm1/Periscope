@@ -1,0 +1,24 @@
+# Overrides for the shiloh (k0s) cluster, applied by the CI deploy job.
+# image.tag is set by the pipeline to the commit's -connected image.
+# Mirrors the live state: ClusterIP service fronted by the tailnet-periscope Tailscale ingress.
+image:
+  repository: ghcr.io/jdmldm1/periscope
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 3001
+  targetPort: 3001
+
+persistence:
+  enabled: true
+  storageClass: local-path
+  accessMode: ReadWriteOnce
+  size: 5Gi
+
+auth:
+  enabled: true
+
+# Not currently running on this cluster; enabling adds a privileged hostNetwork DaemonSet.
+retina:
+  enabled: false

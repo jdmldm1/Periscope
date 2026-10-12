@@ -73,7 +73,7 @@ Manage Helm releases and deploy / inspect Zarf packages.
 
 ```bash
 helm upgrade --install periscope oci://ghcr.io/jdmldm1/charts/periscope \
-  --version 0.3.3 \
+  --version 0.3.4 \
   --namespace periscope --create-namespace
 ```
 
@@ -120,7 +120,7 @@ Example with ingress and auth:
 
 ```bash
 helm upgrade --install periscope oci://ghcr.io/jdmldm1/charts/periscope \
-  --version 0.3.3 \
+  --version 0.3.4 \
   --namespace periscope --create-namespace \
   --set ingress.enabled=true \
   --set ingress.hosts[0].host=periscope.example.com \
@@ -135,7 +135,7 @@ helm upgrade --install periscope oci://ghcr.io/jdmldm1/charts/periscope \
 k3d cluster create mycluster -p "30080:30080@server:0"
 
 helm upgrade --install periscope oci://ghcr.io/jdmldm1/charts/periscope \
-  --version 0.3.3 \
+  --version 0.3.4 \
   --namespace periscope --create-namespace \
   --set service.type=NodePort \
   --set service.nodePort=30080
@@ -167,13 +167,13 @@ node server.js
 
 ```bash
 # Zarf connected package
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.3
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.4
 
 # Zarf air-gap package (includes Grype & vulnerability database)
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.3
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.4
 
 # Zarf air-gap lite package (lightweight airgap; omits Grype/Kubescape scanner DBs & binaries, turns off scanning pages)
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap-lite:1.3.3
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap-lite:1.3.4
 ```
 
 ---
