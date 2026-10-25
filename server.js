@@ -67,7 +67,7 @@ if (isScanningEnabled()) {
     decompressGrypeDatabase();
 }
 app.use((req, res, next) => {
-    if (!req.url.includes('/metrics')) {
+    if (!req.url.includes('/metrics') && req.url !== '/healthz' && req.url !== '/readyz') {
         const safeUrl = req.url.replace(/([?&]token=)[^&]*/gi, '$1[redacted]');
         logger.info({ method: req.method, url: safeUrl }, 'Incoming request');
     }

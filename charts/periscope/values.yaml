@@ -25,6 +25,32 @@ ingress:
           pathType: ImplementationSpecific
 
 resources: {}
+
+# Startup can take a few minutes on connected images while bin-bootstrap
+# downloads zarf/grype/kubescape, so the startup probe allows up to 5 minutes
+# before liveness checks begin.
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 10
+  failureThreshold: 30
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+# /readyz also verifies the pod can reach the Kubernetes API.
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
 nodeSelector: {}
 tolerations: []
 affinity: {}
