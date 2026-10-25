@@ -1,6 +1,7 @@
 const k8sService = require('./k8sService');
 const logger = require('../utils/logger');
 const { run } = require('../utils/exec');
+const { getCaptureImage } = require('./podCaptureService');
 class PvcService {
     async getHelperPodName(pvcName) {
         const sanitized = pvcName.toLowerCase().replace(/[^a-z0-9-]/g, '-').substring(0, 40);
@@ -20,6 +21,12 @@ class PvcService {
         }
         catch (err) {
         }
+        let helperImage = 'alpine:latest';
+        try {
+            helperImage = await getCaptureImage();
+        }
+        catch (_) {
+        }
         const podBody = {
             apiVersion: 'v1',
             kind: 'Pod',
@@ -34,7 +41,8 @@ class PvcService {
             spec: {
                 containers: [{
                         name: 'browser',
-                        image: 'alpine:latest',
+                        image: helperImage,
+                        imagePullPolicy: 'IfNotPresent',
                         command: ['sleep', '3600'],
                         volumeMounts: [{
                                 name: 'vol',

@@ -1,9 +1,17 @@
 node_modules
 frontend/node_modules
+frontend/dist
+frontend/tests
 .git
 .gitignore
 charts
+deploy
+docs
 zarf-package-*.tar.zst
 bin/kubescape.exe
 .gemini
 .github
+*.ps1
+*.test.js
+src/**/*.test.js
+frontend/src/**/*.test.ts

@@ -90,7 +90,8 @@ spec:
         - operator: Exists
       initContainers:
         - name: bpf-mount
-          image: busybox:latest
+          image: "{{ .Values.retina.image.repository }}:{{ .Values.retina.image.tag }}"
+          imagePullPolicy: {{ .Values.retina.image.pullPolicy }}
           command: ["sh", "-c", "mkdir -p /sys/fs/bpf && mount -t bpf bpf /sys/fs/bpf"]
           securityContext:
             privileged: true

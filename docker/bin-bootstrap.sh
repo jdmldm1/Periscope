@@ -14,8 +14,7 @@ if [ ! -x "$BIN_DIR/zarf" ]; then
 fi
 
 if [ ! -x "$BIN_DIR/kubectl" ]; then
-    echo "[bin-bootstrap] Fetching kubectl ${KUBECTL_VERSION}..."
-    curl -sL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${GOARCH}/kubectl" -o "$BIN_DIR/kubectl"
+    printf '#!/bin/sh\nexec zarf tools kubectl "$@"\n' > "$BIN_DIR/kubectl"
     chmod +x "$BIN_DIR/kubectl"
 fi
 
