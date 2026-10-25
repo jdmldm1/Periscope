@@ -1,5 +1,5 @@
 image:
-  tag: "1.3.5-airgap-lite"
+  tag: "1.3.6-airgap-lite"
 
 airgap: true
 airgapLite: true

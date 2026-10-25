@@ -8,6 +8,7 @@ frontend/dist/
 dist/
 bin/
 .cache/
+server-bundle.cjs
 
 # SonarQube scanner state
 .scannerwork/

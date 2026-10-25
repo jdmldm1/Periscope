@@ -42,6 +42,9 @@ class AuthService {
             return AUTH_FILE;
         }
         catch (e) {
+            if (process.pkg) {
+                return path.join(process.cwd(), 'auth-config.json');
+            }
             return path.join(__dirname, '../../auth-config.json');
         }
     }

@@ -15,3 +15,5 @@ bin/kubescape.exe
 *.test.js
 src/**/*.test.js
 frontend/src/**/*.test.ts
+server-bundle.cjs
+dist
