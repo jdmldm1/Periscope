@@ -54,7 +54,7 @@ RUN if [ "$AIRGAP" = "true" ]; then \
             grype version && \
             if [ "$CACHE_GRYPE_DB" = "true" ]; then \
                 GRYPE_DB_CACHE_DIR=/app/.cache/grype grype db update && \
-                zstd -19 --long=27 -T0 -q --rm /app/.cache/grype/*/vulnerability.db && \
+                zstd -6 --long=27 -T0 -q --rm /app/.cache/grype/*/vulnerability.db && \
                 rm -rf /tmp/* /app/.cache/grype/*/*.tar.*; \
             fi; \
         fi && \
