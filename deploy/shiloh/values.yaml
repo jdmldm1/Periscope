@@ -17,7 +17,7 @@ persistence:
   size: 5Gi
 
 auth:
-  enabled: true
+  enabled: false
 
 # Not currently running on this cluster; enabling adds a privileged hostNetwork DaemonSet.
 retina:
