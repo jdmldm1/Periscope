@@ -11,7 +11,7 @@ export default defineConfig({
         timeout: 10000,
     },
     use: {
-        baseURL: 'http://localhost:30080',
+        baseURL: process.env.E2E_BASE_URL || 'http://localhost:30080',
         trace: 'on-first-retry',
         screenshot: 'only-on-failure',
     },
@@ -21,14 +21,16 @@ export default defineConfig({
             use: { ...devices['Desktop Chrome'] },
         },
     ],
-    webServer: {
-        command: 'node ../server.js',
-        url: 'http://localhost:30080',
-        reuseExistingServer: !process.env.CI,
-        stdout: 'pipe',
-        stderr: 'pipe',
-        env: {
-            PORT: '30080',
-        },
-    },
+    webServer: process.env.E2E_BASE_URL
+        ? undefined
+        : {
+              command: 'node ../server.js',
+              url: 'http://localhost:30080',
+              reuseExistingServer: !process.env.CI,
+              stdout: 'pipe',
+              stderr: 'pipe',
+              env: {
+                  PORT: '30080',
+              },
+          },
 });

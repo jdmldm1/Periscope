@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const k8sService = require('../services/k8sService');
+const usageService = require('../services/usageService');
 const logger = require('../utils/logger');
+const { queryString, isValidNamespaceOrAll } = require('../utils/validators');
 router.get('/nodes', async (req, res) => {
     try {
         const [metricsResponse, nodesResponse] = await Promise.allSettled([
@@ -45,6 +47,16 @@ router.get('/pods', async (req, res) => {
     } catch (err) {
         logger.warn({ error: err.message }, 'Metrics server might not be available');
         res.json([]);
+    }
+});
+router.get('/usage', async (req, res) => {
+    const namespace = queryString(req.query.namespace) || 'all';
+    if (!isValidNamespaceOrAll(namespace)) return res.status(400).json({ error: 'Invalid namespace' });
+    try {
+        res.json(await usageService.getUsage(namespace));
+    } catch (err) {
+        logger.error({ error: err.message }, 'Failed to compute resource usage');
+        res.status(500).json({ error: err.message });
     }
 });
 module.exports = router;

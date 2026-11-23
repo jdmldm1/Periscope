@@ -1,5 +1,12 @@
 import { useRef, useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import axios from 'axios';
+const api = axios.create({ baseURL: '/api' });
+export interface ResourceHit {
+    kind: string;
+    name: string;
+    namespace: string | null;
+}
 interface CommandPaletteProps {
     isOpen: boolean;
     setIsOpen: (open: boolean) => void;
@@ -13,6 +20,7 @@ interface CommandPaletteProps {
     fetchResources: () => void;
     fetchRunningImagesAndScan: () => void;
     scanningEnabled?: boolean;
+    onOpenResource?: (hit: ResourceHit) => void;
 }
 export const CommandPalette = ({
     isOpen,
@@ -27,9 +35,29 @@ export const CommandPalette = ({
     fetchResources,
     fetchRunningImagesAndScan,
     scanningEnabled = true,
+    onOpenResource,
 }: CommandPaletteProps) => {
     const inputRef = useRef<HTMLInputElement>(null);
     const [activeIndex, setActiveIndex] = useState(0);
+    const [resourceHits, setResourceHits] = useState<ResourceHit[]>([]);
+    useEffect(() => {
+        const q = search.trim();
+        if (!isOpen || q.startsWith(':') || q.length < 2) return;
+        let cancelled = false;
+        const timer = setTimeout(() => {
+            api.get('/kube/search', { params: { q } })
+                .then(({ data }) => {
+                    if (!cancelled) setResourceHits(Array.isArray(data?.results) ? data.results : []);
+                })
+                .catch(() => {
+                    if (!cancelled) setResourceHits([]);
+                });
+        }, 200);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [search, isOpen]);
     useEffect(() => {
         if (isOpen) {
             setTimeout(() => inputRef.current?.focus(), 50);
@@ -40,7 +68,45 @@ export const CommandPalette = ({
         setActiveIndex(0);
     }, [search]);
     if (!isOpen) return null;
+    const hitQuery = search.trim();
+    const activeHits = hitQuery.startsWith(':') || hitQuery.length < 2 ? [] : resourceHits;
     const items = [
+        ...activeHits.map((hit) => ({
+            name: `${hit.name} · ${hit.kind}${hit.namespace ? ` · ${hit.namespace}` : ''}`,
+            aliases: [] as string[],
+            category: 'Resources',
+            action: () => {
+                onOpenResource?.(hit);
+                setIsOpen(false);
+            },
+        })),
+        {
+            name: 'Resource Usage Heatmap (:usage, :heatmap)',
+            aliases: ['usage', 'heatmap', 'resources'],
+            category: 'Views',
+            action: () => {
+                setActiveTab('usage');
+                setIsOpen(false);
+            },
+        },
+        {
+            name: 'RBAC Explorer (:rbac)',
+            aliases: ['rbac', 'permissions', 'whocan'],
+            category: 'Views',
+            action: () => {
+                setActiveTab('rbac');
+                setIsOpen(false);
+            },
+        },
+        {
+            name: 'Certificates (:certs, :certificates)',
+            aliases: ['certs', 'cert', 'certificates', 'tls'],
+            category: 'Views',
+            action: () => {
+                setActiveTab('certs');
+                setIsOpen(false);
+            },
+        },
         {
             name: 'Topology Map (:topology)',
             aliases: ['topology', 'top', 'map'],
@@ -369,7 +435,7 @@ export const CommandPalette = ({
                     <input
                         ref={inputRef}
                         type="text"
-                        placeholder="Search views, namespaces, contexts..."
+                        placeholder="Search resources, views, namespaces, contexts..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         onKeyDown={handleKeyDown}

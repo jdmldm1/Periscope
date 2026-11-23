@@ -3,7 +3,7 @@ kind: ZarfPackageConfig
 metadata:
   name: periscope-airgap-lite
   description: A Periscope web console (airgap lite mode - scanning omitted) for exploring and managing Kubernetes resources
-  version: 1.3.7
+  version: 1.4.0
 
 variables:
   - name: AUTH_ENABLED
@@ -24,7 +24,7 @@ components:
     required: true
 
     images:
-      - ghcr.io/jdmldm1/periscope:1.3.7-airgap-lite
+      - ghcr.io/jdmldm1/periscope:1.4.0-airgap-lite
       - ghcr.io/microsoft/retina/retina-agent:v0.0.2
 
     charts:

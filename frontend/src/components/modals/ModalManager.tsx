@@ -21,6 +21,9 @@ import { PodFilesExplorer } from '../panels/PodFilesExplorer';
 import { PodFileEditor } from '../panels/PodFileEditor';
 import { InteractiveTerminal } from '../panels/InteractiveTerminal';
 import { PvcExplorerView } from '../views/PvcExplorerView';
+import { RolloutHistoryPanel } from '../panels/RolloutHistoryPanel';
+import { YamlEditTools } from '../panels/YamlEditTools';
+import { CrdSchemaPanel } from '../panels/CrdSchemaPanel';
 import { useAppContext } from '../../contexts/AppContext';
 interface ModalManagerProps {
     modal: any;
@@ -135,10 +138,12 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
         modal.kind === 'pods'
             ? ['diagnose', 'yaml', 'logs', 'events', 'files', 'terminal']
             : ['deployments', 'statefulsets', 'daemonsets'].includes(modal.kind)
-              ? ['diagnose', 'yaml', 'events']
+              ? ['diagnose', 'yaml', ...(modal.kind === 'deployments' ? ['rollout'] : []), 'events']
               : modal.kind === 'helm'
                 ? ['values', 'history', 'events']
-                : ['yaml', 'events'];
+                : modal.kind === 'crds'
+                  ? ['schema']
+                  : ['yaml', 'events'];
     if (modal.kind === 'secrets' || modal.type === 'decoded') {
         if (!tabs.includes('decoded')) tabs.push('decoded');
     }
@@ -250,7 +255,8 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                             {t === 'files' && <FileText size={14} />}
                             {t === 'pvc-files' && <FolderOpen size={14} />}
                             {t === 'terminal' && <Terminal size={14} />}
-                            {t === 'history' && <RefreshCw size={14} />}
+                            {(t === 'history' || t === 'rollout') && <RefreshCw size={14} />}
+                            {t === 'schema' && <FileText size={14} />}
                             {t === 'values' && <SlidersHorizontal size={14} />}
                             {t === 'decoded' && <Key size={14} />}
                             <span>
@@ -275,7 +281,11 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                 </div>
 
                 <div className="modal-body">
-                    {modal.type === 'decoded' ? (
+                    {modal.type === 'rollout' ? (
+                        <RolloutHistoryPanel namespace={modal.namespace} name={modal.name} />
+                    ) : modal.type === 'schema' ? (
+                        <CrdSchemaPanel name={modal.name} />
+                    ) : modal.type === 'decoded' ? (
                         modalData === null ? (
                             <div className="loader-container">
                                 <div className="loader"></div>
@@ -435,7 +445,15 @@ export const ModalManager: React.FC<ModalManagerProps> = ({
                                 />
                             </div>
                             {isEditingYaml && (
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, gap: 8 }}>
+                                    {modal.kind !== 'helm' && (
+                                        <YamlEditTools
+                                            kind={modal.kind}
+                                            namespace={modal.namespace}
+                                            name={modal.name}
+                                            yaml={yamlEdit}
+                                        />
+                                    )}
                                     <button className="btn btn-primary" onClick={saveYaml}>
                                         <Save size={16} /> Save & Apply
                                     </button>

@@ -21,6 +21,9 @@ import {
     GitCommit,
     TrendingUp,
     HardDrive,
+    Gauge,
+    UserCheck,
+    BadgeCheck,
 } from 'lucide-react';
 interface SidebarProps {
     activeTab: string;
@@ -166,6 +169,7 @@ export const Sidebar = ({
                             <NavItem id="topology" icon={Activity} label="Topology" />
                             <NavItem id="nodes" icon={Server} label="Nodes" />
                             <NavItem id="events" icon={List} label="Events" />
+                            <NavItem id="usage" icon={Gauge} label="Resource Usage" />
                             <NavItem id="logs" icon={Terminal} label="Logs" />
                             <NavItem
                                 id="cluster-terminal"
@@ -336,6 +340,8 @@ export const Sidebar = ({
                                 </>
                             )}
                             <NavItem id="networkpolicies" icon={Network} label="Network Policies" />
+                            <NavItem id="rbac" icon={UserCheck} label="RBAC Explorer" />
+                            <NavItem id="certs" icon={BadgeCheck} label="Certificates" />
                         </nav>
                     )}
                 </div>

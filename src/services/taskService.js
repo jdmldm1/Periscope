@@ -7,7 +7,7 @@ class TaskService {
     startTask(cmd, args, cwd = process.cwd(), onClose = null) {
         const taskId = `task-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
         const child = spawn(cmd, args, { cwd, shell: false });
-        this.activeTasks[taskId] = {
+        const task = {
             id: taskId,
             command: `${cmd} ${args.join(' ')}`,
             status: 'running',
@@ -15,18 +15,19 @@ class TaskService {
             exitCode: null,
             startTime: new Date(),
         };
+        this.activeTasks[taskId] = task;
         const appendLog = (data) => {
-            this.activeTasks[taskId].logs += data.toString();
-            if (this.activeTasks[taskId].logs.length > 1024 * 1024) {
-                this.activeTasks[taskId].logs = this.activeTasks[taskId].logs.slice(-512 * 1024);
+            task.logs += data.toString();
+            if (task.logs.length > 1024 * 1024) {
+                task.logs = task.logs.slice(-512 * 1024);
             }
         };
         child.stdout.on('data', appendLog);
         child.stderr.on('data', appendLog);
         child.on('close', (code) => {
-            this.activeTasks[taskId].status = code === 0 ? 'success' : 'failed';
-            this.activeTasks[taskId].exitCode = code;
-            this.activeTasks[taskId].endTime = new Date();
+            task.status = code === 0 ? 'success' : 'failed';
+            task.exitCode = code;
+            task.endTime = new Date();
             logger.info({ taskId, code }, 'Task completed');
             if (onClose) {
                 try {
@@ -37,9 +38,9 @@ class TaskService {
             }
         });
         child.on('error', (err) => {
-            this.activeTasks[taskId].status = 'failed';
-            this.activeTasks[taskId].logs += `\nError: ${err.message}\n`;
-            this.activeTasks[taskId].endTime = new Date();
+            task.status = 'failed';
+            task.logs += `\nError: ${err.message}\n`;
+            task.endTime = new Date();
             logger.error({ taskId, error: err.message }, 'Task failed');
             if (onClose) {
                 try {

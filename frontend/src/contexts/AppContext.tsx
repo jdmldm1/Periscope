@@ -44,7 +44,10 @@ export type ResourceKind =
     | 'custom'
     | 'autoscale-manager'
     | 'backup-restore'
-    | 'oras';
+    | 'oras'
+    | 'usage'
+    | 'rbac'
+    | 'certs';
 interface AppContextType {
     activeTab: ResourceKind;
     setActiveTab: (tab: ResourceKind) => void;

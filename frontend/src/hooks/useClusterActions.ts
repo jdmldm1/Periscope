@@ -84,7 +84,47 @@ export const useClusterActions = (refresh: () => void) => {
             window.alert(`Failed to delete ${name}: ${errMsg(err)}`);
         }
     };
+    const handleWorkloadRestart = async (kind: string, name: string, namespace: string) => {
+        if (!window.confirm(`Restart ${kind.replace(/s$/, '')} ${name}?`)) return;
+        try {
+            await api.put(`/kube/workloads/${kind}/${namespace}/${name}/restart`);
+            refresh();
+        } catch (err) {
+            console.error(err);
+            window.alert(`Failed to restart ${name}: ${errMsg(err)}`);
+        }
+    };
+    const handleWorkloadScale = async (kind: string, name: string, namespace: string, current: number) => {
+        const scaleTo = window.prompt(`Scale ${kind.replace(/s$/, '')} ${name} to:`, current.toString());
+        if (scaleTo === null || scaleTo.trim() === '' || !Number.isInteger(Number(scaleTo)) || Number(scaleTo) < 0)
+            return;
+        try {
+            await api.put(`/kube/workloads/${kind}/${namespace}/${name}/scale`, { replicas: Number(scaleTo) });
+            refresh();
+        } catch (err) {
+            console.error(err);
+            window.alert(`Failed to scale ${name}: ${errMsg(err)}`);
+        }
+    };
+    const handleNodeAction = async (name: string, action: 'cordon' | 'uncordon' | 'drain') => {
+        const prompts = {
+            cordon: `Cordon node ${name}?\n\nNew pods will not be scheduled onto it. Running pods are not affected.`,
+            uncordon: `Uncordon node ${name}?`,
+            drain: `Drain node ${name}?\n\nThe node is cordoned and its pods are evicted (DaemonSet pods are ignored, emptyDir data is deleted). This can take up to two minutes.`,
+        };
+        if (!window.confirm(prompts[action])) return;
+        try {
+            await api.put(`/kube/nodes/${name}/${action}`);
+            refresh();
+        } catch (err) {
+            console.error(err);
+            window.alert(`Failed to ${action} ${name}: ${errMsg(err)}`);
+        }
+    };
     return {
+        handleWorkloadRestart,
+        handleWorkloadScale,
+        handleNodeAction,
         handleRestart,
         handleScale,
         handleStop,

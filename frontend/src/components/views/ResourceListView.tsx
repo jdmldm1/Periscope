@@ -15,6 +15,7 @@ import {
     Key,
     Square,
     Play,
+    RotateCcw,
 } from 'lucide-react';
 import { parseCpu, parseMem } from '../../utils/helpers';
 import { resolveStatus } from '../../utils/resourceStatus';
@@ -41,6 +42,9 @@ interface ResourceListViewProps {
     matchesSelector: (labels: any, selector: any) => boolean;
     pluralizeKind: (k: string) => string;
     handleRestart: (name: string, ns: string) => void;
+    handleWorkloadRestart: (kind: string, name: string, ns: string) => void;
+    handleWorkloadScale: (kind: string, name: string, ns: string, current: number) => void;
+    handleNodeAction: (name: string, action: 'cordon' | 'uncordon' | 'drain') => void;
     handleScale: (name: string, ns: string, current: number) => void;
     handleStop: (name: string, ns: string) => void;
     handleStart: (name: string, ns: string) => void;
@@ -90,6 +94,9 @@ export const ResourceListView = ({
     associatedPods,
     matchesSelector,
     handleRestart,
+    handleWorkloadRestart,
+    handleWorkloadScale,
+    handleNodeAction,
     handleScale,
     handleStop,
     handleStart,
@@ -1538,6 +1545,101 @@ export const ResourceListView = ({
                                                 </button>
                                             )}
                                         </>
+                                    )}
+
+                                    {activeTab === 'deployments' && (
+                                        <button
+                                            className="btn btn-sm"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setModal({
+                                                    type: 'rollout',
+                                                    name: res.metadata.name,
+                                                    namespace: res.metadata.namespace,
+                                                    kind: activeTab,
+                                                    uid: res.metadata.uid,
+                                                });
+                                            }}
+                                        >
+                                            <RotateCcw size={12} /> History
+                                        </button>
+                                    )}
+
+                                    {(activeTab === 'statefulsets' || activeTab === 'daemonsets') && (
+                                        <button
+                                            className="btn btn-sm"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleWorkloadRestart(
+                                                    activeTab,
+                                                    res.metadata.name,
+                                                    res.metadata.namespace,
+                                                );
+                                            }}
+                                        >
+                                            <Power size={12} /> Restart
+                                        </button>
+                                    )}
+
+                                    {activeTab === 'statefulsets' && (
+                                        <button
+                                            className="btn btn-sm"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleWorkloadScale(
+                                                    activeTab,
+                                                    res.metadata.name,
+                                                    res.metadata.namespace,
+                                                    res.spec?.replicas || 0,
+                                                );
+                                            }}
+                                        >
+                                            <SlidersHorizontal size={12} /> Scale
+                                        </button>
+                                    )}
+
+                                    {activeTab === 'nodes' && (
+                                        <>
+                                            <button
+                                                className="btn btn-sm"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleNodeAction(
+                                                        res.metadata.name,
+                                                        res.spec?.unschedulable ? 'uncordon' : 'cordon',
+                                                    );
+                                                }}
+                                            >
+                                                <Square size={12} /> {res.spec?.unschedulable ? 'Uncordon' : 'Cordon'}
+                                            </button>
+                                            <button
+                                                className="btn btn-sm btn-danger"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleNodeAction(res.metadata.name, 'drain');
+                                                }}
+                                            >
+                                                <Trash2 size={12} /> Drain
+                                            </button>
+                                        </>
+                                    )}
+
+                                    {activeTab === 'crds' && (
+                                        <button
+                                            className="btn btn-sm"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setModal({
+                                                    type: 'schema',
+                                                    name: res.metadata.name,
+                                                    namespace: res.spec?.scope,
+                                                    kind: activeTab,
+                                                    uid: res.metadata.uid,
+                                                });
+                                            }}
+                                        >
+                                            <FileText size={12} /> Schema
+                                        </button>
                                     )}
 
                                     {activeTab === 'crds' && (

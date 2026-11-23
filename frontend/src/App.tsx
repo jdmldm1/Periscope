@@ -14,7 +14,7 @@ import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
 import { useResourceWatcher } from './hooks/useResourceWatcher';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
-import { CommandPalette } from './components/layout/CommandPalette';
+import { CommandPalette, type ResourceHit } from './components/layout/CommandPalette';
 import { ResourceListView } from './components/views/ResourceListView';
 import { TopologyView } from './components/views/TopologyView';
 import { ZarfManagerView } from './components/views/ZarfManagerView';
@@ -28,6 +28,12 @@ import { DashboardView } from './components/views/DashboardView';
 import { AutoscaleManagerView } from './components/views/AutoscaleManagerView';
 import { BackupRestoreView } from './components/views/BackupRestoreView';
 import { CronJobManagerView } from './components/views/CronJobManagerView';
+import { EventsView } from './components/views/EventsView';
+import { ResourceUsageView } from './components/views/ResourceUsageView';
+import { RbacExplorerView } from './components/views/RbacExplorerView';
+import { CertificatesView } from './components/views/CertificatesView';
+import { KIND_TO_TAB } from './utils/format';
+import type { ResourceKind } from './contexts/AppContext';
 import { ModalManager } from './components/modals/ModalManager';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DeployZarfModal } from './components/modals/DeployZarfModal';
@@ -205,7 +211,16 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
         void queryClient.invalidateQueries({ queryKey: ['topology'] });
         void queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     };
-    const { handleRestart, handleScale, handleStop, handleStart, handleDelete } = useClusterActions(refreshResources);
+    const {
+        handleRestart,
+        handleScale,
+        handleStop,
+        handleStart,
+        handleDelete,
+        handleWorkloadRestart,
+        handleWorkloadScale,
+        handleNodeAction,
+    } = useClusterActions(refreshResources);
     const handleOpenDiagnostics = (name: string, namespace: string, kind: string = 'pods') => {
         setModal({ type: 'diagnose', kind, name, namespace });
     };
@@ -285,7 +300,20 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
             setEstablishingPortForward(null);
         }
     };
-    const tabTitle = activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ');
+    const TAB_TITLES: Partial<Record<ResourceKind, string>> = {
+        usage: 'Resource Usage',
+        rbac: 'RBAC Explorer',
+        certs: 'Certificates',
+        crds: 'CRD Explorer',
+    };
+    const tabTitle = TAB_TITLES[activeTab] || activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ');
+    const openResourceHit = (hit: ResourceHit) => {
+        const tab = Object.values(KIND_TO_TAB).includes(hit.kind) ? hit.kind : null;
+        if (!tab) return;
+        if (hit.namespace) setSelectedNs(hit.namespace);
+        setSearch(hit.name);
+        setActiveTab(tab as ResourceKind);
+    };
     return (
         <div className="layout-container">
             {mobileNavOpen && <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />}
@@ -510,6 +538,14 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
                             <AutoscaleManagerView selectedNs={selectedNs} />
                         ) : activeTab === 'backup-restore' ? (
                             <BackupRestoreView selectedNs={selectedNs} />
+                        ) : activeTab === 'events' ? (
+                            <EventsView selectedNs={selectedNs} />
+                        ) : activeTab === 'usage' ? (
+                            <ResourceUsageView selectedNs={selectedNs} />
+                        ) : activeTab === 'rbac' ? (
+                            <RbacExplorerView selectedNs={selectedNs} />
+                        ) : activeTab === 'certs' ? (
+                            <CertificatesView selectedNs={selectedNs} />
                         ) : activeTab === 'cronjobs' ? (
                             <CronJobManagerView selectedNs={selectedNs} />
                         ) : activeTab === 'cluster-terminal' ? (
@@ -561,6 +597,9 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
                                 matchesSelector={matchesSelector}
                                 pluralizeKind={pluralizeKind}
                                 handleRestart={handleRestart}
+                                handleWorkloadRestart={handleWorkloadRestart}
+                                handleWorkloadScale={handleWorkloadScale}
+                                handleNodeAction={handleNodeAction}
                                 handleScale={handleScale}
                                 handleStop={handleStop}
                                 handleStart={handleStart}
@@ -593,6 +632,7 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
                 fetchResources={() => {}}
                 fetchRunningImagesAndScan={fetchRunningImagesAndScan}
                 scanningEnabled={scanningEnabled}
+                onOpenResource={openResourceHit}
             />
 
             <ModalManager

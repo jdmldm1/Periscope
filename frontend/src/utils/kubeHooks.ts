@@ -47,6 +47,10 @@ export const useK8sResources = (kind: string, namespace: string) => {
                 'backup-restore',
                 'cronjobs',
                 'oras',
+                'events',
+                'usage',
+                'rbac',
+                'certs',
             ].includes(kind),
         refetchInterval: 10000,
     });

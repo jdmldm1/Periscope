@@ -27,6 +27,9 @@ const cronJobRoutes = require('./src/routes/cronJobRoutes');
 const authRoutes = require('./src/routes/authRoutes');
 const orasRoutes = require('./src/routes/orasRoutes');
 const networkRoutes = require('./src/routes/networkRoutes');
+const opsRoutes = require('./src/routes/opsRoutes');
+const rbacRoutes = require('./src/routes/rbacRoutes');
+const certRoutes = require('./src/routes/certRoutes');
 const app = express();
 app.disable('x-powered-by');
 app.use((req, res, next) => {
@@ -106,6 +109,9 @@ app.get('/api/config', (req, res) => {
         airgapLite: isAirgapLite(),
     });
 });
+app.use('/api/kube', opsRoutes);
+app.use('/api/rbac', rbacRoutes);
+app.use('/api/certs', certRoutes);
 app.use('/api/kube', kubeRoutes);
 app.use('/api', kubeRoutesV2);
 app.use('/api/resource', kubeRoutes);

@@ -167,13 +167,13 @@ node server.js
 
 ```bash
 # Zarf connected package
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.7
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.4.0
 
 # Zarf air-gap package (includes Grype & vulnerability database)
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.7
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.4.0
 
 # Zarf air-gap lite package (lightweight airgap; omits Grype/Kubescape scanner DBs & binaries, turns off scanning pages)
-zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap-lite:1.3.7
+zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap-lite:1.4.0
 ```
 
 ---
