@@ -8,7 +8,7 @@ export default defineConfig({
     reporter: 'list',
     timeout: 60000,
     expect: {
-        timeout: 10000
+        timeout: 10000,
     },
     use: {
         baseURL: 'http://localhost:30080',
@@ -28,7 +28,7 @@ export default defineConfig({
         stdout: 'pipe',
         stderr: 'pipe',
         env: {
-            PORT: '30080'
-        }
-    }
+            PORT: '30080',
+        },
+    },
 });

@@ -1,0 +1,4 @@
+pre-commit:
+  commands:
+    fast-checks:
+      run: node scripts/check.mjs --only=format,lint-backend,typecheck-backend,secrets

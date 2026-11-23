@@ -53,14 +53,10 @@ interface ModalContextType {
 const ModalContext = createContext<ModalContextType | null>(null);
 export function useModalContext() {
     const ctx = useContext(ModalContext);
-    if (!ctx)
-        throw new Error('useModalContext must be used within ModalProvider');
+    if (!ctx) throw new Error('useModalContext must be used within ModalProvider');
     return ctx;
 }
-export function ModalProvider({ children, selectedNs }: {
-    children: ReactNode;
-    selectedNs: string;
-}) {
+export function ModalProvider({ children, selectedNs }: { children: ReactNode; selectedNs: string }) {
     const { data: allPods } = useK8sResources('pods', selectedNs);
     const [modal, setModal] = useState<any>(null);
     const [modalData, setModalData] = useState<any>(null);
@@ -90,97 +86,83 @@ export function ModalProvider({ children, selectedNs }: {
         setEditingFilePath(null);
     }, [modal?.name, modal?.namespace]);
     const fetchPodFilesList = async (path: string) => {
-        if (!modal)
-            return;
+        if (!modal) return;
         setIsListingFiles(true);
         setCurrentDirPath(path);
         const cleanPath = path.endsWith('/') ? path : path + '/';
         try {
             const { data } = await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/exec`, {
                 command: `ls -la "${cleanPath}"`,
-                container: selectedContainer
+                container: selectedContainer,
             });
-            if (data.error)
-                throw new Error(data.error);
+            if (data.error) throw new Error(data.error);
             const lines = (data.stdout || '').split('\n');
             const filesList: any[] = [];
             lines.forEach((line: string) => {
                 const parts = line.trim().split(/\s+/);
-                if (parts.length < 9)
-                    return;
+                if (parts.length < 9) return;
                 const permissions = parts[0];
                 const isDir = permissions.startsWith('d');
                 const isLink = permissions.startsWith('l');
                 const size = parseInt(parts[4], 10);
                 const date = `${parts[5]} ${parts[6]} ${parts[7]}`;
                 const name = parts.slice(8).join(' ');
-                if (name === '.' || name === '..')
-                    return;
+                if (name === '.' || name === '..') return;
                 filesList.push({ name, isDir, isLink, size, date, permissions });
             });
             filesList.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
             setPodFiles(filesList);
-        }
-        catch (err: any) {
+        } catch (err: any) {
             console.error(err);
             alert('Error listing files: ' + err.message);
-        }
-        finally {
+        } finally {
             setIsListingFiles(false);
         }
     };
     const fetchModalData = async (type: string) => {
-        if (!modal)
-            return;
+        if (!modal) return;
         setModalData(null);
         try {
             let endpoint = '';
-            if (type === 'yaml')
-                endpoint = `/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/yaml`;
+            if (type === 'yaml') endpoint = `/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/yaml`;
             else if (type === 'events')
                 endpoint = `/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/events`;
             else if (type === 'logs')
                 endpoint = `/kube/resource/pods/${modal.namespace}/${modal.name}/logs?container=${selectedContainer}`;
             else if (type === 'diagnose')
-                endpoint = modal.kind && modal.kind !== 'pods'
-                    ? `/kube/diagnose/${modal.kind}/${modal.namespace}/${modal.name}`
-                    : `/kube/diagnose/${modal.namespace}/${modal.name}`;
-            else if (type === 'history')
-                endpoint = `/helm/${modal.namespace}/${modal.name}/history`;
-            else if (type === 'values')
-                endpoint = `/helm/${modal.namespace}/${modal.name}/values`;
-            else if (type === 'decoded')
-                endpoint = `/kube/resource/secrets/${modal.namespace}/${modal.name}`;
+                endpoint =
+                    modal.kind && modal.kind !== 'pods'
+                        ? `/kube/diagnose/${modal.kind}/${modal.namespace}/${modal.name}`
+                        : `/kube/diagnose/${modal.namespace}/${modal.name}`;
+            else if (type === 'history') endpoint = `/helm/${modal.namespace}/${modal.name}/history`;
+            else if (type === 'values') endpoint = `/helm/${modal.namespace}/${modal.name}/values`;
+            else if (type === 'decoded') endpoint = `/kube/resource/secrets/${modal.namespace}/${modal.name}`;
             else if (type === 'portforward' || type === 'pvc-files') {
                 setModalData([]);
                 return;
-            }
-            else if (type === 'files') {
-                fetchPodFilesList(currentDirPath);
+            } else if (type === 'files') {
+                void fetchPodFilesList(currentDirPath);
                 return;
             }
             const { data } = await api.get(endpoint);
             setModalData(data);
             if (type === 'yaml' || type === 'values')
                 setYamlEdit(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
-        }
-        catch (err) {
+        } catch (err) {
             console.error(err);
             setModalData({ error: 'Failed to fetch data' });
         }
     };
     useEffect(() => {
-        if (modal)
-            fetchModalData(modal.type);
+        if (modal) void fetchModalData(modal.type);
     }, [modal?.type, modal?.name, selectedContainer]);
     const getPodContainers = () => {
-        if (!modal || modal.kind !== 'pods')
-            return [];
+        if (!modal || modal.kind !== 'pods') return [];
         const pod = (allPods || []).find((p: any) => p.metadata.name === modal.name);
         return pod?.spec?.containers?.map((c: any) => c.name) || [];
     };
     const copyToClipboard = () => {
-        navigator.clipboard.writeText(yamlEdit);
+        void navigator.clipboard.writeText(yamlEdit);
         alert('Copied to clipboard');
     };
     const downloadYaml = () => {
@@ -193,12 +175,10 @@ export function ModalProvider({ children, selectedNs }: {
     };
     const scrollToBottomLogs = () => {
         const el = document.querySelector('.terminal-container');
-        if (el)
-            el.scrollTop = el.scrollHeight;
+        if (el) el.scrollTop = el.scrollHeight;
     };
     const downloadLogs = () => {
-        if (!modal)
-            return;
+        if (!modal) return;
         const blob = new Blob([modalData], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -207,115 +187,105 @@ export function ModalProvider({ children, selectedNs }: {
         a.click();
     };
     const saveYaml = async () => {
-        if (!modal)
-            return;
+        if (!modal) return;
         try {
             await api.post(`/kube/resource/${modal.kind}/${modal.namespace}/${modal.name}/save`, { yaml: yamlEdit });
             alert('Resource updated successfully');
             setIsEditingYaml(false);
-            fetchModalData('yaml');
-        }
-        catch (err: any) {
+            void fetchModalData('yaml');
+        } catch (err: any) {
             alert('Failed to save: ' + err.message);
         }
     };
     const handleUploadPodFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!modal || !e.target.files?.[0])
-            return;
+        if (!modal || !e.target.files?.[0]) return;
         const file = e.target.files[0];
         setPodFileUploadName(file.name);
         setPodFileUploadProgress(0);
         try {
-            await axios.post(`/api/kube/resource/pods/${modal.namespace}/${modal.name}/files/upload?destDir=${currentDirPath}&container=${selectedContainer}`, file, {
-                headers: { 'Content-Type': 'application/octet-stream', 'x-file-name': file.name },
-                onUploadProgress: (progressEvent) => {
-                    const percent = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
-                    setPodFileUploadProgress(percent);
-                }
-            });
-            fetchPodFilesList(currentDirPath);
-        }
-        catch (err: any) {
+            await axios.post(
+                `/api/kube/resource/pods/${modal.namespace}/${modal.name}/files/upload?destDir=${currentDirPath}&container=${selectedContainer}`,
+                file,
+                {
+                    headers: { 'Content-Type': 'application/octet-stream', 'x-file-name': file.name },
+                    onUploadProgress: (progressEvent) => {
+                        const percent = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
+                        setPodFileUploadProgress(percent);
+                    },
+                },
+            );
+            void fetchPodFilesList(currentDirPath);
+        } catch (err: any) {
             alert('Upload failed: ' + err.message);
-        }
-        finally {
+        } finally {
             setPodFileUploadProgress(-1);
         }
     };
     const handleCreatePodFolder = async () => {
         const folderName = prompt('Enter folder name:');
-        if (!folderName || !modal)
-            return;
+        if (!folderName || !modal) return;
         try {
             await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/exec`, {
                 command: `mkdir -p "${currentDirPath}${folderName}"`,
-                container: selectedContainer
+                container: selectedContainer,
             });
-            fetchPodFilesList(currentDirPath);
-        }
-        catch (err: any) {
+            void fetchPodFilesList(currentDirPath);
+        } catch (err: any) {
             alert(err.message);
         }
     };
     const handleEditPodFile = async (fileName: string) => {
-        if (!modal)
-            return;
+        if (!modal) return;
         const filePath = currentDirPath + fileName;
         try {
             const { data } = await api.get(`/kube/resource/pods/${modal.namespace}/${modal.name}/files/view`, {
-                params: { path: filePath, container: selectedContainer }
+                params: { path: filePath, container: selectedContainer },
             });
             setFileEditError(null);
             setEditingFilePath(filePath);
             setEditingFileContent(data.content ?? '');
             setOriginalFileContent(data.content ?? '');
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert(err.message);
         }
     };
     const handleSaveEditingFile = async () => {
-        if (!modal || editingFilePath === null)
-            return;
+        if (!modal || editingFilePath === null) return;
         setIsSavingFile(true);
         setFileEditError(null);
         try {
             await api.post(`/kube/resource/pods/${modal.namespace}/${modal.name}/files/save`, {
-                path: editingFilePath, content: editingFileContent, container: selectedContainer
+                path: editingFilePath,
+                content: editingFileContent,
+                container: selectedContainer,
             });
             setEditingFilePath(null);
-            fetchPodFilesList(currentDirPath);
-        }
-        catch (err: any) {
+            void fetchPodFilesList(currentDirPath);
+        } catch (err: any) {
             setFileEditError(err.response?.data?.error || err.message);
-        }
-        finally {
+        } finally {
             setIsSavingFile(false);
         }
     };
     const handleCancelEditingFile = () => {
-        if (editingFileContent !== originalFileContent && !confirm('Discard unsaved changes?'))
-            return;
+        if (editingFileContent !== originalFileContent && !confirm('Discard unsaved changes?')) return;
         setEditingFilePath(null);
         setFileEditError(null);
     };
     const handleDownloadPodFile = (fileName: string, isDir?: boolean) => {
-        if (!modal)
-            return;
+        if (!modal) return;
         const filePath = currentDirPath + fileName;
         const url = `/api/kube/resource/pods/${modal.namespace}/${modal.name}/files/download?path=${encodeURIComponent(filePath)}&isDir=${!!isDir}&container=${selectedContainer}`;
         window.open(url, '_blank');
     };
     const handleDeletePodFile = async (fileName: string, isDir: boolean) => {
-        if (!modal || !confirm(`Delete ${isDir ? 'folder' : 'file'} ${fileName}?`))
-            return;
+        if (!modal || !confirm(`Delete ${isDir ? 'folder' : 'file'} ${fileName}?`)) return;
         try {
             await api.delete(`/kube/resource/pods/${modal.namespace}/${modal.name}/files`, {
-                params: { path: currentDirPath + fileName, container: selectedContainer }
+                params: { path: currentDirPath + fileName, container: selectedContainer },
             });
-            fetchPodFilesList(currentDirPath);
-        }
-        catch (err: any) {
+            void fetchPodFilesList(currentDirPath);
+        } catch (err: any) {
             alert(err.message);
         }
     };
@@ -323,9 +293,8 @@ export function ModalProvider({ children, selectedNs }: {
         try {
             await api.post(`/helm/${ns}/${name}/rollback`, { revision: rev });
             alert(`Rolled back to revision ${rev}`);
-            fetchModalData('history');
-        }
-        catch (err: any) {
+            void fetchModalData('history');
+        } catch (err: any) {
             alert(err.message);
         }
     };
@@ -334,58 +303,97 @@ export function ModalProvider({ children, selectedNs }: {
         try {
             const { data } = await api.get(`/helm/${ns}/${name}/values/revision/${rev}`);
             setSelectedRevisionValues({ revision: rev, values: data });
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert(err.message);
-        }
-        finally {
+        } finally {
             setIsLoadingRevisionValues(false);
         }
     };
     const handleHelmUpgradeFromModal = async () => {
-        if (!modal)
-            return;
+        if (!modal) return;
         try {
             await api.post(`/helm/${modal.namespace}/${modal.name}/upgrade`, { values: yamlEdit });
             alert('Helm release upgraded');
-            fetchModalData('values');
-        }
-        catch (err) {
+            void fetchModalData('values');
+        } catch (err) {
             alert('Upgrade failed');
         }
     };
     const renderDiffView = () => {
-        if (!selectedRevisionValues)
-            return null;
-        return (<div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, flex: 1, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Revision #{selectedRevisionValues.revision}</div>
-          <pre className="editor-textarea" style={{ flex: 1, overflow: 'auto' }}>{selectedRevisionValues.values}</pre>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Current Deployed</div>
-          <pre className="editor-textarea" style={{ flex: 1, overflow: 'auto' }}>{modalData}</pre>
-        </div>
-      </div>);
+        if (!selectedRevisionValues) return null;
+        return (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, flex: 1, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                        Revision #{selectedRevisionValues.revision}
+                    </div>
+                    <pre className="editor-textarea" style={{ flex: 1, overflow: 'auto' }}>
+                        {selectedRevisionValues.values}
+                    </pre>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                        Current Deployed
+                    </div>
+                    <pre className="editor-textarea" style={{ flex: 1, overflow: 'auto' }}>
+                        {modalData}
+                    </pre>
+                </div>
+            </div>
+        );
     };
-    return (<ModalContext.Provider value={{
-            modal, setModal, modalData, setModalData, fetchModalData,
-            yamlEdit, setYamlEdit, isEditingYaml, setIsEditingYaml,
-            saveYaml, copyToClipboard, downloadYaml, downloadLogs,
-            selectedContainer, setSelectedContainer, getPodContainers,
-            isStreamingLogs, setIsStreamingLogs, scrollToBottomLogs,
-            currentDirPath, setCurrentDirPath, isListingFiles, podFiles,
-            podFileUploadProgress, podFileUploadName,
-            handleUploadPodFile, handleCreatePodFolder, fetchPodFilesList,
-            handleEditPodFile, handleDownloadPodFile, handleDeletePodFile,
-            editingFilePath, editingFileContent, setEditingFileContent,
-            isSavingFile, isEditingFileDirty: editingFileContent !== originalFileContent,
-            fileEditError, handleSaveEditingFile, handleCancelEditingFile,
-            handleRollback, handleInspectRevisionValues,
-            selectedRevisionValues, setSelectedRevisionValues,
-            isLoadingRevisionValues, handleHelmUpgradeFromModal,
-            renderDiffView,
-        }}>
-      {children}
-    </ModalContext.Provider>);
+    return (
+        <ModalContext.Provider
+            value={{
+                modal,
+                setModal,
+                modalData,
+                setModalData,
+                fetchModalData,
+                yamlEdit,
+                setYamlEdit,
+                isEditingYaml,
+                setIsEditingYaml,
+                saveYaml,
+                copyToClipboard,
+                downloadYaml,
+                downloadLogs,
+                selectedContainer,
+                setSelectedContainer,
+                getPodContainers,
+                isStreamingLogs,
+                setIsStreamingLogs,
+                scrollToBottomLogs,
+                currentDirPath,
+                setCurrentDirPath,
+                isListingFiles,
+                podFiles,
+                podFileUploadProgress,
+                podFileUploadName,
+                handleUploadPodFile,
+                handleCreatePodFolder,
+                fetchPodFilesList,
+                handleEditPodFile,
+                handleDownloadPodFile,
+                handleDeletePodFile,
+                editingFilePath,
+                editingFileContent,
+                setEditingFileContent,
+                isSavingFile,
+                isEditingFileDirty: editingFileContent !== originalFileContent,
+                fileEditError,
+                handleSaveEditingFile,
+                handleCancelEditingFile,
+                handleRollback,
+                handleInspectRevisionValues,
+                selectedRevisionValues,
+                setSelectedRevisionValues,
+                isLoadingRevisionValues,
+                handleHelmUpgradeFromModal,
+                renderDiffView,
+            }}
+        >
+            {children}
+        </ModalContext.Provider>
+    );
 }

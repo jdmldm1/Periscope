@@ -4,11 +4,10 @@ const os = require('os');
 const { PassThrough } = require('stream');
 const k8sService = require('./k8sService');
 const logger = require('../utils/logger');
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let cachedImage = null;
 async function getCaptureImage() {
-    if (cachedImage)
-        return cachedImage;
+    if (cachedImage) return cachedImage;
     if (process.env.PERISCOPE_CAPTURE_IMAGE) {
         cachedImage = process.env.PERISCOPE_CAPTURE_IMAGE;
         return cachedImage;
@@ -16,7 +15,7 @@ async function getCaptureImage() {
     const ns = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
     const name = os.hostname();
     const res = await k8sService.core.readNamespacedPod({ name, namespace: ns });
-    const pod = res.body || res;
+    const pod = res;
     cachedImage = pod.spec.containers[0].image;
     return cachedImage;
 }
@@ -24,7 +23,7 @@ async function startEphemeralCapture({ ns, pod, iface, maxSeconds = 300, onData 
     const ecName = `periscope-sniff-${Math.random().toString(36).slice(2, 8)}`;
     const image = await getCaptureImage();
     const target = await k8sService.core.readNamespacedPod({ name: pod, namespace: ns });
-    const existing = (target.body || target).spec.ephemeralContainers || [];
+    const existing = target.spec.ephemeralContainers || [];
     const ec = {
         name: ecName,
         image,
@@ -40,12 +39,16 @@ async function startEphemeralCapture({ ns, pod, iface, maxSeconds = 300, onData 
         tty: false,
     };
     logger.info({ ns, pod, ecName, iface }, 'Injecting ephemeral capture container');
-    await k8sService.core.patchNamespacedPodEphemeralcontainers({ name: pod, namespace: ns, body: [{ op: 'add', path: '/spec/ephemeralContainers', value: [...existing, ec] }] });
+    await k8sService.core.patchNamespacedPodEphemeralcontainers({
+        name: pod,
+        namespace: ns,
+        body: [{ op: 'add', path: '/spec/ephemeralContainers', value: [...existing, ec] }],
+    });
     let running = false;
     for (let i = 0; i < 40; i++) {
         await sleep(1000);
         const s = await k8sService.core.readNamespacedPod({ name: pod, namespace: ns });
-        const st = ((s.body || s).status.ephemeralContainerStatuses || []).find(c => c.name === ecName);
+        const st = (s.status.ephemeralContainerStatuses || []).find((c) => c.name === ecName);
         if (st?.state?.running) {
             running = true;
             break;
@@ -58,8 +61,7 @@ async function startEphemeralCapture({ ns, pod, iface, maxSeconds = 300, onData 
             throw new Error(`capture container error: ${waitReason} ${st.state.waiting.message || ''}`.trim());
         }
     }
-    if (!running)
-        throw new Error('capture container did not start within 40s');
+    if (!running) throw new Error('capture container did not start within 40s');
     const stream = new PassThrough();
     stream.on('data', onData);
     const log = new k8s.Log(k8sService.kc);
@@ -69,12 +71,10 @@ async function startEphemeralCapture({ ns, pod, iface, maxSeconds = 300, onData 
         stop() {
             try {
                 controller.abort();
-            }
-            catch (e) { }
+            } catch (e) {}
             try {
                 stream.destroy();
-            }
-            catch (e) { }
+            } catch (e) {}
         },
     };
 }

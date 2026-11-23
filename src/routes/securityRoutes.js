@@ -12,8 +12,7 @@ router.post('/kubescape/scan', async (req, res) => {
     try {
         const result = await securityService.triggerScan();
         res.json(result);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -41,14 +40,14 @@ router.post('/kubescape/config', (req, res) => {
     if (!hasAuto && !hasInterval) {
         return res.status(400).json({ error: 'No valid config fields provided' });
     }
-    if (artifactsUpdateIntervalHours !== undefined &&
-        (!Number.isFinite(Number(artifactsUpdateIntervalHours)) || Number(artifactsUpdateIntervalHours) <= 0)) {
+    if (
+        artifactsUpdateIntervalHours !== undefined &&
+        (!Number.isFinite(Number(artifactsUpdateIntervalHours)) || Number(artifactsUpdateIntervalHours) <= 0)
+    ) {
         return res.status(400).json({ error: 'artifactsUpdateIntervalHours must be a positive number' });
     }
-    if (hasAuto)
-        securityService.autoUpdateArtifacts = autoUpdateArtifacts;
-    if (hasInterval)
-        securityService.artifactsUpdateIntervalHours = Number(artifactsUpdateIntervalHours);
+    if (hasAuto) securityService.autoUpdateArtifacts = autoUpdateArtifacts;
+    if (hasInterval) securityService.artifactsUpdateIntervalHours = Number(artifactsUpdateIntervalHours);
     securityService.saveSecurityConfig();
     securityService.startArtifactsAutoUpdateLoop();
     res.json({

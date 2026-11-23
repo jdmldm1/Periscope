@@ -12,22 +12,40 @@ interface Options {
     openCommandPalette: (initialQuery: string) => void;
 }
 export const useKeyboardNavigation = ({ openCommandPalette }: Options) => {
-    const { activeTab, setActiveTab, search, setSearch, selectedNs, setSelectedNs, filteredResources, isCmdPaletteOpen, focusedRowIndex, setFocusedRowIndex, handleDrillDownToPods, } = useAppContext();
-    const { modal, setModal, setModalData, setSelectedRevisionValues, setIsEditingYaml, setSelectedContainer, } = useModalContext();
+    const {
+        activeTab,
+        setActiveTab,
+        search,
+        setSearch,
+        selectedNs,
+        setSelectedNs,
+        filteredResources,
+        isCmdPaletteOpen,
+        focusedRowIndex,
+        setFocusedRowIndex,
+        handleDrillDownToPods,
+    } = useAppContext();
+    const { modal, setModal, setModalData, setSelectedRevisionValues, setIsEditingYaml, setSelectedContainer } =
+        useModalContext();
     const [navigationStack, setNavigationStack] = useState<NavFrame[]>([]);
     const isDrillDownRef = useRef(false);
     useEffect(() => {
         if (isDrillDownRef.current) {
             isDrillDownRef.current = false;
-        }
-        else {
+        } else {
             setNavigationStack([]);
         }
     }, [activeTab]);
     useEffect(() => {
         const openYamlModal = (res: any, editing: boolean) => {
             setIsEditingYaml(editing);
-            setModal({ type: 'yaml', name: res.metadata.name, namespace: res.metadata.namespace, kind: activeTab, uid: res.metadata.uid });
+            setModal({
+                type: 'yaml',
+                name: res.metadata.name,
+                namespace: res.metadata.namespace,
+                kind: activeTab,
+                uid: res.metadata.uid,
+            });
         };
         const handleGlobalKeyDown = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -50,10 +68,9 @@ export const useKeyboardNavigation = ({ openCommandPalette }: Options) => {
                     setModal(null);
                     setModalData(null);
                     setSelectedRevisionValues(null);
-                }
-                else if (navigationStack.length > 0) {
+                } else if (navigationStack.length > 0) {
                     const prev = navigationStack[navigationStack.length - 1];
-                    setNavigationStack(s => s.slice(0, -1));
+                    setNavigationStack((s) => s.slice(0, -1));
                     setActiveTab(prev.tab);
                     setSearch(prev.search);
                     setSelectedNs(prev.ns);
@@ -61,48 +78,55 @@ export const useKeyboardNavigation = ({ openCommandPalette }: Options) => {
                 }
                 return;
             }
-            if (modal || isCmdPaletteOpen || filteredResources.length === 0)
-                return;
+            if (modal || isCmdPaletteOpen || filteredResources.length === 0) return;
             const numResources = filteredResources.length;
             const focused = focusedRowIndex !== null ? filteredResources[focusedRowIndex] : null;
             if (e.key === 'ArrowDown' || e.key === 'j') {
                 e.preventDefault();
-                setFocusedRowIndex(prev => {
+                setFocusedRowIndex((prev) => {
                     const nextIdx = prev === null ? 0 : Math.min(prev + 1, numResources - 1);
                     document.querySelector(`[data-row-index="${nextIdx}"]`)?.scrollIntoView({ block: 'nearest' });
                     return nextIdx;
                 });
-            }
-            else if (e.key === 'ArrowUp' || e.key === 'k') {
+            } else if (e.key === 'ArrowUp' || e.key === 'k') {
                 e.preventDefault();
-                setFocusedRowIndex(prev => {
+                setFocusedRowIndex((prev) => {
                     const nextIdx = prev === null ? 0 : Math.max(prev - 1, 0);
                     document.querySelector(`[data-row-index="${nextIdx}"]`)?.scrollIntoView({ block: 'nearest' });
                     return nextIdx;
                 });
-            }
-            else if (e.key === 'd' && focused) {
+            } else if (e.key === 'd' && focused) {
                 if (activeTab === 'pods' || ['deployments', 'statefulsets', 'daemonsets'].includes(activeTab)) {
-                    setModal({ type: 'diagnose', kind: activeTab, name: focused.metadata.name, namespace: focused.metadata.namespace, uid: focused.metadata.uid });
-                }
-                else {
+                    setModal({
+                        type: 'diagnose',
+                        kind: activeTab,
+                        name: focused.metadata.name,
+                        namespace: focused.metadata.namespace,
+                        uid: focused.metadata.uid,
+                    });
+                } else {
                     openYamlModal(focused, false);
                 }
-            }
-            else if (e.key === 'y' && focused) {
+            } else if (e.key === 'y' && focused) {
                 openYamlModal(focused, false);
-            }
-            else if (e.key === 'e' && focused) {
+            } else if (e.key === 'e' && focused) {
                 openYamlModal(focused, true);
-            }
-            else if (e.key === 'Enter' && focused) {
+            } else if (e.key === 'Enter' && focused) {
                 if (activeTab === 'pods') {
                     setSelectedContainer(focused.spec?.containers?.[0]?.name || '');
-                    setModal({ type: 'logs', name: focused.metadata.name, namespace: focused.metadata.namespace, kind: activeTab, uid: focused.metadata.uid });
-                }
-                else if (['deployments', 'statefulsets', 'daemonsets', 'jobs'].includes(activeTab)) {
+                    setModal({
+                        type: 'logs',
+                        name: focused.metadata.name,
+                        namespace: focused.metadata.namespace,
+                        kind: activeTab,
+                        uid: focused.metadata.uid,
+                    });
+                } else if (['deployments', 'statefulsets', 'daemonsets', 'jobs'].includes(activeTab)) {
                     isDrillDownRef.current = true;
-                    setNavigationStack(s => [...s, { tab: activeTab, search, ns: selectedNs, focusedRow: focusedRowIndex }]);
+                    setNavigationStack((s) => [
+                        ...s,
+                        { tab: activeTab, search, ns: selectedNs, focusedRow: focusedRowIndex },
+                    ]);
                     handleDrillDownToPods(focused);
                     setFocusedRowIndex(null);
                 }

@@ -2,21 +2,22 @@ const { run } = require('../utils/exec');
 const logger = require('../utils/logger');
 class HelmService {
     async listReleases(namespace) {
-        const args = (namespace && namespace !== 'all')
-            ? ['list', '--namespace', namespace, '-o', 'json']
-            : ['list', '--all-namespaces', '-o', 'json'];
+        const args =
+            namespace && namespace !== 'all'
+                ? ['list', '--namespace', namespace, '-o', 'json']
+                : ['list', '--all-namespaces', '-o', 'json'];
         const releases = await this._execJson(args);
-        return (releases || []).map(r => ({
+        return (releases || []).map((r) => ({
             ...r,
             metadata: {
                 name: r.name,
                 namespace: r.namespace,
                 uid: `helm-${r.namespace}-${r.name}`,
-                creationTimestamp: r.updated
+                creationTimestamp: r.updated,
             },
             status: {
-                phase: r.status
-            }
+                phase: r.status,
+            },
         }));
     }
     async getStatus(namespace, name) {
@@ -54,8 +55,7 @@ class HelmService {
             : baseArgs;
         try {
             return await this._execJson(args);
-        }
-        catch (err) {
+        } catch (err) {
             const fallbackArgs = revision
                 ? ['get', 'values', name, '--revision', String(revision), '--namespace', namespace]
                 : ['get', 'values', name, '--namespace', namespace];
@@ -72,20 +72,18 @@ class HelmService {
         try {
             const { stdout } = await run('helm', args);
             return stdout;
-        }
-        catch (error) {
+        } catch (error) {
             logger.error({ args, error: error.message }, 'Helm command failed');
-            throw new Error(error.stderr || error.message);
+            throw new Error(error.stderr || error.message, { cause: error });
         }
     }
     async _execJson(args) {
         const stdout = await this._exec(args);
         try {
             return JSON.parse(stdout);
-        }
-        catch (e) {
+        } catch (e) {
             logger.error({ args, stdout }, 'Failed to parse Helm JSON output');
-            throw new Error('Failed to parse helm output');
+            throw new Error('Failed to parse helm output', { cause: e });
         }
     }
 }

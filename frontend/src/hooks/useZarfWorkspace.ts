@@ -5,7 +5,9 @@ import { useZarfManager } from './useZarfManager';
 export const useZarfWorkspace = () => {
     const { api, queryClient, activeTab } = useAppContext();
     const { zarfPackages, removePackage } = useZarfManager();
-    const [zarfViewMode, setZarfViewMode] = useState<'packages' | 'local' | 'tools' | 'edit' | 'registry' | 'sbom'>('packages');
+    const [zarfViewMode, setZarfViewMode] = useState<'packages' | 'local' | 'tools' | 'edit' | 'registry' | 'sbom'>(
+        'packages',
+    );
     const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
     const [zarfUploadFile, setZarfUploadFile] = useState<File | null>(null);
     const [zarfConfigFile, setZarfConfigFile] = useState<File | null>(null);
@@ -37,8 +39,7 @@ export const useZarfWorkspace = () => {
         try {
             const { data } = await api.get('/zarf/local-packages');
             setZarfLocalPackages(data);
-        }
-        catch (err: any) {
+        } catch (err: any) {
             console.error('Failed to fetch local packages:', err);
         }
     };
@@ -47,60 +48,51 @@ export const useZarfWorkspace = () => {
         try {
             const { data } = await api.get('/zarf/registry/all-images');
             setRegistryImages(data);
-        }
-        catch (err: any) {
+        } catch (err: any) {
             console.error('Failed to fetch registry images:', err);
-        }
-        finally {
+        } finally {
             setIsFetchingRegistry(false);
         }
     };
     useEffect(() => {
         if (activeTab === 'zarf' || activeTab === 'zarf-registry') {
-            fetchZarfLocalPackages();
-            fetchZarfRegistryImages();
+            void fetchZarfLocalPackages();
+            void fetchZarfRegistryImages();
         }
     }, [activeTab]);
     useEffect(() => {
         if (activeTab === 'zarf-registry') {
             setZarfViewMode('registry');
-        }
-        else if (activeTab === 'zarf') {
+        } else if (activeTab === 'zarf') {
             setZarfViewMode('packages');
         }
     }, [activeTab]);
     const handleClearZarfCache = async () => {
-        if (!confirm('Are you sure you want to clear the Zarf cache?'))
-            return;
+        if (!confirm('Are you sure you want to clear the Zarf cache?')) return;
         setIsClearingZarfCache(true);
         try {
             await api.post('/zarf/clear-cache');
             alert('Zarf cache cleared successfully.');
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert('Failed to clear cache: ' + err.message);
-        }
-        finally {
+        } finally {
             setIsClearingZarfCache(false);
         }
     };
     const handleDeleteWorkspaceItem = async (name: string) => {
-        if (!confirm(`Delete ${name} from workspace?`))
-            return;
+        if (!confirm(`Delete ${name} from workspace?`)) return;
         try {
             await api.delete('/zarf/local-packages', { params: { name } });
-            fetchZarfLocalPackages();
-        }
-        catch (err: any) {
+            void fetchZarfLocalPackages();
+        } catch (err: any) {
             alert('Failed to delete workspace item: ' + err.message);
         }
     };
     const handleCompressFolder = async (folderName: string) => {
         try {
             await api.post('/zarf/archiver/compress', { source: folderName, dest: folderName + '.tar.zst' });
-            fetchZarfLocalPackages();
-        }
-        catch (err: any) {
+            void fetchZarfLocalPackages();
+        } catch (err: any) {
             alert('Failed to compress folder: ' + err.message);
         }
     };
@@ -108,9 +100,8 @@ export const useZarfWorkspace = () => {
         try {
             const dest = packageName.replace(/\.tar\.zst$/, '').replace(/\.zst$/, '');
             await api.post('/zarf/archiver/decompress', { source: packageName, dest });
-            fetchZarfLocalPackages();
-        }
-        catch (err: any) {
+            void fetchZarfLocalPackages();
+        } catch (err: any) {
             alert('Failed to decompress package: ' + err.message);
         }
     };
@@ -122,11 +113,9 @@ export const useZarfWorkspace = () => {
             setZarfConfigText(data.configText);
             setZarfUnpackTempDir(data.tempDir);
             setZarfViewMode('edit');
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert('Failed to unpack package: ' + err.message);
-        }
-        finally {
+        } finally {
             setIsUnpackingZarf(false);
         }
     };
@@ -136,11 +125,9 @@ export const useZarfWorkspace = () => {
             await api.post('/zarf/rebuild-deploy', { tempDir: zarfUnpackTempDir, configText: zarfConfigText });
             alert('Rebuild & Deploy process started. Check background tasks.');
             setZarfViewMode('packages');
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert('Failed to rebuild and deploy: ' + err.message);
-        }
-        finally {
+        } finally {
             setIsSavingZarfConfig(false);
         }
     };
@@ -148,8 +135,7 @@ export const useZarfWorkspace = () => {
         try {
             await api.post('/zarf/deploy', { packagePath, configPath: selectedZarfConfigPath || undefined });
             alert('Deployment task started in background.');
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert('Failed to deploy local package: ' + err.message);
         }
     };
@@ -159,22 +145,18 @@ export const useZarfWorkspace = () => {
             const { data } = await api.get(`/zarf/packages/${name}`);
             setSelectedZarfPackageDetail(data);
             setIsPackageDetailModalOpen(true);
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert('Failed to inspect package: ' + err.message);
-        }
-        finally {
+        } finally {
             setIsFetchingPackageDetail(false);
         }
     };
     const handleRemoveZarfPackage = async (name: string) => {
-        if (!confirm(`Are you sure you want to remove Zarf package "${name}"?`))
-            return;
+        if (!confirm(`Are you sure you want to remove Zarf package "${name}"?`)) return;
         try {
             await removePackage(name);
             alert(`Successfully removed package "${name}"`);
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert(`Failed to remove package: ` + err.message);
         }
     };
@@ -186,11 +168,9 @@ export const useZarfWorkspace = () => {
             if (data.files && data.files.length > 0) {
                 setSbomSelectedFileUrl(data.files[0].url);
             }
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert('Failed to extract SBOMs: ' + err.message);
-        }
-        finally {
+        } finally {
             setIsExtractingSbom(false);
         }
     };
@@ -202,12 +182,10 @@ export const useZarfWorkspace = () => {
             alert('Image copy task started in background.');
             setRegistryPullSource('');
             setRegistryPullTarget('');
-            fetchZarfRegistryImages();
-        }
-        catch (err: any) {
+            void fetchZarfRegistryImages();
+        } catch (err: any) {
             alert('Failed to pull image: ' + err.message);
-        }
-        finally {
+        } finally {
             setIsPullingRegistry(false);
         }
     };
@@ -215,8 +193,7 @@ export const useZarfWorkspace = () => {
         e.preventDefault();
         const fileInput = document.getElementById('registry-image-file-input') as HTMLInputElement;
         const file = fileInput?.files?.[0];
-        if (!file || !registryPushTarget)
-            return;
+        if (!file || !registryPushTarget) return;
         setIsPushingRegistry(true);
         try {
             await axios.post('/api/zarf/registry/push', file, {
@@ -227,14 +204,11 @@ export const useZarfWorkspace = () => {
             });
             alert('Image pushed successfully to local registry.');
             setRegistryPushTarget('');
-            if (fileInput)
-                fileInput.value = '';
-            fetchZarfRegistryImages();
-        }
-        catch (err: any) {
+            if (fileInput) fileInput.value = '';
+            void fetchZarfRegistryImages();
+        } catch (err: any) {
             alert('Failed to push image: ' + err.message);
-        }
-        finally {
+        } finally {
             setIsPushingRegistry(false);
         }
     };
@@ -243,37 +217,31 @@ export const useZarfWorkspace = () => {
             const { data } = await api.get('/zarf/registry/download', { params: { imageRef: full } });
             alert('Download started in background. File will download when ready.');
             window.open(data.downloadPath, '_blank');
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert('Failed to start image download: ' + err.message);
         }
     };
     const handleDeleteRegistryImage = async (repository: string, tag: string) => {
-        if (!confirm(`Are you sure you want to delete ${repository}:${tag}?`))
-            return;
+        if (!confirm(`Are you sure you want to delete ${repository}:${tag}?`)) return;
         try {
             await api.delete('/zarf/registry/image', { params: { imageRef: `${repository}:${tag}` } });
             alert('Image deleted successfully.');
-            fetchZarfRegistryImages();
-        }
-        catch (err: any) {
+            void fetchZarfRegistryImages();
+        } catch (err: any) {
             alert('Failed to delete registry image: ' + err.message);
         }
     };
     const handlePruneRegistry = async () => {
-        if (!confirm('Are you sure you want to prune the local registry?'))
-            return;
+        if (!confirm('Are you sure you want to prune the local registry?')) return;
         try {
             await api.post('/zarf/registry/prune');
             alert('Pruning task started in background.');
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert('Failed to prune registry: ' + err.message);
         }
     };
     const handleUploadZarfPackage = async () => {
-        if (!zarfUploadFile)
-            return;
+        if (!zarfUploadFile) return;
         setZarfUploadProgress(0);
         try {
             const uploadRes = await axios.post(`/api/zarf/upload`, zarfUploadFile, {
@@ -300,38 +268,78 @@ export const useZarfWorkspace = () => {
             setIsDeployModalOpen(false);
             setZarfUploadFile(null);
             setZarfConfigFile(null);
-            fetchZarfLocalPackages();
-            queryClient.invalidateQueries({ queryKey: ['zarf-packages'] });
+            void fetchZarfLocalPackages();
+            void queryClient.invalidateQueries({ queryKey: ['zarf-packages'] });
             alert('Upload completed. Deploying package in background...');
-        }
-        catch (err: any) {
+        } catch (err: any) {
             alert('Upload & Deploy failed: ' + (err.response?.data?.error || err.message));
-        }
-        finally {
+        } finally {
             setZarfUploadProgress(-1);
         }
     };
     return {
         resources: zarfPackages || [],
-        zarfViewMode, setZarfViewMode,
-        isClearingZarfCache, handleClearZarfCache,
-        zarfLocalPackages, fetchZarfLocalPackages,
-        handleDeleteWorkspaceItem, handleCompressFolder, handleDecompressPackage,
-        handleUnpackZarfPackage, isUnpackingZarf, selectedZarfPackagePath,
-        zarfConfigText, setZarfConfigText, isSavingZarfConfig, handleRebuildAndDeployZarf, setZarfUnpackTempDir,
-        isDeployModalOpen, setIsDeployModalOpen,
-        zarfUploadFile, setZarfUploadFile, zarfConfigFile, setZarfConfigFile,
-        zarfUploadProgress, setZarfUploadProgress, handleUploadZarfPackage,
-        selectedZarfConfigPath, setSelectedZarfConfigPath, handleDeployLocalPackage,
-        sbomPackageName, setSbomPackageName, sbomExtractedFiles, setSbomExtractedFiles,
-        sbomSelectedFileUrl, setSbomSelectedFileUrl, isExtractingSbom, handleExtractSbom,
-        selectedZarfPackageDetail, setSelectedZarfPackageDetail, isPackageDetailModalOpen, setIsPackageDetailModalOpen,
-        isFetchingPackageDetail, handleInspectDeployedZarfPackage, handleRemoveZarfPackage,
-        selectedZarfGraphPkg, setSelectedZarfGraphPkg,
-        registryPullSource, setRegistryPullSource, registryPullTarget, setRegistryPullTarget,
-        handlePullRegistryImage, isPullingRegistry,
-        registryPushTarget, setRegistryPushTarget, handlePushRegistryImage, isPushingRegistry,
-        zarfRegistryImages: registryImages, isFetchingRegistry, fetchZarfRegistryImages,
-        handleDownloadRegistryImage, handleDeleteRegistryImage, handlePruneRegistry,
+        zarfViewMode,
+        setZarfViewMode,
+        isClearingZarfCache,
+        handleClearZarfCache,
+        zarfLocalPackages,
+        fetchZarfLocalPackages,
+        handleDeleteWorkspaceItem,
+        handleCompressFolder,
+        handleDecompressPackage,
+        handleUnpackZarfPackage,
+        isUnpackingZarf,
+        selectedZarfPackagePath,
+        zarfConfigText,
+        setZarfConfigText,
+        isSavingZarfConfig,
+        handleRebuildAndDeployZarf,
+        setZarfUnpackTempDir,
+        isDeployModalOpen,
+        setIsDeployModalOpen,
+        zarfUploadFile,
+        setZarfUploadFile,
+        zarfConfigFile,
+        setZarfConfigFile,
+        zarfUploadProgress,
+        setZarfUploadProgress,
+        handleUploadZarfPackage,
+        selectedZarfConfigPath,
+        setSelectedZarfConfigPath,
+        handleDeployLocalPackage,
+        sbomPackageName,
+        setSbomPackageName,
+        sbomExtractedFiles,
+        setSbomExtractedFiles,
+        sbomSelectedFileUrl,
+        setSbomSelectedFileUrl,
+        isExtractingSbom,
+        handleExtractSbom,
+        selectedZarfPackageDetail,
+        setSelectedZarfPackageDetail,
+        isPackageDetailModalOpen,
+        setIsPackageDetailModalOpen,
+        isFetchingPackageDetail,
+        handleInspectDeployedZarfPackage,
+        handleRemoveZarfPackage,
+        selectedZarfGraphPkg,
+        setSelectedZarfGraphPkg,
+        registryPullSource,
+        setRegistryPullSource,
+        registryPullTarget,
+        setRegistryPullTarget,
+        handlePullRegistryImage,
+        isPullingRegistry,
+        registryPushTarget,
+        setRegistryPushTarget,
+        handlePushRegistryImage,
+        isPushingRegistry,
+        zarfRegistryImages: registryImages,
+        isFetchingRegistry,
+        fetchZarfRegistryImages,
+        handleDownloadRegistryImage,
+        handleDeleteRegistryImage,
+        handlePruneRegistry,
     };
 };

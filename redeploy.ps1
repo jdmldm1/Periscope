@@ -39,7 +39,7 @@ if ($Nuke) {
 
 
 
-function Ensure-ZarfInit {
+function Initialize-ZarfState {
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     kubectl get secret zarf-state -n zarf 2>&1 | Out-Null
@@ -53,24 +53,24 @@ function Ensure-ZarfInit {
 }
 
 if ($Mode -eq "Connected") {
-    
-    Ensure-ZarfInit
+
+    Initialize-ZarfState
     Write-Host "Deploying Connected Zarf package..."
-    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.6 --confirm
+    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope:1.3.7 --confirm
     Write-Host "Restarting deployment..."
     kubectl rollout restart deployment periscope -n periscope
 }
 elseif ($Mode -eq "Airgap") {
-    Ensure-ZarfInit
+    Initialize-ZarfState
     Write-Host "Deploying Airgap Zarf package..."
-    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.6 --confirm
+    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap:1.3.7 --confirm
     Write-Host "Restarting deployment..."
     kubectl rollout restart deployment periscope -n periscope
 }
 elseif ($Mode -eq "AirgapLite") {
-    Ensure-ZarfInit
+    Initialize-ZarfState
     Write-Host "Deploying Airgap Lite Zarf package..."
-    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap-lite:1.3.6 --confirm
+    zarf package deploy oci://ghcr.io/jdmldm1/packages/periscope-airgap-lite:1.3.7 --confirm
     Write-Host "Restarting deployment..."
     kubectl rollout restart deployment periscope -n periscope
 }

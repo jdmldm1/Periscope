@@ -45,9 +45,12 @@ test('validators - rejects every injection payload for namespace/name/kind', () 
 });
 test('validators - assert* throws ValidationError (HTTP 400) on injection', () => {
     for (const payload of INJECTION_PAYLOADS) {
-        assert.throws(() => validators.assertNamespace(payload), (e) => {
-            return e instanceof validators.ValidationError && e.statusCode === 400;
-        });
+        assert.throws(
+            () => validators.assertNamespace(payload),
+            (e) => {
+                return e instanceof validators.ValidationError && e.statusCode === 400;
+            },
+        );
         assert.throws(() => validators.assertName(payload), validators.ValidationError);
     }
 });
@@ -59,7 +62,12 @@ test('validators - assert* returns the value when valid', () => {
 test('exec.run - executes without a shell, so metacharacters stay literal', async () => {
     const { stdout } = await run(process.execPath, ['-e', 'console.log(process.argv[1])', '$(id)']);
     assert.strictEqual(stdout.trim(), '$(id)');
-    const { stdout: out2 } = await run(process.execPath, ['-e', 'console.log(process.argv.slice(1).join(" "))', 'a; rm -rf /', 'b`whoami`']);
+    const { stdout: out2 } = await run(process.execPath, [
+        '-e',
+        'console.log(process.argv.slice(1).join(" "))',
+        'a; rm -rf /',
+        'b`whoami`',
+    ]);
     assert.strictEqual(out2.trim(), 'a; rm -rf / b`whoami`');
 });
 test('exec.run - rejects on non-zero exit and surfaces stderr', async () => {

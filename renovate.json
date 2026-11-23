@@ -1,0 +1,81 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests", ":semanticCommitsDisabled"],
+  "schedule": ["before 6am on monday"],
+  "lockFileMaintenance": { "enabled": true, "schedule": ["before 6am on the first day of the month"] },
+  "packageRules": [
+    {
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev dependencies (non-major)"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    },
+    {
+      "matchDepNames": [
+        "zarf-dev/zarf",
+        "oras-project/oras",
+        "anchore/grype",
+        "kubernetes/kubernetes",
+        "kubescape/kubescape",
+        "gitleaks/gitleaks",
+        "hadolint/hadolint",
+        "yannh/kubeconform",
+        "stackrox/kube-linter"
+      ],
+      "groupName": "bundled CLI tools"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Zarf CLI",
+      "managerFilePatterns": ["/^Dockerfile$/", "/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["ZARF_VERSION[=:]\\s*'?(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "zarf-dev/zarf",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Grype CLI",
+      "managerFilePatterns": ["/^Dockerfile$/", "/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["GRYPE_VERSION[=:]\\s*'?(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "anchore/grype",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "ORAS CLI",
+      "managerFilePatterns": ["/^Dockerfile$/", "/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["ORAS_VERSION[=:]\\s*'?(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "oras-project/oras",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "kubectl",
+      "managerFilePatterns": ["/^Dockerfile$/", "/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["KUBECTL_VERSION[=:]\\s*'?(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Lint and scan tool images used by scripts/check.mjs and CI",
+      "managerFilePatterns": ["/^scripts/check\\.mjs$/", "/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["(?<depName>[a-z0-9.-]+/[a-z0-9._/-]+):(?<currentValue>v?\\d+\\.\\d+\\.\\d+)"],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Kubescape release downloaded at runtime",
+      "managerFilePatterns": ["/^src/services/securityService\\.js$/"],
+      "matchStrings": ["kubescape/kubescape/releases/download/(?<currentValue>v\\d+\\.\\d+\\.\\d+)/"],
+      "depNameTemplate": "kubescape/kubescape",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}

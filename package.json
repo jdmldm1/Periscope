@@ -1,6 +1,6 @@
 {
   "name": "periscope",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "description": "A web-based Kubernetes control plane for visualizing and managing cluster state, security, workloads, Helm releases, and Zarf packages.",
   "main": "server.js",
   "bin": "server-bundle.cjs",
@@ -10,7 +10,15 @@
     "bundle": "esbuild server.js --bundle --minify --platform=node --target=node22 --format=cjs --outfile=server-bundle.cjs",
     "build:bin:linux": "npm run bundle && pkg . --targets node22-linux-x64 --output dist/periscope-linux-amd64 -C GZip --no-bytecode --public-packages \"*\" --public",
     "build:bin:win": "npm run bundle && pkg . --targets node22-win-x64 --output dist/periscope-windows-amd64.exe -C GZip --no-bytecode --public-packages \"*\" --public",
-    "build:bin": "npm run build:bin:linux && npm run build:bin:win"
+    "build:bin": "npm run build:bin:linux && npm run build:bin:win",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc -p tsconfig.json",
+    "knip": "knip",
+    "check": "node scripts/check.mjs",
+    "prepare": "lefthook install || exit 0"
   },
   "pkg": {
     "assets": [
@@ -26,6 +34,9 @@
   "author": "jdmldm1",
   "license": "MIT",
   "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0",
     "compression": "^1.7.5",
@@ -36,8 +47,22 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/compression": "^1.8.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.5",
+    "@types/ws": "^8.18.2",
     "@yao-pkg/pkg": "^6.14.0",
     "esbuild": "^0.25.0",
-    "pino-pretty": "^13.1.3"
+    "eslint": "^10.15.0",
+    "eslint-plugin-n": "^18.5.0",
+    "eslint-plugin-security": "^4.2.1",
+    "globals": "^17.14.0",
+    "knip": "^6.48.0",
+    "lefthook": "^2.2.2",
+    "pino-pretty": "^13.1.3",
+    "prettier": "^3.10.1",
+    "typescript": "~6.0.2"
   }
 }

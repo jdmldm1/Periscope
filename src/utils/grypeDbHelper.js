@@ -15,7 +15,7 @@ function decompressGrypeDatabase() {
                 continue;
             }
             const files = fs.readdirSync(schemaDir);
-            const compressedFile = files.find(f => f.endsWith('.db.zst'));
+            const compressedFile = files.find((f) => f.endsWith('.db.zst'));
             if (!compressedFile) {
                 continue;
             }
@@ -27,16 +27,14 @@ function decompressGrypeDatabase() {
             logger.info(`Found compressed Grype database in schema v${schema}. Decompressing in background...`);
             execFile('zstd', ['-d', '-f', '-q', '--rm', compressedPath, '-o', decompressedPath], (err) => {
                 if (err) {
-                    logger.error(`Failed to decompress Grype database for schema v${schema}:`, err);
-                }
-                else {
+                    logger.error({ err }, `Failed to decompress Grype database for schema v${schema}`);
+                } else {
                     logger.info(`Successfully decompressed Grype database for schema v${schema}.`);
                 }
             });
         }
-    }
-    catch (err) {
-        logger.error('Error during initial Grype database check/decompression:', err);
+    } catch (err) {
+        logger.error({ err }, 'Error during initial Grype database check/decompression');
     }
 }
 module.exports = { decompressGrypeDatabase };

@@ -1,12 +1,23 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const router = express.Router();
 const zarfService = require('../services/zarfService');
+const { safeUploadName } = require('../utils/oras');
+const PACKAGE_EXT = /\.(tar|tar\.zst|tar\.gz|tgz|zst)$/i;
+const CONFIG_EXT = /\.(ya?ml|toml)$/i;
+function workspaceFileName(requested, fallback, allowedExt) {
+    const name = safeUploadName(requested || fallback);
+    if (!allowedExt.test(name)) {
+        throw new Error('Unsupported file type');
+    }
+    return name;
+}
 router.get('/status', async (req, res) => {
     try {
         const status = await zarfService.getStatus();
         res.json(status);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -14,8 +25,7 @@ router.get('/packages', async (req, res) => {
     try {
         const packages = await zarfService.listPackages();
         res.json(packages);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -23,8 +33,7 @@ router.post('/deploy', async (req, res) => {
     try {
         const taskId = await zarfService.deployPackage(req.body.packagePath, req.body.configPath);
         res.json({ success: true, taskId });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -32,8 +41,7 @@ router.delete('/packages/:name', async (req, res) => {
     try {
         const output = await zarfService.removePackage(req.params.name);
         res.json({ success: true, output });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -41,16 +49,21 @@ router.get('/registry/all-images', async (req, res) => {
     try {
         const images = await zarfService.getRegistryAllImages();
         res.json(images);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 router.post('/upload', (req, res) => {
-    const fs = require('fs');
-    const path = require('path');
-    const filename = req.headers['x-file-name'] || `zarf-upload-${Date.now()}.tar.zst`;
-    const filepath = path.join(process.cwd(), filename);
+    let filepath;
+    let filename;
+    try {
+        filename = workspaceFileName(req.headers['x-file-name'], `zarf-upload-${Date.now()}.tar.zst`, PACKAGE_EXT);
+        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- workspaceFileName() reduces the name to one safe segment
+        filepath = path.join(process.cwd(), filename);
+    } catch (err) {
+        return res.status(400).json({ error: err.message });
+    }
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- name confined by workspaceFileName()
     const writeStream = fs.createWriteStream(filepath);
     req.pipe(writeStream);
     writeStream.on('finish', () => {
@@ -60,19 +73,22 @@ router.post('/upload', (req, res) => {
         res.status(500).json({ error: 'Upload failed: ' + err.message });
     });
 });
-router.post('/config', async (req, res) => {
+router.post('/config', (req, res) => {
     const { content, filename } = req.body;
-    if (!content)
-        return res.status(400).json({ error: 'content is required' });
-    const targetName = filename || 'zarf-config.yaml';
-    const path = require('path');
-    const targetPath = path.join(process.cwd(), targetName);
+    if (!content) return res.status(400).json({ error: 'content is required' });
+    let targetName;
     try {
-        const fs = require('fs');
+        targetName = workspaceFileName(filename, 'zarf-config.yaml', CONFIG_EXT);
+    } catch (err) {
+        return res.status(400).json({ error: err.message });
+    }
+    try {
+        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- workspaceFileName() reduces the name to one safe segment
+        const targetPath = path.join(process.cwd(), targetName);
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- name confined by workspaceFileName()
         fs.writeFileSync(targetPath, content, 'utf8');
         res.json({ success: true, filepath: targetPath, filename: targetName });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: 'Failed to save config: ' + err.message });
     }
 });
@@ -80,8 +96,7 @@ router.post('/unpack', async (req, res) => {
     try {
         const result = await zarfService.unpackPackage(req.body.packagePath);
         res.json(result);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -89,8 +104,7 @@ router.post('/rebuild-deploy', async (req, res) => {
     try {
         const taskId = await zarfService.rebuildDeploy(req.body.tempDir, req.body.configText);
         res.json({ success: true, taskId });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -98,8 +112,7 @@ router.get('/local-packages', async (req, res) => {
     try {
         const list = await zarfService.listLocalPackages();
         res.json(list);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -107,8 +120,7 @@ router.delete('/local-packages', async (req, res) => {
     try {
         const result = await zarfService.deleteLocalPackage(req.query.name);
         res.json(result);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -116,8 +128,7 @@ router.post('/archiver/compress', async (req, res) => {
     try {
         const taskId = await zarfService.compressFolder(req.body.source, req.body.dest);
         res.json({ success: true, taskId });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -125,8 +136,7 @@ router.post('/archiver/decompress', async (req, res) => {
     try {
         const taskId = await zarfService.decompressPackage(req.body.source, req.body.dest);
         res.json({ success: true, taskId });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -134,8 +144,7 @@ router.post('/sbom/inspect', async (req, res) => {
     try {
         const result = await zarfService.inspectSbom(req.body.packageName);
         res.json(result);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -143,8 +152,7 @@ router.post('/clear-cache', async (req, res) => {
     try {
         const result = await zarfService.clearCache();
         res.json(result);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -152,8 +160,7 @@ router.get('/packages/:name', async (req, res) => {
     try {
         const detail = await zarfService.getPackage(req.params.name);
         res.json(detail);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -161,8 +168,7 @@ router.get('/state', async (req, res) => {
     try {
         const state = await zarfService.getZarfState();
         res.json(state);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -170,8 +176,7 @@ router.get('/creds', async (req, res) => {
     try {
         const creds = await zarfService.getCreds();
         res.json(creds);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -179,8 +184,7 @@ router.get('/registry/catalog', async (req, res) => {
     try {
         const catalog = await zarfService.getRegistryCatalog();
         res.json(catalog);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -189,8 +193,7 @@ router.get('/registry/repository/*repoPath/tags', async (req, res) => {
         const repo = req.params.repoPath;
         const tags = await zarfService.getRegistryRepositoryTags(repo);
         res.json(tags);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -198,8 +201,7 @@ router.delete('/registry/image', async (req, res) => {
     try {
         const result = await zarfService.deleteRegistryImage(req.query.imageRef);
         res.json(result);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

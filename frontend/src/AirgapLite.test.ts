@@ -6,7 +6,7 @@ describe('Airgap Lite Feature Flag Tests', () => {
         const allTabs = ['dashboard', 'topology', 'nodes', 'pods', 'image-scanner', 'kubescape', 'networkpolicies'];
 
         const filterTabs = (tabs: string[], scanningEnabled: boolean) => {
-            return scanningEnabled ? tabs : tabs.filter(t => !scanningTabs.includes(t));
+            return scanningEnabled ? tabs : tabs.filter((t) => !scanningTabs.includes(t));
         };
 
         expect(filterTabs(allTabs, true)).toContain('image-scanner');
@@ -20,26 +20,23 @@ describe('Airgap Lite Feature Flag Tests', () => {
     it('verifies command palette items filtering based on scanningEnabled', () => {
         const createCommands = (scanningEnabled: boolean) => [
             { name: 'Dashboard' },
-            ...(scanningEnabled ? [
-                { name: 'Image SBOM Scanner (:scanner)' },
-                { name: 'Kubescape Compliance Audit (:security)' },
-            ] : []),
+            ...(scanningEnabled
+                ? [{ name: 'Image SBOM Scanner (:scanner)' }, { name: 'Kubescape Compliance Audit (:security)' }]
+                : []),
             { name: 'Pods List (:pods)' },
-            ...(scanningEnabled ? [
-                { name: 'Scan All Running Images' }
-            ] : []),
+            ...(scanningEnabled ? [{ name: 'Scan All Running Images' }] : []),
         ];
 
         const commandsEnabled = createCommands(true);
         const commandsDisabled = createCommands(false);
 
-        expect(commandsEnabled.some(c => c.name.includes('Image SBOM Scanner'))).toBe(true);
-        expect(commandsEnabled.some(c => c.name.includes('Kubescape'))).toBe(true);
-        expect(commandsEnabled.some(c => c.name.includes('Scan All Running Images'))).toBe(true);
+        expect(commandsEnabled.some((c) => c.name.includes('Image SBOM Scanner'))).toBe(true);
+        expect(commandsEnabled.some((c) => c.name.includes('Kubescape'))).toBe(true);
+        expect(commandsEnabled.some((c) => c.name.includes('Scan All Running Images'))).toBe(true);
 
-        expect(commandsDisabled.some(c => c.name.includes('Image SBOM Scanner'))).toBe(false);
-        expect(commandsDisabled.some(c => c.name.includes('Kubescape'))).toBe(false);
-        expect(commandsDisabled.some(c => c.name.includes('Scan All Running Images'))).toBe(false);
-        expect(commandsDisabled.some(c => c.name.includes('Pods List'))).toBe(true);
+        expect(commandsDisabled.some((c) => c.name.includes('Image SBOM Scanner'))).toBe(false);
+        expect(commandsDisabled.some((c) => c.name.includes('Kubescape'))).toBe(false);
+        expect(commandsDisabled.some((c) => c.name.includes('Scan All Running Images'))).toBe(false);
+        expect(commandsDisabled.some((c) => c.name.includes('Pods List'))).toBe(true);
     });
 });

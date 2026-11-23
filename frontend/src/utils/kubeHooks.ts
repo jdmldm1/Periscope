@@ -24,14 +24,30 @@ export const useK8sResources = (kind: string, namespace: string) => {
         queryKey: ['resources', kind, namespace],
         queryFn: async () => {
             let endpoint = `/kube/resource/${kind}?namespace=${namespace}`;
-            if (kind === 'helm')
-                endpoint = `/helm?namespace=${namespace}`;
-            if (kind === 'zarf')
-                endpoint = `/zarf/packages`;
+            if (kind === 'helm') endpoint = `/helm?namespace=${namespace}`;
+            if (kind === 'zarf') endpoint = `/zarf/packages`;
             const { data } = await api.get(endpoint);
             return data;
         },
-        enabled: !!kind && !['dashboard', 'topology', 'logs', 'image-scanner', 'kubescape', 'pvc-explorer', 'cluster-terminal', 'k9s', 'traffic', 'helm-repos', 'zarf-registry', 'autoscale-manager', 'backup-restore', 'cronjobs', 'oras'].includes(kind),
+        enabled:
+            !!kind &&
+            ![
+                'dashboard',
+                'topology',
+                'logs',
+                'image-scanner',
+                'kubescape',
+                'pvc-explorer',
+                'cluster-terminal',
+                'k9s',
+                'traffic',
+                'helm-repos',
+                'zarf-registry',
+                'autoscale-manager',
+                'backup-restore',
+                'cronjobs',
+                'oras',
+            ].includes(kind),
         refetchInterval: 10000,
     });
 };
@@ -102,10 +118,10 @@ export const useTopologyData = (namespace: string) => {
         queryKey: ['topology', namespace],
         queryFn: async () => {
             const [nodes, services, deployments, pods] = await Promise.all([
-                api.get('/kube/resource/nodes').then(r => r.data),
-                api.get('/kube/resource/services', { params: { namespace } }).then(r => r.data),
-                api.get('/kube/resource/deployments', { params: { namespace } }).then(r => r.data),
-                api.get('/kube/resource/pods', { params: { namespace } }).then(r => r.data),
+                api.get('/kube/resource/nodes').then((r) => r.data),
+                api.get('/kube/resource/services', { params: { namespace } }).then((r) => r.data),
+                api.get('/kube/resource/deployments', { params: { namespace } }).then((r) => r.data),
+                api.get('/kube/resource/pods', { params: { namespace } }).then((r) => r.data),
             ]);
             return { nodes, services, deployments, pods };
         },

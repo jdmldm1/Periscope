@@ -1,0 +1,79 @@
+suite: periscope deployment
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: runs as the non-root node user with only NET_RAW added
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value: [ALL]
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add
+          value: [NET_RAW]
+
+  - it: sets resource requests by default
+    asserts:
+      - isNotNullOrEmpty:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+      - isNotNullOrEmpty:
+          path: spec.template.spec.containers[0].resources.requests.memory
+
+  - it: connected variant uses the connected image and disables airgap
+    values:
+      - ../values-connected.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ':[0-9.]+-connected$'
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: AIRGAP, value: 'false' }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: AIRGAP_LITE, value: 'true' }
+
+  - it: airgap variant enables airgap and keeps scanning on
+    values:
+      - ../values-airgap.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ':[0-9.]+$'
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: AIRGAP, value: 'true' }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: SCANNING_ENABLED, value: 'true' }
+
+  - it: airgap-lite variant turns scanning off
+    values:
+      - ../values-airgap-lite.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ':[0-9.]+-airgap-lite$'
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: AIRGAP_LITE, value: 'true' }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: SCANNING_ENABLED, value: 'false' }
+
+  - it: only injects the API key when one is set
+    set:
+      auth.apiKey: s3cret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: PERISCOPE_API_KEY, value: s3cret }
+
+  - it: mounts the cache volume only when persistence is enabled
+    set:
+      persistence.enabled: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.volumes

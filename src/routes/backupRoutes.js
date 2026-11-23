@@ -6,8 +6,7 @@ router.get('/list', (req, res) => {
     try {
         const backups = backupService.listBackups();
         res.json(backups);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -16,8 +15,7 @@ router.post('/create', async (req, res) => {
     try {
         const meta = await backupService.createBackup(namespace, label);
         res.json(meta);
-    }
-    catch (err) {
+    } catch (err) {
         logger.error({ err: err.message }, 'Backup creation failed');
         res.status(500).json({ error: err.message });
     }
@@ -28,8 +26,7 @@ router.post('/restore/:name', async (req, res) => {
     try {
         const results = await backupService.restoreBackup(name, !!dryRun);
         res.json(results);
-    }
-    catch (err) {
+    } catch (err) {
         logger.error({ err: err.message }, 'Restore failed');
         res.status(500).json({ error: err.message });
     }
@@ -38,8 +35,7 @@ router.get('/download/:name', (req, res) => {
     try {
         const filePath = backupService.getBackupFile(req.params.name);
         res.download(filePath, `${req.params.name}.yaml`);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(404).json({ error: err.message });
     }
 });
@@ -47,8 +43,7 @@ router.delete('/:name', (req, res) => {
     try {
         backupService.deleteBackup(req.params.name);
         res.json({ success: true });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

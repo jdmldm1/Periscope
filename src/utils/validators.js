@@ -1,4 +1,6 @@
+// eslint-disable-next-line security/detect-unsafe-regex -- length is checked before matching
 const DNS_LABEL = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+// eslint-disable-next-line security/detect-unsafe-regex -- length is checked before matching
 const DNS_SUBDOMAIN = /^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/;
 const KIND = /^[a-zA-Z][a-zA-Z0-9.-]*$/;
 class ValidationError extends Error {
@@ -39,15 +41,19 @@ function assertKind(value, field = 'kind') {
     return value;
 }
 function assertContainer(value, field = 'container') {
-    if (value === undefined || value === null || value === '')
-        return undefined;
+    if (value === undefined || value === null || value === '') return undefined;
     if (typeof value !== 'string' || value.length > 63 || !DNS_LABEL.test(value)) {
         throw new ValidationError(`Invalid ${field}: must be a valid container name`);
     }
     return value;
 }
+function queryString(value) {
+    const first = Array.isArray(value) ? value[0] : value;
+    return typeof first === 'string' ? first : undefined;
+}
 module.exports = {
     ValidationError,
+    queryString,
     isValidNamespace,
     isValidName,
     isValidKind,

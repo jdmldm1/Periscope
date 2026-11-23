@@ -5,8 +5,7 @@ const API_KEY = process.env.PERISCOPE_API_KEY;
 function safeEqual(a, b) {
     const bufA = Buffer.from(String(a));
     const bufB = Buffer.from(String(b));
-    if (bufA.length !== bufB.length)
-        return false;
+    if (bufA.length !== bufB.length) return false;
     return crypto.timingSafeEqual(bufA, bufB);
 }
 function authMiddleware(req, res, next) {
@@ -36,14 +35,11 @@ function wsAuthCheck(request) {
     const token = url.searchParams.get('token');
     const authEnabled = authService.isAuthEnabled();
     if (authEnabled) {
-        if (token && authService.verifySession(token))
-            return true;
-        if (API_KEY && token && safeEqual(token, API_KEY))
-            return true;
+        if (token && authService.verifySession(token)) return true;
+        if (API_KEY && token && safeEqual(token, API_KEY)) return true;
         return false;
     }
-    if (!API_KEY)
-        return true;
+    if (!API_KEY) return true;
     return safeEqual(token || '', API_KEY);
 }
 module.exports = { authMiddleware, wsAuthCheck, safeEqual };

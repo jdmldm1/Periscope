@@ -15,8 +15,8 @@ test('helmService.listReleases - all namespaces', async () => {
     mockRunCalls = [];
     mockRunResponse = {
         stdout: JSON.stringify([
-            { name: 'test-release', namespace: 'default', updated: '2026-06-25', status: 'deployed' }
-        ])
+            { name: 'test-release', namespace: 'default', updated: '2026-06-25', status: 'deployed' },
+        ]),
     };
     const releases = await helmService.listReleases('all');
     assert.strictEqual(mockRunCalls.length, 1);
@@ -41,7 +41,17 @@ test('helmService.getValues - defaults and with revision', async () => {
     assert.deepStrictEqual(mockRunCalls[0].args, ['get', 'values', 'my-release', '--namespace', 'ns', '-o', 'json']);
     mockRunCalls = [];
     await helmService.getValues('ns', 'my-release', 2);
-    assert.deepStrictEqual(mockRunCalls[0].args, ['get', 'values', 'my-release', '--revision', '2', '--namespace', 'ns', '-o', 'json']);
+    assert.deepStrictEqual(mockRunCalls[0].args, [
+        'get',
+        'values',
+        'my-release',
+        '--revision',
+        '2',
+        '--namespace',
+        'ns',
+        '-o',
+        'json',
+    ]);
 });
 test('helmService.rollback', async () => {
     mockRunCalls = [];

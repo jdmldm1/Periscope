@@ -47,8 +47,7 @@ class ScannerService {
             if (fs.existsSync(path.join(this.cacheDir, 'grype'))) {
                 this.lastGrypeDbCheck = new Date();
             }
-        }
-        catch (err) {
+        } catch (err) {
             logger.error(err, 'Failed to initialize scanner cache');
         }
     }
@@ -57,8 +56,7 @@ class ScannerService {
             const file = path.join(this.cacheDir, 'periscope-sbom-cache.json');
             const data = Object.fromEntries(this.sbomScanCache.entries());
             fs.writeFileSync(file, JSON.stringify(data, null, 2));
-        }
-        catch (err) {
+        } catch (err) {
             logger.error(err, 'Failed to save SBOM cache');
         }
     }
@@ -67,8 +65,7 @@ class ScannerService {
             const file = path.join(this.cacheDir, 'periscope-vulns-cache.json');
             const data = Object.fromEntries(this.vulnsScanCache.entries());
             fs.writeFileSync(file, JSON.stringify(data, null, 2));
-        }
-        catch (err) {
+        } catch (err) {
             logger.error(err, 'Failed to save vulnerability cache');
         }
     }
@@ -79,24 +76,29 @@ class ScannerService {
                 const config = JSON.parse(fs.readFileSync(file, 'utf8'));
                 this.enableAutoScan = config.enableAutoScan ?? true;
                 this.autoUpdateDb = config.autoUpdateDb ?? true;
-                this.dbUpdateIntervalHours = Number(config.dbUpdateIntervalHours) > 0
-                    ? Number(config.dbUpdateIntervalHours) : 24;
+                this.dbUpdateIntervalHours =
+                    Number(config.dbUpdateIntervalHours) > 0 ? Number(config.dbUpdateIntervalHours) : 24;
             }
-        }
-        catch (err) {
+        } catch (err) {
             logger.error(err, 'Failed to load scanner config');
         }
     }
     saveScannerConfig() {
         try {
             const file = path.join(this.cacheDir, 'periscope-scanner-config.json');
-            fs.writeFileSync(file, JSON.stringify({
-                enableAutoScan: this.enableAutoScan,
-                autoUpdateDb: this.autoUpdateDb,
-                dbUpdateIntervalHours: this.dbUpdateIntervalHours,
-            }, null, 2));
-        }
-        catch (err) {
+            fs.writeFileSync(
+                file,
+                JSON.stringify(
+                    {
+                        enableAutoScan: this.enableAutoScan,
+                        autoUpdateDb: this.autoUpdateDb,
+                        dbUpdateIntervalHours: this.dbUpdateIntervalHours,
+                    },
+                    null,
+                    2,
+                ),
+            );
+        } catch (err) {
             logger.error(err, 'Failed to save scanner config');
         }
     }
@@ -117,12 +119,13 @@ class ScannerService {
         }
         const intervalMs = Math.max(1, Number(this.dbUpdateIntervalHours) || 24) * 60 * 60 * 1000;
         logger.info({ intervalHours: this.dbUpdateIntervalHours }, 'Grype DB auto-update enabled');
-        setTimeout(() => { this.ensureGrypeDb().catch(() => { }); }, 30000);
+        setTimeout(() => {
+            this.ensureGrypeDb().catch(() => {});
+        }, 30000);
         this.dbAutoUpdateTimer = setInterval(() => {
-            this.ensureGrypeDb().catch(() => { });
+            this.ensureGrypeDb().catch(() => {});
         }, intervalMs);
-        if (this.dbAutoUpdateTimer.unref)
-            this.dbAutoUpdateTimer.unref();
+        if (this.dbAutoUpdateTimer.unref) this.dbAutoUpdateTimer.unref();
     }
     clearImageCache(imageRef) {
         this.sbomScanCache.delete(imageRef);
@@ -134,8 +137,7 @@ class ScannerService {
         if (!this.scanningEnabled) {
             return false;
         }
-        if (this.isGrypeDbUpdating)
-            return;
+        if (this.isGrypeDbUpdating) return;
         this.isGrypeDbUpdating = true;
         this.grypeDbUpdateError = null;
         logger.info('Checking/Updating Grype Vulnerability Database...');
@@ -144,21 +146,19 @@ class ScannerService {
             env: {
                 ...process.env,
                 GRYPE_DB_CACHE_DIR: path.join(this.cacheDir, 'grype'),
-                GRYPE_CHECK_FOR_APP_UPDATE: 'false'
-            }
+                GRYPE_CHECK_FOR_APP_UPDATE: 'false',
+            },
         };
         try {
             await run('grype', ['db', 'update'], execOptions);
             logger.info('Grype Vulnerability Database is up to date.');
             return true;
-        }
-        catch (error) {
+        } catch (error) {
             const msg = error.stderr || error.message;
             logger.error({ error: msg }, 'Failed to update Grype DB');
             this.grypeDbUpdateError = msg;
             return false;
-        }
-        finally {
+        } finally {
             this.isGrypeDbUpdating = false;
             this.lastGrypeDbCheck = new Date();
         }
@@ -181,7 +181,8 @@ class ScannerService {
         try {
             return await new Promise((resolve, reject) => {
                 let targetRef = imageRef;
-                const isLocalRegistry = targetRef.includes('127.0.0.1:31999') ||
+                const isLocalRegistry =
+                    targetRef.includes('127.0.0.1:31999') ||
                     targetRef.includes('localhost:31999') ||
                     targetRef.includes('zarf-docker-registry.zarf.svc.cluster.local:5000');
                 targetRef = targetRef
@@ -190,26 +191,28 @@ class ScannerService {
                 const runScan = () => {
                     run('zarf', ['tools', 'sbom', 'scan', targetRef, '-o', 'json'], { maxBuffer: 10 * 1024 * 1024 })
                         .then(({ stdout }) => {
-                        try {
-                            const parsed = JSON.parse(stdout);
-                            this.sbomScanCache.set(imageRef, parsed);
-                            this.saveSbomCache();
-                            resolve(parsed);
-                        }
-                        catch (parseErr) {
-                            const failRes = { error: 'Failed to parse SBOM JSON: ' + parseErr.message, failed: true };
+                            try {
+                                const parsed = JSON.parse(stdout);
+                                this.sbomScanCache.set(imageRef, parsed);
+                                this.saveSbomCache();
+                                resolve(parsed);
+                            } catch (parseErr) {
+                                const failRes = {
+                                    error: 'Failed to parse SBOM JSON: ' + parseErr.message,
+                                    failed: true,
+                                };
+                                this.sbomScanCache.set(imageRef, failRes);
+                                this.saveSbomCache();
+                                reject(new Error('Failed to parse SBOM JSON: ' + parseErr.message));
+                            }
+                        })
+                        .catch((error) => {
+                            const msg = error.stderr || error.message;
+                            const failRes = { error: msg, failed: true };
                             this.sbomScanCache.set(imageRef, failRes);
                             this.saveSbomCache();
-                            reject(new Error('Failed to parse SBOM JSON: ' + parseErr.message));
-                        }
-                    })
-                        .catch((error) => {
-                        const msg = error.stderr || error.message;
-                        const failRes = { error: msg, failed: true };
-                        this.sbomScanCache.set(imageRef, failRes);
-                        this.saveSbomCache();
-                        reject(new Error(msg));
-                    });
+                            reject(new Error(msg));
+                        });
                 };
                 if (isLocalRegistry) {
                     zarfService._ensureRegistryLogin(runScan, (err) => {
@@ -218,13 +221,11 @@ class ScannerService {
                         this.saveSbomCache();
                         reject(new Error('Local registry authentication failed: ' + err.message));
                     });
-                }
-                else {
+                } else {
                     runScan();
                 }
             });
-        }
-        finally {
+        } finally {
             this.currentlyScanning.delete(imageRef);
         }
     }
@@ -236,7 +237,8 @@ class ScannerService {
         try {
             return await new Promise((resolve, reject) => {
                 let targetRef = imageRef;
-                const isLocalRegistry = targetRef.includes('127.0.0.1:31999') ||
+                const isLocalRegistry =
+                    targetRef.includes('127.0.0.1:31999') ||
                     targetRef.includes('localhost:31999') ||
                     targetRef.includes('zarf-docker-registry.zarf.svc.cluster.local:5000');
                 targetRef = targetRef
@@ -254,8 +256,8 @@ class ScannerService {
                         GRYPE_DB_CACHE_DIR: path.join(this.cacheDir, 'grype'),
                         GRYPE_CHECK_FOR_APP_UPDATE: 'false',
                         GRYPE_REGISTRY_INSECURE_USE_HTTP: 'true',
-                        GRYPE_REGISTRY_INSECURE_SKIP_TLS_VERIFY: 'true'
-                    }
+                        GRYPE_REGISTRY_INSECURE_SKIP_TLS_VERIFY: 'true',
+                    },
                 };
                 const runScan = () => {
                     let scanRef = targetRef;
@@ -264,26 +266,28 @@ class ScannerService {
                     }
                     run('grype', [scanRef, '-o', 'json'], execOptions)
                         .then(({ stdout }) => {
-                        try {
-                            const parsed = JSON.parse(stdout);
-                            this.vulnsScanCache.set(imageRef, parsed);
-                            this.saveVulnsCache();
-                            resolve(parsed);
-                        }
-                        catch (parseErr) {
-                            const failRes = { error: 'Failed to parse Vulnerability JSON: ' + parseErr.message, failed: true };
+                            try {
+                                const parsed = JSON.parse(stdout);
+                                this.vulnsScanCache.set(imageRef, parsed);
+                                this.saveVulnsCache();
+                                resolve(parsed);
+                            } catch (parseErr) {
+                                const failRes = {
+                                    error: 'Failed to parse Vulnerability JSON: ' + parseErr.message,
+                                    failed: true,
+                                };
+                                this.vulnsScanCache.set(imageRef, failRes);
+                                this.saveVulnsCache();
+                                reject(new Error('Failed to parse Vulnerability JSON: ' + parseErr.message));
+                            }
+                        })
+                        .catch((error) => {
+                            const msg = error.stderr || error.message;
+                            const failRes = { error: msg, failed: true };
                             this.vulnsScanCache.set(imageRef, failRes);
                             this.saveVulnsCache();
-                            reject(new Error('Failed to parse Vulnerability JSON: ' + parseErr.message));
-                        }
-                    })
-                        .catch((error) => {
-                        const msg = error.stderr || error.message;
-                        const failRes = { error: msg, failed: true };
-                        this.vulnsScanCache.set(imageRef, failRes);
-                        this.saveVulnsCache();
-                        reject(new Error(msg));
-                    });
+                            reject(new Error(msg));
+                        });
                 };
                 if (isLocalRegistry) {
                     zarfService._ensureRegistryLogin(runScan, (err) => {
@@ -292,13 +296,11 @@ class ScannerService {
                         this.saveVulnsCache();
                         reject(new Error('Local registry authentication failed: ' + err.message));
                     });
-                }
-                else {
+                } else {
                     runScan();
                 }
             });
-        }
-        finally {
+        } finally {
             this.currentlyScanning.delete(imageRef);
         }
     }
@@ -310,13 +312,14 @@ class ScannerService {
             setTimeout(() => this.backgroundScanLoop(), 15000);
             return;
         }
-        if (this.isBackgroundScanning)
-            return;
+        if (this.isBackgroundScanning) return;
         this.isBackgroundScanning = true;
         try {
             const images = await this.getRunningImages();
-            const nextImage = images.find(img => {
-                return (!this.sbomScanCache.has(img) || !this.vulnsScanCache.has(img)) && !this.currentlyScanning.has(img);
+            const nextImage = images.find((img) => {
+                return (
+                    (!this.sbomScanCache.has(img) || !this.vulnsScanCache.has(img)) && !this.currentlyScanning.has(img)
+                );
             });
             if (nextImage) {
                 this.currentlyScanningImage = nextImage;
@@ -324,26 +327,22 @@ class ScannerService {
                 if (!this.sbomScanCache.has(nextImage)) {
                     try {
                         await this.performSbomScan(nextImage);
-                    }
-                    catch (e) {
+                    } catch (e) {
                         logger.error({ image: nextImage, error: e.message }, 'Background SBOM scan failed');
                     }
                 }
                 if (!this.vulnsScanCache.has(nextImage)) {
                     try {
                         await this.performVulnsScan(nextImage);
-                    }
-                    catch (e) {
+                    } catch (e) {
                         logger.error({ image: nextImage, error: e.message }, 'Background vulnerability scan failed');
                     }
                 }
                 logger.info({ image: nextImage }, 'Finished background scan');
             }
-        }
-        catch (err) {
+        } catch (err) {
             logger.error(err, 'Error during background scan loop');
-        }
-        finally {
+        } finally {
             this.currentlyScanningImage = null;
             this.isBackgroundScanning = false;
             setTimeout(() => this.backgroundScanLoop(), 15000);
@@ -357,17 +356,16 @@ class ScannerService {
         try {
             const pods = await k8sService.core.listPodForAllNamespaces();
             const images = new Set();
-            pods.items.forEach(pod => {
+            pods.items.forEach((pod) => {
                 if (pod.spec && pod.spec.containers) {
-                    pod.spec.containers.forEach(c => images.add(c.image));
+                    pod.spec.containers.forEach((c) => images.add(c.image));
                 }
                 if (pod.spec && pod.spec.initContainers) {
-                    pod.spec.initContainers.forEach(c => images.add(c.image));
+                    pod.spec.initContainers.forEach((c) => images.add(c.image));
                 }
             });
             return Array.from(images);
-        }
-        catch (err) {
+        } catch (err) {
             logger.error(err, 'Failed to fetch running images from cluster');
             return [];
         }
@@ -396,11 +394,8 @@ class ScannerService {
             this.saveSbomCache();
             this.saveVulnsCache();
         }
-        const allImages = new Set([
-            ...runningImagesList,
-            ...this.currentlyScanning
-        ]);
-        allImages.forEach(img => {
+        const allImages = new Set([...runningImagesList, ...this.currentlyScanning]);
+        allImages.forEach((img) => {
             const sbom = this.sbomScanCache.get(img);
             const vulns = this.vulnsScanCache.get(img);
             const sbomFailed = sbom && (sbom.failed || sbom.error);
@@ -408,11 +403,17 @@ class ScannerService {
             results[img] = {
                 sbom: sbomFailed ? null : sbom,
                 vulnerabilities: vulnsFailed ? null : vulns,
-                status: (sbom && vulns && !sbomFailed && !vulnsFailed) ? 'success' :
-                    (sbomFailed || vulnsFailed) ? 'failed' :
-                        (this.currentlyScanning.has(img) || this.currentlyScanningImage === img) ? 'scanning' : 'notScanned',
-                error: (sbomFailed ? (sbom.error || 'SBOM scan failed. ') : '') +
-                    (vulnsFailed ? (vulns.error || 'Vulnerabilities scan failed.') : '')
+                status:
+                    sbom && vulns && !sbomFailed && !vulnsFailed
+                        ? 'success'
+                        : sbomFailed || vulnsFailed
+                          ? 'failed'
+                          : this.currentlyScanning.has(img) || this.currentlyScanningImage === img
+                            ? 'scanning'
+                            : 'notScanned',
+                error:
+                    (sbomFailed ? sbom.error || 'SBOM scan failed. ' : '') +
+                    (vulnsFailed ? vulns.error || 'Vulnerabilities scan failed.' : ''),
             };
         });
         return results;

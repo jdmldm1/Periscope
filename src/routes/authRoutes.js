@@ -12,7 +12,7 @@ router.post('/auth/login', (req, res) => {
         return res.json({
             success: true,
             token,
-            isDefault: authService.isDefaultPassword()
+            isDefault: authService.isDefaultPassword(),
         });
     }
     return res.status(401).json({ error: 'Invalid username or password' });
@@ -31,7 +31,7 @@ router.get('/auth/status', (req, res) => {
         isDefault: authService.isDefaultPassword(),
         scanningEnabled: isScanningEnabled(),
         airgap: isAirgap(),
-        airgapLite: isAirgapLite()
+        airgapLite: isAirgapLite(),
     });
 });
 router.post('/auth/change-password', (req, res) => {

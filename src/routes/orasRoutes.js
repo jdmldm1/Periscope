@@ -14,21 +14,18 @@ async function getOrasBinaryPath() {
     try {
         await run('oras', ['version']);
         return 'oras';
-    }
-    catch (e) { }
+    } catch (e) {}
     return fs.existsSync(ORAS_PATH) ? ORAS_PATH : null;
 }
 function removeQuietly(target) {
     try {
         fs.rmSync(target, { recursive: true, force: true });
-    }
-    catch (e) { }
+    } catch (e) {}
 }
-// Resolve the credentials for a push/pull: Zarf's registry creds, or the ones in the request.
 async function resolveCredentials({ username, password, useZarfCreds }) {
     if (useZarfCreds) {
         const creds = await zarfService.getCreds();
-        const registryCred = creds.find(c => c.application === 'Registry');
+        const registryCred = creds.find((c) => c.application === 'Registry');
         if (!registryCred) {
             throw new Error('Zarf registry credentials not found');
         }
@@ -42,9 +39,11 @@ async function login(binPath, configPath, ref, { user, pass }) {
         return '';
     }
     const registryDomain = ref.split('/')[0];
-    const { stdout, stderr } = await runWithStdin(binPath, [
-        'login', '--registry-config', configPath, '-u', String(user), '--password-stdin', registryDomain,
-    ], String(pass));
+    const { stdout, stderr } = await runWithStdin(
+        binPath,
+        ['login', '--registry-config', configPath, '-u', String(user), '--password-stdin', registryDomain],
+        String(pass),
+    );
     return `Logging into registry ${registryDomain}...\n${stdout}\n${stderr}\n`;
 }
 function errorLogs(logs, errObj) {
@@ -62,7 +61,7 @@ router.get('/oras/status', async (req, res) => {
     const isAirgapped = process.env.AIRGAP === 'true';
     res.json({
         installed: binPath !== null,
-        mode: isAirgapped ? 'airgap' : 'connected'
+        mode: isAirgapped ? 'airgap' : 'connected',
     });
 });
 router.post('/oras/download-binary', async (req, res) => {
@@ -80,8 +79,7 @@ router.post('/oras/download-binary', async (req, res) => {
         fs.unlinkSync(tarPath);
         fs.chmodSync(ORAS_PATH, '755');
         res.json({ success: true, message: 'ORAS binary downloaded successfully' });
-    }
-    catch (err) {
+    } catch (err) {
         logger.error(err, 'Failed to download ORAS binary');
         res.status(500).json({ error: err.message || 'Failed to download ORAS binary' });
     }
@@ -89,6 +87,7 @@ router.post('/oras/download-binary', async (req, res) => {
 router.post('/oras/upload', (req, res) => {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true, mode: 0o700 });
     const filename = safeUploadName(req.headers['x-file-name']);
+    // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- safeUploadName() reduces the name to one safe segment
     const filepath = path.join(UPLOAD_DIR, filename);
     const writeStream = fs.createWriteStream(filepath, { mode: 0o600 });
     let received = 0;
@@ -145,11 +144,9 @@ router.post('/oras/push', async (req, res) => {
         const pushRes = await run(binPath, args, { cwd: path.dirname(file) });
         logs += `${pushRes.stdout}\n${pushRes.stderr}\n`;
         res.json({ success: true, logs });
-    }
-    catch (errObj) {
+    } catch (errObj) {
         sendFailure(res, errObj, 'push', logs);
-    }
-    finally {
+    } finally {
         if (file) {
             removeQuietly(file);
         }
@@ -197,11 +194,9 @@ router.post('/oras/pull', async (req, res) => {
         }
         handedOffCleanup = true;
         res.download(downloadPath, downloadName, () => removeQuietly(workDir));
-    }
-    catch (errObj) {
+    } catch (errObj) {
         sendFailure(res, errObj, 'pull', logs);
-    }
-    finally {
+    } finally {
         if (workDir && !handedOffCleanup) {
             removeQuietly(workDir);
         }

@@ -1,12 +1,22 @@
 import { test, expect } from '@playwright/test';
 test.describe('Periscope E2E QA', () => {
     test.beforeEach(async ({ page }) => {
-        page.on('console', msg => console.log(`BROWSER LOG [${msg.type()}]: ${msg.text()}`));
-        page.on('pageerror', err => console.log(`BROWSER ERROR: ${err.message}`));
+        page.on('console', (msg) => console.log(`BROWSER LOG [${msg.type()}]: ${msg.text()}`));
+        page.on('pageerror', (err) => console.log(`BROWSER ERROR: ${err.message}`));
         await page.goto('/', { waitUntil: 'networkidle' });
         await page.evaluate(() => {
             localStorage.clear();
-            localStorage.setItem('sidebar_collapsed', JSON.stringify({ cluster: false, workloads: false, network: false, config: false, security: false, tools: false }));
+            localStorage.setItem(
+                'sidebar_collapsed',
+                JSON.stringify({
+                    cluster: false,
+                    workloads: false,
+                    network: false,
+                    config: false,
+                    security: false,
+                    tools: false,
+                }),
+            );
         });
         await page.reload({ waitUntil: 'networkidle' });
         await expect(page.locator('.sidebar')).toBeVisible({ timeout: 15000 });
@@ -35,10 +45,10 @@ test.describe('Periscope E2E QA', () => {
         await expect(list.or(empty)).toBeVisible({ timeout: 20000 });
         if (await list.isVisible()) {
             let firstRow = page.locator('.resource-row:has-text("local-path-provisioner")').first();
-            if (!await firstRow.isVisible()) {
+            if (!(await firstRow.isVisible())) {
                 firstRow = page.locator('.resource-row:has-text("periscope")').first();
             }
-            if (!await firstRow.isVisible()) {
+            if (!(await firstRow.isVisible())) {
                 firstRow = page.locator('.resource-row').first();
             }
             await firstRow.locator('button:has-text("Events")').click();
@@ -151,22 +161,22 @@ test.describe('Periscope E2E QA', () => {
     });
     test('Image Scanner page and Scan functionality', async ({ page }) => {
         await sidebarClick(page, 'Image SBOM');
-        await expect(page.locator('h3:has-text("Real-time Container Vulnerabilities")')).toBeVisible({ timeout: 20000 });
+        await expect(page.locator('h3:has-text("Real-time Container Vulnerabilities")')).toBeVisible({
+            timeout: 20000,
+        });
         const autoScanCheckbox = page.locator('label:has-text("Auto-scan in background") input[type="checkbox"]');
         await expect(autoScanCheckbox).toBeVisible();
         const isChecked = await autoScanCheckbox.isChecked();
         await autoScanCheckbox.click();
         if (isChecked) {
             await expect(autoScanCheckbox).not.toBeChecked();
-        }
-        else {
+        } else {
             await expect(autoScanCheckbox).toBeChecked();
         }
         await autoScanCheckbox.click();
         if (isChecked) {
             await expect(autoScanCheckbox).toBeChecked();
-        }
-        else {
+        } else {
             await expect(autoScanCheckbox).not.toBeChecked();
         }
         await page.locator('button:has-text("Scanned Images")').click();
@@ -180,9 +190,13 @@ test.describe('Periscope E2E QA', () => {
             await expect(firstRowScanBtn).toHaveText(/Scanning...|DB Updating/);
         }
         const scanBtn = page.locator('button:has-text("Scan All Running Images")');
-        if (await scanBtn.isVisible() && await scanBtn.isEnabled()) {
+        if ((await scanBtn.isVisible()) && (await scanBtn.isEnabled())) {
             await scanBtn.click();
-            await expect(page.locator('button:has-text("Scanning Cluster...")').or(page.locator('button:has-text("Waiting for DB...")'))).toBeVisible({ timeout: 10000 });
+            await expect(
+                page
+                    .locator('button:has-text("Scanning Cluster...")')
+                    .or(page.locator('button:has-text("Waiting for DB...")')),
+            ).toBeVisible({ timeout: 10000 });
         }
     });
     test('Kubescape Audit page and compliance scan linter functionality', async ({ page }) => {
@@ -192,7 +206,11 @@ test.describe('Periscope E2E QA', () => {
         await expect(scanBtn).toBeVisible({ timeout: 15000 });
         await scanBtn.click();
         await expect(page.locator('text=Compliance scan in progress...')).toBeVisible({ timeout: 10000 });
-        await expect(page.locator('text=NSA Compliance').or(page.locator('text=NSA-CISA Compliance')).first()).toBeVisible({ timeout: 40000 });
-        await expect(page.locator('text=C-0012').or(page.locator('text=C-0016')).first()).toBeVisible({ timeout: 10000 });
+        await expect(
+            page.locator('text=NSA Compliance').or(page.locator('text=NSA-CISA Compliance')).first(),
+        ).toBeVisible({ timeout: 40000 });
+        await expect(page.locator('text=C-0012').or(page.locator('text=C-0016')).first()).toBeVisible({
+            timeout: 10000,
+        });
     });
 });

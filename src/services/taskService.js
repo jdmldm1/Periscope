@@ -13,7 +13,7 @@ class TaskService {
             status: 'running',
             logs: '',
             exitCode: null,
-            startTime: new Date()
+            startTime: new Date(),
         };
         const appendLog = (data) => {
             this.activeTasks[taskId].logs += data.toString();
@@ -31,8 +31,7 @@ class TaskService {
             if (onClose) {
                 try {
                     onClose(code);
-                }
-                catch (e) {
+                } catch (e) {
                     logger.error(e, 'onClose callback error');
                 }
             }
@@ -45,8 +44,7 @@ class TaskService {
             if (onClose) {
                 try {
                     onClose(-1);
-                }
-                catch (e) {
+                } catch (e) {
                     logger.error(e, 'onClose callback error');
                 }
             }

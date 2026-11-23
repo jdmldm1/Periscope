@@ -6,7 +6,7 @@ image:
 
 serviceAccount:
   create: true
-  name: ""
+  name: ''
 
 service:
   type: NodePort
@@ -16,7 +16,7 @@ service:
 
 ingress:
   enabled: false
-  className: ""
+  className: ''
   annotations: {}
   hosts:
     - host: chart-example.local
@@ -24,7 +24,10 @@ ingress:
         - path: /
           pathType: ImplementationSpecific
 
-resources: {}
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
 
 # Startup can take a few minutes on connected images while bin-bootstrap
 # downloads zarf/grype/kubescape, so the startup probe allows up to 5 minutes
@@ -70,16 +73,16 @@ containerSecurityContext:
 
 persistence:
   enabled: true
-  storageClass: ""
+  storageClass: ''
   accessMode: ReadWriteOnce
   size: 5Gi
 
 hostMounts:
-  hostPath: ""
-  mountPath: ""
+  hostPath: ''
+  mountPath: ''
 
 auth:
-  apiKey: ""
+  apiKey: ''
   enabled: true
 
 airgap: false
@@ -95,6 +98,10 @@ retina:
     tag: v0.0.2
     pullPolicy: IfNotPresent
   metricsPort: 10093
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
   metricsIntervalSeconds: 10
   plugins:
     - dropreason

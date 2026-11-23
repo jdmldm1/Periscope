@@ -5,7 +5,10 @@ const pod = (status = {}, metadata = {}, spec = {}) => ({ metadata, spec, status
 const waiting = (reason, message) => ({ state: { waiting: { reason, message } } });
 const terminated = (reason, exitCode = 0) => ({ lastState: { terminated: { reason, exitCode } } });
 test('classifyPod - deletionTimestamp wins over phase', () => {
-    assert.strictEqual(classifyPod(pod({ phase: 'Running' }, { deletionTimestamp: '2026-01-01T00:00:00Z' })), 'terminating');
+    assert.strictEqual(
+        classifyPod(pod({ phase: 'Running' }, { deletionTimestamp: '2026-01-01T00:00:00Z' })),
+        'terminating',
+    );
 });
 test('classifyPod - Succeeded and Failed phases', () => {
     assert.strictEqual(classifyPod(pod({ phase: 'Succeeded' })), 'healthy');
@@ -29,21 +32,33 @@ test('classifyPod - crash-loop takes priority over OOM lastState', () => {
 });
 test('classifyPod - Pending and notReady', () => {
     assert.strictEqual(classifyPod(pod({ phase: 'Pending' })), 'pending');
-    assert.strictEqual(classifyPod(pod({ phase: 'Running', conditions: [{ type: 'Ready', status: 'False' }] })), 'notReady');
+    assert.strictEqual(
+        classifyPod(pod({ phase: 'Running', conditions: [{ type: 'Ready', status: 'False' }] })),
+        'notReady',
+    );
 });
 test('classifyPod - healthy when Running and Ready', () => {
-    assert.strictEqual(classifyPod(pod({ phase: 'Running', conditions: [{ type: 'Ready', status: 'True' }] })), 'healthy');
+    assert.strictEqual(
+        classifyPod(pod({ phase: 'Running', conditions: [{ type: 'Ready', status: 'True' }] })),
+        'healthy',
+    );
     assert.strictEqual(classifyPod(pod({ phase: 'Running' })), 'healthy');
 });
 test('classifyPod - transient waiting reasons are not failures', () => {
-    assert.strictEqual(classifyPod(pod({ phase: 'Pending', containerStatuses: [waiting('ContainerCreating')] })), 'pending');
+    assert.strictEqual(
+        classifyPod(pod({ phase: 'Pending', containerStatuses: [waiting('ContainerCreating')] })),
+        'pending',
+    );
 });
 test('podRestarts - sums restartCount across containers', () => {
     assert.strictEqual(podRestarts(pod({ containerStatuses: [{ restartCount: 2 }, { restartCount: 3 }] })), 5);
     assert.strictEqual(podRestarts(pod({})), 0);
 });
 test('podOwner - uses first ownerReference, falls back to the pod itself', () => {
-    assert.deepStrictEqual(podOwner(pod({}, { ownerReferences: [{ kind: 'ReplicaSet', name: 'web-abc' }] })), { kind: 'ReplicaSet', name: 'web-abc' });
+    assert.deepStrictEqual(podOwner(pod({}, { ownerReferences: [{ kind: 'ReplicaSet', name: 'web-abc' }] })), {
+        kind: 'ReplicaSet',
+        name: 'web-abc',
+    });
     assert.deepStrictEqual(podOwner(pod({}, { name: 'lonely-pod' })), { kind: 'Pod', name: 'lonely-pod' });
 });
 test('podIssueMessage - surfaces the waiting reason/message', () => {
@@ -59,6 +74,11 @@ test('podIssueMessage - pending reports unschedulable condition', () => {
     assert.strictEqual(podIssueMessage(p, 'pending'), 'no nodes available');
 });
 test('podIssueMessage - notReady lists the not-ready containers', () => {
-    const p = pod({ containerStatuses: [{ name: 'app', ready: false }, { name: 'sidecar', ready: true }] });
+    const p = pod({
+        containerStatuses: [
+            { name: 'app', ready: false },
+            { name: 'sidecar', ready: true },
+        ],
+    });
     assert.strictEqual(podIssueMessage(p, 'notReady'), 'Containers not ready: app');
 });

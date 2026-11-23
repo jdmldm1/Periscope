@@ -22,38 +22,39 @@ class WatchService {
         });
     }
     async startWatch() {
-        if (this.watchRequest || this.isConnecting)
-            return;
+        if (this.watchRequest || this.isConnecting) return;
         this.isConnecting = true;
         logger.info('Initializing K8s Watcher for real-time events');
         try {
             const watch = new k8s.Watch(k8sService.kc);
-            this.watchRequest = await watch.watch('/api/v1/events', { follow: true }, (type, obj) => {
-                if (!obj || !obj.involvedObject)
-                    return;
-                const payload = {
-                    action: type,
-                    kind: obj.involvedObject.kind,
-                    namespace: obj.involvedObject.namespace,
-                    name: obj.involvedObject.name,
-                    reason: obj.reason,
-                    message: obj.message,
-                    type: obj.type
-                };
-                this.broadcast(payload);
-            }, (err) => {
-                this.watchRequest = null;
-                this.isConnecting = false;
-                if (err) {
-                    logger.error(err, 'Event watcher closed with error. Retrying in 10 seconds...');
-                    setTimeout(() => this.startWatch(), 10000);
-                }
-                else {
-                    logger.info('Event watcher closed normally.');
-                }
-            });
-        }
-        catch (err) {
+            this.watchRequest = await watch.watch(
+                '/api/v1/events',
+                { follow: true },
+                (type, obj) => {
+                    if (!obj || !obj.involvedObject) return;
+                    const payload = {
+                        action: type,
+                        kind: obj.involvedObject.kind,
+                        namespace: obj.involvedObject.namespace,
+                        name: obj.involvedObject.name,
+                        reason: obj.reason,
+                        message: obj.message,
+                        type: obj.type,
+                    };
+                    this.broadcast(payload);
+                },
+                (err) => {
+                    this.watchRequest = null;
+                    this.isConnecting = false;
+                    if (err) {
+                        logger.error(err, 'Event watcher closed with error. Retrying in 10 seconds...');
+                        setTimeout(() => this.startWatch(), 10000);
+                    } else {
+                        logger.info('Event watcher closed normally.');
+                    }
+                },
+            );
+        } catch (err) {
             this.watchRequest = null;
             this.isConnecting = false;
             logger.error(err, 'Failed to initialize K8s watch. Retrying in 10 seconds...');
@@ -65,8 +66,7 @@ class WatchService {
         if (this.watchRequest && typeof this.watchRequest.abort === 'function') {
             try {
                 this.watchRequest.abort();
-            }
-            catch (e) {
+            } catch (e) {
                 logger.error(e, 'Error aborting watch request');
             }
         }
@@ -76,7 +76,7 @@ class WatchService {
     broadcast(data) {
         const message = JSON.stringify(data);
         const WebSocket = require('ws');
-        this.clients.forEach(ws => {
+        this.clients.forEach((ws) => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(message);
             }

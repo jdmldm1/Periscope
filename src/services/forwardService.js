@@ -20,13 +20,13 @@ class ForwardService {
                 reject(err);
             });
             server.listen(localPort ? Number(localPort) : 0, '127.0.0.1', () => {
-                const allocatedPort = server.address().port;
+                const address = server.address();
+                const allocatedPort = typeof address === 'object' && address ? address.port : Number(localPort);
                 const id = `${namespace}/${podName}/${remotePort}`;
                 if (this.activeForwards[id]) {
                     try {
                         this.activeForwards[id].server.close();
-                    }
-                    catch (e) { }
+                    } catch (e) {}
                 }
                 this.activeForwards[id] = {
                     id,
@@ -34,7 +34,7 @@ class ForwardService {
                     localPort: allocatedPort,
                     remotePort,
                     podName,
-                    namespace
+                    namespace,
                 };
                 logger.info({ id, localPort: allocatedPort }, 'Port forward created');
                 resolve(this.activeForwards[id]);
@@ -48,20 +48,19 @@ class ForwardService {
                 delete this.activeForwards[id];
                 logger.info({ id }, 'Port forward closed');
                 return true;
-            }
-            catch (err) {
+            } catch (err) {
                 logger.error({ id, error: err.message }, 'Error closing port forward');
             }
         }
         return false;
     }
     listForwards() {
-        return Object.values(this.activeForwards).map(pf => ({
+        return Object.values(this.activeForwards).map((pf) => ({
             id: pf.id,
             localPort: pf.localPort,
             remotePort: pf.remotePort,
             podName: pf.podName,
-            namespace: pf.namespace
+            namespace: pf.namespace,
         }));
     }
 }

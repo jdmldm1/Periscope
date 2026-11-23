@@ -1,30 +1,32 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 const KIND_TO_QUERY_KEY_MAP: Record<string, string> = {
-    'Pod': 'pods',
-    'Service': 'services',
-    'Deployment': 'deployments',
-    'StatefulSet': 'statefulsets',
-    'DaemonSet': 'daemonsets',
-    'ConfigMap': 'configmaps',
-    'Secret': 'secrets',
-    'Ingress': 'ingresses',
-    'PersistentVolumeClaim': 'persistentvolumeclaims',
-    'PersistentVolume': 'persistentvolumes',
-    'Node': 'nodes',
-    'Namespace': 'namespaces',
-    'Event': 'events',
+    Pod: 'pods',
+    Service: 'services',
+    Deployment: 'deployments',
+    StatefulSet: 'statefulsets',
+    DaemonSet: 'daemonsets',
+    ConfigMap: 'configmaps',
+    Secret: 'secrets',
+    Ingress: 'ingresses',
+    PersistentVolumeClaim: 'persistentvolumeclaims',
+    PersistentVolume: 'persistentvolumes',
+    Node: 'nodes',
+    Namespace: 'namespaces',
+    Event: 'events',
 };
 export const useResourceWatcher = () => {
     const queryClient = useQueryClient();
     const socketRef = useRef<WebSocket | null>(null);
     useEffect(() => {
         const connect = () => {
-            if (socketRef.current)
-                return;
+            if (socketRef.current) return;
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const host = window.location.host;
-            const token = localStorage.getItem('PERISCOPE_API_KEY') || new URLSearchParams(window.location.search).get('token') || '';
+            const token =
+                localStorage.getItem('PERISCOPE_API_KEY') ||
+                new URLSearchParams(window.location.search).get('token') ||
+                '';
             const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
             const wsUrl = `${protocol}//${host}/api/resources/ws${tokenParam}`;
             const socket = new WebSocket(wsUrl);
@@ -36,20 +38,21 @@ export const useResourceWatcher = () => {
                 try {
                     const data = JSON.parse(event.data);
                     const { kind, namespace, name, action } = data;
-                    console.debug(`[useResourceWatcher] Received cluster event: ${action} ${kind} ${namespace}/${name}`);
+                    console.debug(
+                        `[useResourceWatcher] Received cluster event: ${action} ${kind} ${namespace}/${name}`,
+                    );
                     const queryKey = KIND_TO_QUERY_KEY_MAP[kind];
                     if (queryKey) {
-                        queryClient.invalidateQueries({
+                        void queryClient.invalidateQueries({
                             predicate: (query) => query.queryKey[0] === 'resources' && query.queryKey[1] === queryKey,
                         });
                         if (['pods', 'services', 'deployments', 'nodes'].includes(queryKey)) {
-                            queryClient.invalidateQueries({ queryKey: ['topology'] });
-                            queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-                            queryClient.invalidateQueries({ queryKey: ['dashboard-integration'] });
+                            void queryClient.invalidateQueries({ queryKey: ['topology'] });
+                            void queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+                            void queryClient.invalidateQueries({ queryKey: ['dashboard-integration'] });
                         }
                     }
-                }
-                catch (err) {
+                } catch (err) {
                     console.error('[useResourceWatcher] Error parsing event message:', err);
                 }
             };

@@ -2,10 +2,12 @@ const WebSocket = require('ws');
 const logger = require('../utils/logger');
 const k8sService = require('../services/k8sService');
 function parsePacketLine(line, ipMap) {
-    const match = line.match(/^(\d{2}:\d{2}:\d{2}\.\d+)\s+(?:.*\s+)?IP\s+([\d.]+)\.(\d+)\s+>\s+([\d.]+)\.(\d+):\s+(.*)/);
-    if (!match)
-        return null;
-    const [_, timestamp, srcIp, srcPortStr, destIp, destPortStr, info] = match;
+    // eslint-disable-next-line security/detect-unsafe-regex -- runs on single tcpdump output lines
+    const match = line.match(
+        /^(\d{2}:\d{2}:\d{2}\.\d+)\s+(?:.*\s+)?IP\s+([\d.]+)\.(\d+)\s+>\s+([\d.]+)\.(\d+):\s+(.*)/,
+    );
+    if (!match) return null;
+    const [, timestamp, srcIp, srcPortStr, destIp, destPortStr, info] = match;
     const srcPort = parseInt(srcPortStr, 10);
     const destPort = parseInt(destPortStr, 10);
     const lenMatch = info.match(/length (\d+)/);
@@ -14,17 +16,13 @@ function parsePacketLine(line, ipMap) {
     let protocol;
     if (onPort(53)) {
         protocol = 'DNS';
-    }
-    else if (!isTcp) {
+    } else if (!isTcp) {
         protocol = 'UDP';
-    }
-    else if (onPort(443) || onPort(8443)) {
+    } else if (onPort(443) || onPort(8443)) {
         protocol = 'HTTPS';
-    }
-    else if (onPort(80) || onPort(8080)) {
+    } else if (onPort(80) || onPort(8080)) {
         protocol = 'HTTP';
-    }
-    else {
+    } else {
         protocol = 'TCP';
     }
     return {
@@ -37,37 +35,36 @@ function parsePacketLine(line, ipMap) {
         destRes: ipMap[destIp] || { type: 'external', name: destIp },
         protocol,
         length: lenMatch ? parseInt(lenMatch[1], 10) : 0,
-        info: info.trim()
+        info: info.trim(),
     };
 }
 async function refreshIpMap() {
     try {
         const [pods, svcs] = await Promise.all([
             k8sService.core.listPodForAllNamespaces(),
-            k8sService.core.listServiceForAllNamespaces()
+            k8sService.core.listServiceForAllNamespaces(),
         ]);
         const newIpMap = {};
-        pods.items.forEach(p => {
+        pods.items.forEach((p) => {
             if (p.status?.podIP) {
                 newIpMap[p.status.podIP] = {
                     type: 'pod',
                     name: p.metadata.name,
-                    namespace: p.metadata.namespace
+                    namespace: p.metadata.namespace,
                 };
             }
         });
-        svcs.items.forEach(s => {
+        svcs.items.forEach((s) => {
             if (s.spec?.clusterIP && s.spec.clusterIP !== 'None') {
                 newIpMap[s.spec.clusterIP] = {
                     type: 'service',
                     name: s.metadata.name,
-                    namespace: s.metadata.namespace
+                    namespace: s.metadata.namespace,
                 };
             }
         });
         return newIpMap;
-    }
-    catch (err) {
+    } catch (err) {
         logger.error(err, 'Error refreshing IP lookup map');
         return {};
     }
@@ -82,7 +79,7 @@ function handleNetworkSniff(ws, params) {
     const targetNs = params.get('namespace') || 'default';
     let ipMap = {};
     let refreshInterval;
-    refreshIpMap().then(map => ipMap = map);
+    refreshIpMap().then((map) => (ipMap = map));
     refreshInterval = setInterval(async () => {
         const map = await refreshIpMap();
         ipMap = map;
@@ -92,7 +89,7 @@ function handleNetworkSniff(ws, params) {
         lineBuffer += data.toString('utf8');
         const lines = lineBuffer.split('\n');
         lineBuffer = lines.pop() || '';
-        lines.forEach(line => {
+        lines.forEach((line) => {
             const packet = parsePacketLine(line, ipMap);
             if (packet && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(packet));
@@ -102,35 +99,37 @@ function handleNetworkSniff(ws, params) {
     if (targetPod) {
         const podCaptureService = require('../services/podCaptureService');
         let capture = null;
-        podCaptureService.startEphemeralCapture({
-            ns: targetNs,
-            pod: targetPod,
-            iface,
-            onData: handleData
-        })
+        podCaptureService
+            .startEphemeralCapture({
+                ns: targetNs,
+                pod: targetPod,
+                iface,
+                onData: handleData,
+            })
             .then((c) => {
-            capture = c;
-            if (ws.readyState !== WebSocket.OPEN) {
-                c.stop();
-            }
-        })
+                capture = c;
+                if (ws.readyState !== WebSocket.OPEN) {
+                    c.stop();
+                }
+            })
             .catch((err) => {
-            logger.error({ targetNs, targetPod, error: err.message }, 'Ephemeral capture failed');
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    error: `Could not capture ${targetNs}/${targetPod}: ${err.body?.message || err.message}`
-                }));
-            }
-        });
+                logger.error({ targetNs, targetPod, error: err.message }, 'Ephemeral capture failed');
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(
+                        JSON.stringify({
+                            error: `Could not capture ${targetNs}/${targetPod}: ${err.body?.message || err.message}`,
+                        }),
+                    );
+                }
+            });
         ws.on('close', () => {
             clearInterval(refreshInterval);
-            if (capture)
-                capture.stop();
+            if (capture) capture.stop();
         });
         return;
     }
     const tcpdump = spawn('tcpdump', ['-l', '-nn', '-i', iface], {
-        env: { ...process.env }
+        env: { ...process.env },
     });
     tcpdump.stdout.on('data', handleData);
     let stderrBuf = '';
@@ -150,9 +149,11 @@ function handleNetworkSniff(ws, params) {
     });
     tcpdump.on('exit', (code) => {
         if (code && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                error: stderrBuf.trim() || `tcpdump exited with code ${code}`
-            }));
+            ws.send(
+                JSON.stringify({
+                    error: stderrBuf.trim() || `tcpdump exited with code ${code}`,
+                }),
+            );
         }
     });
     ws.on('close', () => {

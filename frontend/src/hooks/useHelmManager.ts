@@ -17,19 +17,15 @@ export const useHelmManager = () => {
         },
     });
     useEffect(() => {
-        if (reposData)
-            setHelmRepos(reposData);
+        if (reposData) setHelmRepos(reposData);
     }, [reposData]);
     const addRepoMutation = useMutation({
-        mutationFn: async (repo: {
-            name: string;
-            url: string;
-        }) => {
+        mutationFn: async (repo: { name: string; url: string }) => {
             const { data } = await api.post('/repos', repo);
             return data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['helm-repos'] });
+            void queryClient.invalidateQueries({ queryKey: ['helm-repos'] });
             setNewHelmRepo({ name: '', url: '' });
         },
     });
@@ -39,7 +35,7 @@ export const useHelmManager = () => {
             return data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['helm-repos'] });
+            void queryClient.invalidateQueries({ queryKey: ['helm-repos'] });
         },
     });
     const updateReposMutation = useMutation({
@@ -48,7 +44,7 @@ export const useHelmManager = () => {
             return data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['helm-repos'] });
+            void queryClient.invalidateQueries({ queryKey: ['helm-repos'] });
         },
     });
     const searchRepos = async (q: string) => {
@@ -56,11 +52,9 @@ export const useHelmManager = () => {
         try {
             const { data } = await api.get('/search', { params: { q } });
             setHelmSearchResults(data);
-        }
-        catch (err) {
+        } catch (err) {
             setHelmSearchResults([]);
-        }
-        finally {
+        } finally {
             setIsSearchingHelm(false);
         }
     };
@@ -75,6 +69,6 @@ export const useHelmManager = () => {
         removeRepo: removeRepoMutation.mutateAsync,
         updateRepos: updateReposMutation.mutateAsync,
         newHelmRepo,
-        setNewHelmRepo
+        setNewHelmRepo,
     };
 };

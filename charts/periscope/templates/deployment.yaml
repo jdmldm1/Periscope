@@ -7,6 +7,11 @@ metadata:
     helm.sh/chart: {{ include "periscope.chart" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    ignore-check.kube-linter.io/drop-net-raw-capability: "NET_RAW is required for in-pod tcpdump capture"
+    ignore-check.kube-linter.io/privilege-escalation-container: "tcpdump gains cap_net_raw through file capabilities, which needs allowPrivilegeEscalation"
+    ignore-check.kube-linter.io/no-read-only-root-fs: "Writes the Zarf workspace, tool cache and bootstrapped CLIs under /app"
+    ignore-check.kube-linter.io/unset-memory-requirements: "Scan memory varies by cluster; set resources.limits per install"
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:

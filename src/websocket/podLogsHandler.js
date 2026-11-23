@@ -4,8 +4,7 @@ const k8s = require('@kubernetes/client-node');
 const k8sService = require('../services/k8sService');
 const logger = require('../utils/logger');
 function safeClose(ws, code, reason) {
-    if (ws.readyState !== WebSocket.OPEN)
-        return;
+    if (ws.readyState !== WebSocket.OPEN) return;
     try {
         let safeReason = reason || '';
         if (Buffer.byteLength(safeReason, 'utf8') > 123) {
@@ -14,13 +13,11 @@ function safeClose(ws, code, reason) {
             safeReason = safeReason.replace(/[\uFFFD]/g, '') + '...';
         }
         ws.close(code, safeReason);
-    }
-    catch (e) {
+    } catch (e) {
         logger.error(e, 'Error in safeClose');
         try {
             ws.close(code);
-        }
-        catch (_) { }
+        } catch (_) {}
     }
 }
 function handlePodLogs(ws, namespace, pod, container) {
@@ -30,21 +27,23 @@ function handlePodLogs(ws, namespace, pod, container) {
             ws.send(chunk.toString('utf8'));
         }
     });
-    const k8sLog = new k8s.Log(k8sService.kc);
-    k8sLog.log(namespace, pod, container || undefined, logStream, { follow: true, tailLines: 500 }, (err) => {
+    logStream.on('end', () => {
         if (ws.readyState === WebSocket.OPEN) {
             ws.close();
         }
-    })
-        .then((req) => {
-        ws.on('close', () => {
-            if (req?.abort) {
-                req.abort();
-            }
-        });
-    })
-        .catch(err => {
-        safeClose(ws, 4002, err.message);
     });
+    const k8sLog = new k8s.Log(k8sService.kc);
+    k8sLog
+        .log(namespace, pod, container || undefined, logStream, { follow: true, tailLines: 500 })
+        .then((req) => {
+            ws.on('close', () => {
+                if (req?.abort) {
+                    req.abort();
+                }
+            });
+        })
+        .catch((err) => {
+            safeClose(ws, 4002, err.message);
+        });
 }
 module.exports = { handlePodLogs };

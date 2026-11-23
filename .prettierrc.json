@@ -1,0 +1,9 @@
+{
+  "tabWidth": 4,
+  "singleQuote": true,
+  "semi": true,
+  "trailingComma": "all",
+  "printWidth": 120,
+  "endOfLine": "auto",
+  "overrides": [{ "files": ["*.yml", "*.yaml", "*.md", "*.json", "*.webmanifest"], "options": { "tabWidth": 2 } }]
+}

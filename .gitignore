@@ -12,3 +12,7 @@ server-bundle.cjs
 
 # SonarQube scanner state
 .scannerwork/
+
+# Test coverage output
+coverage/
+frontend/coverage/

@@ -1,10 +1,50 @@
-import { createContext, useContext, useState, useEffect, type ReactNode, type Dispatch, type SetStateAction } from 'react';
+import {
+    createContext,
+    useContext,
+    useState,
+    useEffect,
+    type ReactNode,
+    type Dispatch,
+    type SetStateAction,
+} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNamespaces, useKubeContexts } from '../utils/kubeHooks';
 import { useClusterResources } from '../hooks/useClusterResources';
 import axios from 'axios';
 const api = axios.create({ baseURL: '/api' });
-export type ResourceKind = 'dashboard' | 'topology' | 'nodes' | 'events' | 'logs' | 'cluster-terminal' | 'k9s' | 'crds' | 'namespaces' | 'pods' | 'deployments' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' | 'services' | 'ingresses' | 'traffic' | 'configmaps' | 'secrets' | 'persistentvolumes' | 'persistentvolumeclaims' | 'helm' | 'helm-repos' | 'zarf' | 'zarf-registry' | 'image-scanner' | 'kubescape' | 'custom' | 'autoscale-manager' | 'backup-restore' | 'oras';
+export type ResourceKind =
+    | 'dashboard'
+    | 'topology'
+    | 'nodes'
+    | 'events'
+    | 'logs'
+    | 'cluster-terminal'
+    | 'k9s'
+    | 'crds'
+    | 'namespaces'
+    | 'pods'
+    | 'deployments'
+    | 'statefulsets'
+    | 'daemonsets'
+    | 'jobs'
+    | 'cronjobs'
+    | 'services'
+    | 'ingresses'
+    | 'traffic'
+    | 'configmaps'
+    | 'secrets'
+    | 'persistentvolumes'
+    | 'persistentvolumeclaims'
+    | 'helm'
+    | 'helm-repos'
+    | 'zarf'
+    | 'zarf-registry'
+    | 'image-scanner'
+    | 'kubescape'
+    | 'custom'
+    | 'autoscale-manager'
+    | 'backup-restore'
+    | 'oras';
 interface AppContextType {
     activeTab: ResourceKind;
     setActiveTab: (tab: ResourceKind) => void;
@@ -40,14 +80,10 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | null>(null);
 export function useAppContext() {
     const ctx = useContext(AppContext);
-    if (!ctx)
-        throw new Error('useAppContext must be used within AppProvider');
+    if (!ctx) throw new Error('useAppContext must be used within AppProvider');
     return ctx;
 }
-export function AppProvider({ children, scanningEnabled = true }: {
-    children: ReactNode;
-    scanningEnabled?: boolean;
-}) {
+export function AppProvider({ children, scanningEnabled = true }: { children: ReactNode; scanningEnabled?: boolean }) {
     const queryClient = useQueryClient();
     const { data: namespacesData } = useNamespaces();
     const { data: contextsData } = useKubeContexts();
@@ -69,8 +105,7 @@ export function AppProvider({ children, scanningEnabled = true }: {
     const [namespaces, setNamespaces] = useState<string[]>(['all']);
     const [selectedNs, setSelectedNs] = useState<string>('all');
     useEffect(() => {
-        if (namespacesData)
-            setNamespaces(['all', ...namespacesData]);
+        if (namespacesData) setNamespaces(['all', ...namespacesData]);
     }, [namespacesData]);
     const [contexts, setContexts] = useState<any[]>([]);
     const [currentContext, setCurrentContext] = useState<string>('');
@@ -84,14 +119,15 @@ export function AppProvider({ children, scanningEnabled = true }: {
     const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
         try {
             const saved = localStorage.getItem('sidebar_collapsed');
-            return saved ? JSON.parse(saved) : { cluster: false, workloads: true, network: true, config: true, security: true, tools: true };
-        }
-        catch (e) {
+            return saved
+                ? JSON.parse(saved)
+                : { cluster: false, workloads: true, network: true, config: true, security: true, tools: true };
+        } catch (e) {
             return { cluster: false, workloads: true, network: true, config: true, security: true, tools: true };
         }
     });
     const toggleSection = (section: string) => {
-        setCollapsedSections(prev => {
+        setCollapsedSections((prev) => {
             const updated = { ...prev, [section]: !prev[section] };
             localStorage.setItem('sidebar_collapsed', JSON.stringify(updated));
             return updated;
@@ -110,8 +146,7 @@ export function AppProvider({ children, scanningEnabled = true }: {
         try {
             await api.post('/kube/contexts', { context: ctx });
             window.location.reload();
-        }
-        catch (err) {
+        } catch (err) {
             console.error(err);
         }
     };
@@ -122,23 +157,42 @@ export function AppProvider({ children, scanningEnabled = true }: {
         setActiveTab('pods');
         setSearch(deploy?.metadata?.name || '');
     };
-    return (<AppContext.Provider value={{
-            activeTab, setActiveTab,
-            namespaces, selectedNs, setSelectedNs,
-            contexts, currentContext, handleContextChange,
-            search, setSearch, filteredResources, loading,
-            isCmdPaletteOpen, setIsCmdPaletteOpen,
-            customCrd, setCustomCrd,
-            modal, setModal,
-            handleDrillDownToPods,
-            collapsedSections, toggleSection,
-            isDeployZarfModalOpen, setIsDeployZarfModalOpen,
-            isDeployHelmModalOpen, setIsDeployHelmModalOpen,
-            focusedRowIndex, setFocusedRowIndex,
-            api,
-            queryClient,
-            scanningEnabled,
-        }}>
-      {children}
-    </AppContext.Provider>);
+    return (
+        <AppContext.Provider
+            value={{
+                activeTab,
+                setActiveTab,
+                namespaces,
+                selectedNs,
+                setSelectedNs,
+                contexts,
+                currentContext,
+                handleContextChange,
+                search,
+                setSearch,
+                filteredResources,
+                loading,
+                isCmdPaletteOpen,
+                setIsCmdPaletteOpen,
+                customCrd,
+                setCustomCrd,
+                modal,
+                setModal,
+                handleDrillDownToPods,
+                collapsedSections,
+                toggleSection,
+                isDeployZarfModalOpen,
+                setIsDeployZarfModalOpen,
+                isDeployHelmModalOpen,
+                setIsDeployHelmModalOpen,
+                focusedRowIndex,
+                setFocusedRowIndex,
+                api,
+                queryClient,
+                scanningEnabled,
+            }}
+        >
+            {children}
+        </AppContext.Provider>
+    );
 }

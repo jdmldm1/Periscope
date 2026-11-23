@@ -9,14 +9,10 @@ const BADGE_COLORS: Record<BadgeType, string> = {
 function inferKind(res: any): string {
     if (res.spec?.backoffLimit !== undefined || res.status?.succeeded !== undefined || res.status?.failed !== undefined)
         return 'jobs';
-    if (res.spec?.schedule !== undefined)
-        return 'cronjobs';
-    if (res.status?.podIP !== undefined || (res.spec?.containers && !res.spec?.template))
-        return 'pods';
-    if (res.status?.nodeInfo !== undefined)
-        return 'nodes';
-    if (res.spec?.template !== undefined)
-        return 'workloads';
+    if (res.spec?.schedule !== undefined) return 'cronjobs';
+    if (res.status?.podIP !== undefined || (res.spec?.containers && !res.spec?.template)) return 'pods';
+    if (res.status?.nodeInfo !== undefined) return 'nodes';
+    if (res.spec?.template !== undefined) return 'workloads';
     return '';
 }
 function podStatus(res: any): {
@@ -28,19 +24,17 @@ function podStatus(res: any): {
     }
     let status = res.status?.phase || 'Unknown';
     let type: BadgeType = 'warning';
-    if (status === 'Running')
-        type = 'success';
-    else if (status === 'Succeeded')
-        type = 'info';
-    else if (status === 'Failed')
-        type = 'error';
+    if (status === 'Running') type = 'success';
+    else if (status === 'Succeeded') type = 'info';
+    else if (status === 'Failed') type = 'error';
     const containerErrors = (res.status?.containerStatuses || []).filter((s: any) => {
         if (s.state?.waiting) {
-            const transient = ['ContainerCreating', 'PodInitializing', 'AlwaysPullImages'].includes(s.state.waiting.reason);
+            const transient = ['ContainerCreating', 'PodInitializing', 'AlwaysPullImages'].includes(
+                s.state.waiting.reason,
+            );
             return !transient;
         }
-        if (s.state?.terminated)
-            return s.state.terminated.exitCode !== 0;
+        if (s.state?.terminated) return s.state.terminated.exitCode !== 0;
         return false;
     });
     if (containerErrors.length > 0) {
@@ -74,24 +68,23 @@ function jobStatus(res: any): {
     const conditions = res.status?.conditions || [];
     const isComplete = conditions.some((c: any) => c.type === 'Complete' && c.status === 'True');
     const isFailed = conditions.some((c: any) => c.type === 'Failed' && c.status === 'True');
-    if (isComplete || (succeeded > 0 && active === 0))
-        return { status: 'Succeeded', type: 'success' };
-    if (isFailed || failed > 0)
-        return { status: 'Failed', type: 'error' };
-    if (active > 0)
-        return { status: 'Running', type: 'info' };
+    if (isComplete || (succeeded > 0 && active === 0)) return { status: 'Succeeded', type: 'success' };
+    if (isFailed || failed > 0) return { status: 'Failed', type: 'error' };
+    if (active > 0) return { status: 'Running', type: 'info' };
     return { status: 'Completed', type: 'success' };
 }
 function cronJobStatus(res: any): {
     status: string;
     type: BadgeType;
 } {
-    if (res.spec?.suspend)
-        return { status: 'Suspended', type: 'warning' };
+    if (res.spec?.suspend) return { status: 'Suspended', type: 'warning' };
     const active = res.status?.active || [];
     return { status: active.length > 0 ? 'Running' : 'Active', type: 'success' };
 }
-export function resolveStatus(res: any, activeTab: any): {
+export function resolveStatus(
+    res: any,
+    activeTab: any,
+): {
     status: string;
     type: 'success' | 'warning' | 'error' | 'info';
 } {
@@ -101,24 +94,35 @@ export function resolveStatus(res: any, activeTab: any): {
     const isPod = activeTab === 'pods' || inferred === 'pods';
     const isNode = activeTab === 'nodes' || inferred === 'nodes';
     const isWorkload = ['deployments', 'statefulsets', 'daemonsets'].includes(activeTab) || inferred === 'workloads';
-    if (isPod)
-        return podStatus(res);
-    if (isWorkload)
-        return workloadStatus(res);
+    if (isPod) return podStatus(res);
+    if (isWorkload) return workloadStatus(res);
     if (isNode) {
         const readyCond = (res.status?.conditions || []).find((c: any) => c.type === 'Ready');
         const ready = readyCond?.status === 'True';
         return { status: ready ? 'Ready' : 'NotReady', type: ready ? 'success' : 'error' };
     }
-    if (isJob)
-        return jobStatus(res);
-    if (isCronJob)
-        return cronJobStatus(res);
+    if (isJob) return jobStatus(res);
+    if (isCronJob) return cronJobStatus(res);
     if (activeTab === 'namespaces') {
         const phase = res.status?.phase || 'Active';
         return { status: phase, type: phase === 'Active' ? 'success' : 'warning' };
     }
-    if (['services', 'configmaps', 'secrets', 'ingresses', 'networkpolicies', 'persistentvolumes', 'persistentvolumeclaims', 'crds', 'custom', 'helm', 'zarf', 'zarf-registry'].includes(activeTab)) {
+    if (
+        [
+            'services',
+            'configmaps',
+            'secrets',
+            'ingresses',
+            'networkpolicies',
+            'persistentvolumes',
+            'persistentvolumeclaims',
+            'crds',
+            'custom',
+            'helm',
+            'zarf',
+            'zarf-registry',
+        ].includes(activeTab)
+    ) {
         let status = res.status?.phase || 'Active';
         if (activeTab === 'zarf' || activeTab === 'helm' || activeTab === 'zarf-registry')
             status = res.status?.phase || 'deployed';
@@ -128,17 +132,17 @@ export function resolveStatus(res: any, activeTab: any): {
     return { status: 'Unknown', type: 'warning' };
 }
 export function renderStatusBadge(res: any, activeTab: ResourceKind): React.ReactNode {
-    if (activeTab === 'events')
-        return null;
+    if (activeTab === 'events') return null;
     const { status, type } = resolveStatus(res, activeTab);
     const color = BADGE_COLORS[type] || 'var(--text-muted)';
-    return (<span className="badge" style={{ background: `${color}10`, color, borderColor: `${color}30` }}>
-      {status}
-    </span>);
+    return (
+        <span className="badge" style={{ background: `${color}10`, color, borderColor: `${color}30` }}>
+            {status}
+        </span>
+    );
 }
 export function renderSparkline(points: number[], color: string): React.ReactNode | null {
-    if (!points || points.length < 2)
-        return null;
+    if (!points || points.length < 2) return null;
     const max = Math.max(...points, 1);
     const width = 40;
     const height = 16;
@@ -147,7 +151,9 @@ export function renderSparkline(points: number[], color: string): React.ReactNod
         const y = height - (p / max) * height;
         return `${x},${y}`;
     });
-    return (<svg width={width} height={height} style={{ overflow: 'visible', verticalAlign: 'middle', marginLeft: 6 }}>
-      <polyline fill="none" stroke={color} strokeWidth="1.5" points={coords.join(' ')}/>
-    </svg>);
+    return (
+        <svg width={width} height={height} style={{ overflow: 'visible', verticalAlign: 'middle', marginLeft: 6 }}>
+            <polyline fill="none" stroke={color} strokeWidth="1.5" points={coords.join(' ')} />
+        </svg>
+    );
 }

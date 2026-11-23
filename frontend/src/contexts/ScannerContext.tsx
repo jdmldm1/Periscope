@@ -19,13 +19,10 @@ interface ScannerContextType {
 const ScannerContext = createContext<ScannerContextType | null>(null);
 export function useScannerContext() {
     const ctx = useContext(ScannerContext);
-    if (!ctx)
-        throw new Error('useScannerContext must be used within ScannerProvider');
+    if (!ctx) throw new Error('useScannerContext must be used within ScannerProvider');
     return ctx;
 }
-export function ScannerProvider({ children }: {
-    children: ReactNode;
-}) {
+export function ScannerProvider({ children }: { children: ReactNode }) {
     const { scanningEnabled } = useAppContext();
     const queryClient = useQueryClient();
     const { data: sbomScansData } = useSbomScans(scanningEnabled);
@@ -40,12 +37,11 @@ export function ScannerProvider({ children }: {
             try {
                 const { data } = await api.get('/zarf/scanner/config');
                 setEnableAutoScan(data.enableAutoScan);
-            }
-            catch (err) {
+            } catch (err) {
                 console.error('Failed to fetch scanner config', err);
             }
         };
-        fetchScannerConfig();
+        void fetchScannerConfig();
     }, [scanningEnabled]);
     const handleToggleAutoScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!scanningEnabled) return;
@@ -53,15 +49,14 @@ export function ScannerProvider({ children }: {
         setEnableAutoScan(newVal);
         try {
             await api.post('/zarf/scanner/config', { enableAutoScan: newVal });
-        }
-        catch (err) {
+        } catch (err) {
             console.error('Failed to toggle auto scan', err);
             setEnableAutoScan(!newVal);
         }
     };
     const scanSingleImage = async (img: string) => {
         if (!scanningEnabled) return;
-        setLocalScanningImages(prev => {
+        setLocalScanningImages((prev) => {
             const next = new Set(prev);
             next.add(img);
             return next;
@@ -69,14 +64,12 @@ export function ScannerProvider({ children }: {
         try {
             await api.post('/zarf/scanner/sbom/scan', { imageRef: img, rescan: true });
             await api.post('/zarf/scanner/sbom/vulnerabilities', { imageRef: img });
-            queryClient.invalidateQueries({ queryKey: ['sbom-scans'] });
-        }
-        catch (err: any) {
+            void queryClient.invalidateQueries({ queryKey: ['sbom-scans'] });
+        } catch (err: any) {
             console.error(err);
             alert('Failed to scan image: ' + (err.response?.data?.error || err.message));
-        }
-        finally {
-            setLocalScanningImages(prev => {
+        } finally {
+            setLocalScanningImages((prev) => {
                 const next = new Set(prev);
                 next.delete(img);
                 return next;
@@ -92,11 +85,9 @@ export function ScannerProvider({ children }: {
                 await api.post('/zarf/scanner/sbom/scan', { imageRef: img });
                 await api.post('/zarf/scanner/sbom/vulnerabilities', { imageRef: img });
             }
-        }
-        catch (err) {
+        } catch (err) {
             console.error(err);
-        }
-        finally {
+        } finally {
             setIsScanningAllRunningImages(false);
         }
     };
@@ -104,33 +95,39 @@ export function ScannerProvider({ children }: {
         if (!scanningEnabled) return;
         try {
             await api.post('/security/kubescape/scan');
-            queryClient.invalidateQueries({ queryKey: ['kubescape-status'] });
-        }
-        catch (err) {
+            void queryClient.invalidateQueries({ queryKey: ['kubescape-status'] });
+        } catch (err) {
             console.error(err);
         }
     };
     const runningImagesScanResults = React.useMemo(() => {
-        if (!sbomScansData)
-            return {};
+        if (!sbomScansData) return {};
         const merged = { ...sbomScansData };
-        localScanningImages.forEach(img => {
+        localScanningImages.forEach((img) => {
             if (merged[img]) {
                 merged[img] = { ...merged[img], status: 'scanning' };
-            }
-            else {
+            } else {
                 merged[img] = { status: 'scanning' };
             }
         });
         return merged;
     }, [sbomScansData, localScanningImages]);
-    return (<ScannerContext.Provider value={{
-            enableAutoScan, handleToggleAutoScan,
-            scanSingleImage, fetchRunningImagesAndScan,
-            isScanningAllRunningImages, runningImagesScanResults,
-            sbomScansData, grypeDbStatus,
-            kubescapeStatusData, triggerKubescapeScan,
-        }}>
-      {children}
-    </ScannerContext.Provider>);
+    return (
+        <ScannerContext.Provider
+            value={{
+                enableAutoScan,
+                handleToggleAutoScan,
+                scanSingleImage,
+                fetchRunningImagesAndScan,
+                isScanningAllRunningImages,
+                runningImagesScanResults,
+                sbomScansData,
+                grypeDbStatus,
+                kubescapeStatusData,
+                triggerKubescapeScan,
+            }}
+        >
+            {children}
+        </ScannerContext.Provider>
+    );
 }

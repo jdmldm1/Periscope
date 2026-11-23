@@ -17,43 +17,42 @@ class K8sService {
             this.extensions = this.kc.makeApiClient(k8s.ApiextensionsV1Api);
             this.rbac = this.kc.makeApiClient(k8s.RbacAuthorizationV1Api);
             this.fetchers = {
-                'pods': (ns) => this.core.listNamespacedPod({ namespace: ns }),
-                'deployments': (ns) => this.apps.listNamespacedDeployment({ namespace: ns }),
-                'daemonsets': (ns) => this.apps.listNamespacedDaemonSet({ namespace: ns }),
-                'statefulsets': (ns) => this.apps.listNamespacedStatefulSet({ namespace: ns }),
-                'services': (ns) => this.core.listNamespacedService({ namespace: ns }),
-                'configmaps': (ns) => this.core.listNamespacedConfigMap({ namespace: ns }),
-                'secrets': (ns) => this.core.listNamespacedSecret({ namespace: ns }),
-                'ingresses': (ns) => this.networking.listNamespacedIngress({ namespace: ns }),
-                'networkpolicies': (ns) => this.networking.listNamespacedNetworkPolicy({ namespace: ns }),
-                'jobs': (ns) => this.batch.listNamespacedJob({ namespace: ns }),
-                'cronjobs': (ns) => this.batch.listNamespacedCronJob({ namespace: ns }),
-                'events': (ns) => this.core.listNamespacedEvent({ namespace: ns }),
-                'namespaces': () => this.core.listNamespace(),
-                'persistentvolumes': () => this.core.listPersistentVolume(),
-                'persistentvolumeclaims': (ns) => this.core.listNamespacedPersistentVolumeClaim({ namespace: ns }),
-                'nodes': () => this.core.listNode(),
-                'crds': () => this.extensions.listCustomResourceDefinition(),
-                'customresourcedefinitions': () => this.extensions.listCustomResourceDefinition()
+                pods: (ns) => this.core.listNamespacedPod({ namespace: ns }),
+                deployments: (ns) => this.apps.listNamespacedDeployment({ namespace: ns }),
+                daemonsets: (ns) => this.apps.listNamespacedDaemonSet({ namespace: ns }),
+                statefulsets: (ns) => this.apps.listNamespacedStatefulSet({ namespace: ns }),
+                services: (ns) => this.core.listNamespacedService({ namespace: ns }),
+                configmaps: (ns) => this.core.listNamespacedConfigMap({ namespace: ns }),
+                secrets: (ns) => this.core.listNamespacedSecret({ namespace: ns }),
+                ingresses: (ns) => this.networking.listNamespacedIngress({ namespace: ns }),
+                networkpolicies: (ns) => this.networking.listNamespacedNetworkPolicy({ namespace: ns }),
+                jobs: (ns) => this.batch.listNamespacedJob({ namespace: ns }),
+                cronjobs: (ns) => this.batch.listNamespacedCronJob({ namespace: ns }),
+                events: (ns) => this.core.listNamespacedEvent({ namespace: ns }),
+                namespaces: () => this.core.listNamespace(),
+                persistentvolumes: () => this.core.listPersistentVolume(),
+                persistentvolumeclaims: (ns) => this.core.listNamespacedPersistentVolumeClaim({ namespace: ns }),
+                nodes: () => this.core.listNode(),
+                crds: () => this.extensions.listCustomResourceDefinition(),
+                customresourcedefinitions: () => this.extensions.listCustomResourceDefinition(),
             };
             this.allNamespacesFetchers = {
-                'pods': () => this.core.listPodForAllNamespaces(),
-                'deployments': () => this.apps.listDeploymentForAllNamespaces(),
-                'daemonsets': () => this.apps.listDaemonSetForAllNamespaces(),
-                'statefulsets': () => this.apps.listStatefulSetForAllNamespaces(),
-                'services': () => this.core.listServiceForAllNamespaces(),
-                'configmaps': () => this.core.listConfigMapForAllNamespaces(),
-                'secrets': () => this.core.listSecretForAllNamespaces(),
-                'ingresses': () => this.networking.listIngressForAllNamespaces(),
-                'networkpolicies': () => this.networking.listNetworkPolicyForAllNamespaces(),
-                'jobs': () => this.batch.listJobForAllNamespaces(),
-                'cronjobs': () => this.batch.listCronJobForAllNamespaces(),
-                'events': () => this.core.listEventForAllNamespaces(),
-                'persistentvolumeclaims': () => this.core.listPersistentVolumeClaimForAllNamespaces()
+                pods: () => this.core.listPodForAllNamespaces(),
+                deployments: () => this.apps.listDeploymentForAllNamespaces(),
+                daemonsets: () => this.apps.listDaemonSetForAllNamespaces(),
+                statefulsets: () => this.apps.listStatefulSetForAllNamespaces(),
+                services: () => this.core.listServiceForAllNamespaces(),
+                configmaps: () => this.core.listConfigMapForAllNamespaces(),
+                secrets: () => this.core.listSecretForAllNamespaces(),
+                ingresses: () => this.networking.listIngressForAllNamespaces(),
+                networkpolicies: () => this.networking.listNetworkPolicyForAllNamespaces(),
+                jobs: () => this.batch.listJobForAllNamespaces(),
+                cronjobs: () => this.batch.listCronJobForAllNamespaces(),
+                events: () => this.core.listEventForAllNamespaces(),
+                persistentvolumeclaims: () => this.core.listPersistentVolumeClaimForAllNamespaces(),
             };
             logger.info({ context: this.kc.currentContext }, 'K8s clients initialized');
-        }
-        catch (err) {
+        } catch (err) {
             logger.error(err, 'Failed to initialize K8s clients');
             throw err;
         }
@@ -68,31 +67,33 @@ class K8sService {
         }
         try {
             let res;
-            if (ns === 'all' || k === 'namespaces' || k === 'crds' || k === 'customresourcedefinitions' || k === 'nodes' || k === 'persistentvolumes') {
+            if (
+                ns === 'all' ||
+                k === 'namespaces' ||
+                k === 'crds' ||
+                k === 'customresourcedefinitions' ||
+                k === 'nodes' ||
+                k === 'persistentvolumes'
+            ) {
                 if (['persistentvolumes', 'nodes', 'namespaces', 'crds', 'customresourcedefinitions'].includes(k)) {
                     res = await this.fetchers[k]();
-                }
-                else if (this.allNamespacesFetchers[k]) {
+                } else if (this.allNamespacesFetchers[k]) {
                     res = await this.allNamespacesFetchers[k]();
-                }
-                else {
+                } else {
                     throw new Error('All namespaces not supported for this kind');
                 }
-            }
-            else {
+            } else {
                 const nsName = ns || 'default';
                 if (!this.fetchers[k]) {
                     throw new Error(`Kind ${kind} not supported`);
                 }
                 res = await this.fetchers[k](nsName);
             }
-            if (!res)
-                return [];
+            if (!res) return [];
             const result = res.items || res.body?.items || [];
             this.cache.set(cacheKey, { data: result, timestamp: now });
             return result;
-        }
-        catch (err) {
+        } catch (err) {
             logger.error({ kind, ns, error: err.message }, 'Error in getResources');
             throw err;
         }
@@ -105,7 +106,7 @@ class K8sService {
         }
         const k = kind.toLowerCase();
         const keysToRemove = [`${k}-${ns || 'all'}`, `${k}-all`].concat(ns ? [`${k}-undefined`, `${k}-default`] : []);
-        keysToRemove.forEach(key => {
+        keysToRemove.forEach((key) => {
             if (this.cache.has(key)) {
                 this.cache.delete(key);
                 logger.debug({ key }, 'K8s cache key invalidated');
@@ -114,26 +115,23 @@ class K8sService {
     }
     async getContexts() {
         return {
-            contexts: this.kc.contexts.map(c => ({
+            contexts: this.kc.contexts.map((c) => ({
                 name: c.name,
                 cluster: c.cluster,
-                user: c.user
+                user: c.user,
             })),
-            currentContext: this.kc.currentContext
+            currentContext: this.kc.currentContext,
         };
     }
     async setContext(contextName) {
-        const known = this.kc.contexts.some(c => c.name === contextName);
+        const known = this.kc.contexts.some((c) => c.name === contextName);
         if (!known) {
-            const err = new Error(`Unknown context: ${contextName}`);
-            err.statusCode = 400;
-            throw err;
+            throw Object.assign(new Error(`Unknown context: ${contextName}`), { statusCode: 400 });
         }
         const { run } = require('../utils/exec');
         try {
             await run('kubectl', ['config', 'use-context', contextName]);
-        }
-        catch (error) {
+        } catch (error) {
             logger.error({ contextName, error: error.message }, 'Failed to switch context');
             throw error;
         }
@@ -147,18 +145,19 @@ class K8sService {
             const [nodesRes, servicesRes, deploymentsRes, podsRes] = await Promise.all([
                 this.core.listNode(),
                 isAll ? this.core.listServiceForAllNamespaces() : this.core.listNamespacedService({ namespace: ns }),
-                isAll ? this.apps.listDeploymentForAllNamespaces() : this.apps.listNamespacedDeployment({ namespace: ns }),
-                isAll ? this.core.listPodForAllNamespaces() : this.core.listNamespacedPod({ namespace: ns })
+                isAll
+                    ? this.apps.listDeploymentForAllNamespaces()
+                    : this.apps.listNamespacedDeployment({ namespace: ns }),
+                isAll ? this.core.listPodForAllNamespaces() : this.core.listNamespacedPod({ namespace: ns }),
             ]);
             const getItems = (res) => res.items || res.body?.items || [];
             return {
                 nodes: getItems(nodesRes),
                 services: getItems(servicesRes),
                 deployments: getItems(deploymentsRes),
-                pods: getItems(podsRes)
+                pods: getItems(podsRes),
             };
-        }
-        catch (err) {
+        } catch (err) {
             logger.error({ ns, error: err.message }, 'Error getting topology data');
             throw err;
         }
@@ -168,13 +167,12 @@ class K8sService {
     }
     async getNamespaces() {
         const res = await this.core.listNamespace();
-        return res.items.map(ns => ns.metadata.name);
+        return res.items.map((ns) => ns.metadata.name);
     }
     async resolveContainerName(namespace, name, container) {
-        if (container)
-            return container;
+        if (container) return container;
         const podRes = await this.core.readNamespacedPod({ name, namespace });
-        const pod = podRes.body || podRes;
+        const pod = podRes;
         return pod.spec.containers[0].name;
     }
 }

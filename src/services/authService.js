@@ -4,7 +4,11 @@ const crypto = require('crypto');
 const logger = require('../utils/logger');
 const AUTH_DIR = '/app/.cache';
 const AUTH_FILE = path.join(AUTH_DIR, 'auth-config.json');
-const ENCRYPTION_KEY = crypto.scryptSync(process.env.PERISCOPE_API_KEY || 'periscope-auth-salt-key-9988', 'salt-key', 32);
+const ENCRYPTION_KEY = crypto.scryptSync(
+    process.env.PERISCOPE_API_KEY || 'periscope-auth-salt-key-9988',
+    'salt-key',
+    32,
+);
 const IV_LENGTH = 16;
 class AuthService {
     constructor() {
@@ -27,7 +31,7 @@ class AuthService {
         const iv = Buffer.from(textParts.shift(), 'hex');
         const encryptedText = Buffer.from(textParts.join(':'), 'hex');
         const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
-        let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+        let decrypted = decipher.update(encryptedText, undefined, 'utf8');
         decrypted += decipher.final('utf8');
         return decrypted;
     }
@@ -40,9 +44,8 @@ class AuthService {
             fs.writeFileSync(testFile, 'test');
             fs.unlinkSync(testFile);
             return AUTH_FILE;
-        }
-        catch (e) {
-            if (process.pkg) {
+        } catch (e) {
+            if ('pkg' in process) {
                 return path.join(process.cwd(), 'auth-config.json');
             }
             return path.join(__dirname, '../../auth-config.json');
@@ -55,16 +58,14 @@ class AuthService {
                 let decryptedData;
                 if (fileData.startsWith('{')) {
                     decryptedData = fileData;
-                }
-                else {
+                } else {
                     decryptedData = this._decrypt(fileData);
                 }
                 const data = JSON.parse(decryptedData);
                 if (data && data.username && data.passwordHash && data.salt) {
                     return data;
                 }
-            }
-            catch (e) {
+            } catch (e) {
                 logger.error(e, 'Failed to parse auth config file, using defaults');
             }
         }
@@ -74,7 +75,7 @@ class AuthService {
             username: 'admin',
             passwordHash: hash,
             salt: salt,
-            isDefault: true
+            isDefault: true,
         };
     }
     _saveConfig() {
@@ -82,8 +83,7 @@ class AuthService {
             const rawData = JSON.stringify(this.config);
             const encryptedData = this._encrypt(rawData);
             fs.writeFileSync(this.configPath, encryptedData, 'utf8');
-        }
-        catch (e) {
+        } catch (e) {
             logger.error(e, 'Failed to write auth config file');
         }
     }
@@ -129,8 +129,7 @@ class AuthService {
         if (fs.existsSync(this.configPath)) {
             try {
                 fs.unlinkSync(this.configPath);
-            }
-            catch (e) { }
+            } catch (e) {}
         }
         this.config = this._loadConfig();
         this.activeTokens.clear();

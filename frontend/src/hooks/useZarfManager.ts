@@ -24,29 +24,23 @@ export const useZarfManager = () => {
         refetchInterval: 30000,
     });
     useEffect(() => {
-        if (packagesData)
-            setZarfPackages(packagesData);
+        if (packagesData) setZarfPackages(packagesData);
     }, [packagesData]);
     useEffect(() => {
-        if (imagesData)
-            setRegistryImages(imagesData);
+        if (imagesData) setRegistryImages(imagesData);
     }, [imagesData]);
     const deployPackageMutation = useMutation({
-        mutationFn: async ({ packagePath, configPath }: {
-            packagePath: string;
-            configPath?: string;
-        }) => {
+        mutationFn: async ({ packagePath, configPath }: { packagePath: string; configPath?: string }) => {
             setIsDeploying(true);
             try {
                 const { data } = await api.post('/deploy', { packagePath, configPath });
                 return data;
-            }
-            finally {
+            } finally {
                 setIsDeploying(false);
             }
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['zarf-packages'] });
+            void queryClient.invalidateQueries({ queryKey: ['zarf-packages'] });
         },
     });
     const removePackageMutation = useMutation({
@@ -55,7 +49,7 @@ export const useZarfManager = () => {
             return data;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['zarf-packages'] });
+            void queryClient.invalidateQueries({ queryKey: ['zarf-packages'] });
         },
     });
     return {

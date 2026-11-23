@@ -1,17 +1,16 @@
 const WebSocket = require('ws');
 const logger = require('../utils/logger');
 function terminalEnv() {
-    const env = { ...process.env, TERM: 'xterm-256color' };
+    const env = Object.assign({}, process.env, { TERM: 'xterm-256color' });
     const kc = require('./kubeconfigHelper').inClusterKubeconfigPath();
-    if (kc)
-        env.KUBECONFIG = kc;
+    if (kc) env.KUBECONFIG = kc;
     return env;
 }
 function handleClusterTerminal(ws) {
     logger.info('Establishing cluster-level terminal session');
     const { spawn } = require('child_process');
     const shell = spawn('script', ['-q', '-c', '/bin/sh', '/dev/null'], {
-        env: terminalEnv()
+        env: terminalEnv(),
     });
     let sized = false;
     shell.stdout.on('data', (data) => {
@@ -36,8 +35,7 @@ function handleClusterTerminal(ws) {
                 }
                 return;
             }
-        }
-        catch (e) { }
+        } catch (e) {}
         if (shell.stdin.writable) {
             shell.stdin.write(msg);
         }

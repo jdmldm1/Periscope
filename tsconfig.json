@@ -1,0 +1,22 @@
+{
+  // Type-checks the CommonJS backend without converting it to TypeScript (npm run typecheck).
+  // The frontend has its own tsconfig in frontend/.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    // Start lenient and ratchet up: TypeScript 6 defaults strict to true.
+    "strict": false,
+    "noImplicitAny": false,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["server.js", "src/**/*.js", "scripts/**/*.mjs"],
+  "exclude": ["node_modules", "frontend", "dist", "coverage", "**/*.test.js"]
+}

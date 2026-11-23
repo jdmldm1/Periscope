@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const mockK8s = {
     KubeConfig: class {
-        loadFromDefault() { }
+        loadFromDefault() {}
         makeApiClient(apiClass) {
             return new apiClass();
         }
@@ -28,19 +28,14 @@ const mockK8s = {
             return { items: [{ metadata: { name: 'deploy-1' } }] };
         }
     },
-    BatchV1Api: class {
-    },
-    NetworkingV1Api: class {
-    },
-    CustomObjectsApi: class {
-    },
-    ApiextensionsV1Api: class {
-    },
-    RbacAuthorizationV1Api: class {
-    }
+    BatchV1Api: class {},
+    NetworkingV1Api: class {},
+    CustomObjectsApi: class {},
+    ApiextensionsV1Api: class {},
+    RbacAuthorizationV1Api: class {},
 };
 require.cache[require.resolve('@kubernetes/client-node')] = {
-    exports: mockK8s
+    exports: mockK8s,
 };
 const k8sService = require('./k8sService');
 test('k8sService.getResources - pod namespace default', async () => {

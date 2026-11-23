@@ -1,4 +1,3 @@
-# Get all configured remotes
 $remotes = git remote
 
 if ($remotes.Count -eq 0) {
@@ -6,7 +5,6 @@ if ($remotes.Count -eq 0) {
     exit 0
 }
 
-# Get current branch
 $branch = git branch --show-current
 
 if ([string]::IsNullOrEmpty($branch)) {
@@ -20,7 +18,6 @@ foreach ($remote in $remotes) {
     $remote = $remote.Trim()
     if ($remote) {
         Write-Host "[INFO] Pushing to remote '$remote'..." -ForegroundColor Blue
-        # Run git push, forwarding any arguments passed to this script
         git push $remote $branch $args
         if ($LASTEXITCODE -eq 0) {
             Write-Host "[OK] Successfully pushed to '$remote'" -ForegroundColor Green

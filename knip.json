@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreIssues": { "src/**": ["exports"] },
+  "workspaces": {
+    ".": {
+      "entry": ["src/**/*.test.js"],
+      "project": ["src/**/*.js", "scripts/**/*.mjs"]
+    },
+    "frontend": {
+      "entry": ["src/**/*.test.ts", "tests/**/*.ts"],
+      "project": ["src/**/*.{ts,tsx}", "tests/**/*.ts"]
+    }
+  }
+}

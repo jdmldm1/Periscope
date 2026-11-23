@@ -1,35 +1,34 @@
 const { run } = require('../utils/exec');
 const fs = require('fs');
 const path = require('path');
-const logger = require('../utils/logger');
 const taskService = require('./taskService');
 const k8sService = require('./k8sService');
 const REGISTRY_URL = 'zarf-docker-registry.zarf.svc.cluster.local:5000';
+// eslint-disable-next-line no-control-regex, security/detect-unsafe-regex -- fixed pattern over CLI output
 const ANSI_RE = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 class ZarfService {
     async getStatus() {
         try {
             const { stdout } = await run('zarf', ['version']);
             return { installed: true, version: stdout.trim() };
-        }
-        catch (error) {
+        } catch (error) {
             return { installed: false, error: error.stderr || error.message };
         }
     }
     async listPackages() {
         const { stdout } = await run('zarf', ['package', 'list', '-o', 'json']);
         const packages = this._extractZarfJson(stdout);
-        return (packages || []).map(p => ({
+        return (packages || []).map((p) => ({
             ...p,
             metadata: {
                 name: p.package || p.name,
                 namespace: 'zarf',
                 uid: `zarf-${p.package || p.name}`,
-                creationTimestamp: p.timestamp || new Date().toISOString()
+                creationTimestamp: p.timestamp || new Date().toISOString(),
             },
             status: {
-                phase: 'deployed'
-            }
+                phase: 'deployed',
+            },
         }));
     }
     async deployPackage(packagePath, configPath) {
@@ -46,23 +45,29 @@ class ZarfService {
     async getRegistryAllImages() {
         await this._ensureRegistryLogin();
         const { stdout } = await run('zarf', ['tools', 'registry', 'catalog', REGISTRY_URL]);
-        const repos = stdout.split('\n').map(r => r.trim()).filter(Boolean);
+        const repos = stdout
+            .split('\n')
+            .map((r) => r.trim())
+            .filter(Boolean);
         const results = [];
-        await Promise.all(repos.map(async (repo) => {
-            try {
-                const { stdout: lsOut } = await run('zarf', ['tools', 'registry', 'ls', `${REGISTRY_URL}/${repo}`]);
-                lsOut.split('\n').map(t => t.trim()).filter(Boolean).forEach(tag => {
-                    results.push({ repository: repo, tag, full: `${repo}:${tag}` });
-                });
-            }
-            catch (err) {
-            }
-        }));
+        await Promise.all(
+            repos.map(async (repo) => {
+                try {
+                    const { stdout: lsOut } = await run('zarf', ['tools', 'registry', 'ls', `${REGISTRY_URL}/${repo}`]);
+                    lsOut
+                        .split('\n')
+                        .map((t) => t.trim())
+                        .filter(Boolean)
+                        .forEach((tag) => {
+                            results.push({ repository: repo, tag, full: `${repo}:${tag}` });
+                        });
+                } catch (err) {}
+            }),
+        );
         return results;
     }
     _extractZarfJson(stdout) {
-        if (!stdout)
-            return [];
+        if (!stdout) return [];
         const trimmed = stdout.trim();
         if (trimmed.endsWith('null')) {
             return [];
@@ -75,15 +80,13 @@ class ZarfService {
             }
             try {
                 return [JSON.parse(trimmed.slice(objStartIdx))];
-            }
-            catch (e) {
+            } catch (e) {
                 return [];
             }
         }
         try {
             return JSON.parse(trimmed.slice(startIdx));
-        }
-        catch (e) {
+        } catch (e) {
             return [];
         }
     }
@@ -96,14 +99,12 @@ class ZarfService {
                 }
                 throw err;
             }
-            if (onSuccess)
-                onSuccess();
+            if (onSuccess) onSuccess();
         };
         try {
             await run('zarf', ['tools', 'registry', 'catalog', REGISTRY_URL]);
             return done();
-        }
-        catch (error) {
+        } catch (error) {
             const blob = `${error.stdout || ''}${error.stderr || ''}${error.message || ''}`;
             if (!blob.includes('UNAUTHORIZED')) {
                 return done(new Error('Failed to communicate with Zarf registry: ' + (error.stderr || error.message)));
@@ -112,15 +113,14 @@ class ZarfService {
         let credStdout;
         try {
             ({ stdout: credStdout } = await run('zarf', ['tools', 'get-creds']));
-        }
-        catch (credError) {
+        } catch (credError) {
             return done(new Error('Failed to retrieve Zarf credentials: ' + (credError.stderr || credError.message)));
         }
         const cleanStdout = credStdout.replace(ANSI_RE, '');
         let username = 'zarf-push';
         let password = '';
-        cleanStdout.split('\n').forEach(line => {
-            const parts = line.split('|').map(p => p.trim());
+        cleanStdout.split('\n').forEach((line) => {
+            const parts = line.split('|').map((p) => p.trim());
             if (parts.length >= 3 && parts[0] && parts[0].trim() === 'Registry') {
                 username = parts[1] || 'zarf-push';
                 password = parts[2] || '';
@@ -130,10 +130,18 @@ class ZarfService {
             return done(new Error('Registry push password not found in Zarf credentials'));
         }
         try {
-            await run('zarf', ['tools', 'registry', 'login', '--username', username, '--password', password, REGISTRY_URL]);
+            await run('zarf', [
+                'tools',
+                'registry',
+                'login',
+                '--username',
+                username,
+                '--password',
+                password,
+                REGISTRY_URL,
+            ]);
             return done();
-        }
-        catch (loginError) {
+        } catch (loginError) {
             return done(new Error('Registry login failed: ' + (loginError.stderr || loginError.message)));
         }
     }
@@ -141,15 +149,15 @@ class ZarfService {
         const { stdout } = await run('zarf', ['tools', 'get-creds']);
         const cleanStdout = stdout.replace(ANSI_RE, '');
         const creds = [];
-        cleanStdout.split('\n').forEach(line => {
-            const parts = line.split('|').map(p => p.trim());
+        cleanStdout.split('\n').forEach((line) => {
+            const parts = line.split('|').map((p) => p.trim());
             if (parts.length >= 4 && parts[0] && !parts[0].includes('Application') && !parts[0].includes('---')) {
                 creds.push({
                     application: parts[0],
                     username: parts[1] || 'N/A',
                     password: parts[2] || 'N/A',
                     connect: parts[3] || 'N/A',
-                    key: parts[4] || 'N/A'
+                    key: parts[4] || 'N/A',
                 });
             }
         });
@@ -166,39 +174,43 @@ class ZarfService {
         }
         try {
             await run('zarf', ['tools', 'archiver', 'decompress', packagePath, tempDir]);
-        }
-        catch (error) {
+        } catch (error) {
             try {
                 fs.rmSync(tempDir, { recursive: true, force: true });
-            }
-            catch (e) { }
-            throw new Error('Failed to decompress package: ' + (error.stderr || error.message));
+            } catch (e) {}
+            throw new Error('Failed to decompress package: ' + (error.stderr || error.message), { cause: error });
         }
         const yamlPath = path.join(tempDir, 'zarf.yaml');
         if (!fs.existsSync(yamlPath)) {
             try {
                 fs.rmSync(tempDir, { recursive: true, force: true });
-            }
-            catch (e) { }
+            } catch (e) {}
             throw new Error('zarf.yaml not found inside package');
         }
         try {
             const configText = fs.readFileSync(yamlPath, 'utf8');
             return { success: true, tempDir, configText };
-        }
-        catch (err) {
+        } catch (err) {
             try {
                 fs.rmSync(tempDir, { recursive: true, force: true });
-            }
-            catch (e) { }
-            throw new Error('Failed to read zarf.yaml: ' + err.message);
+            } catch (e) {}
+            throw new Error('Failed to read zarf.yaml: ' + err.message, { cause: err });
         }
     }
-    async rebuildDeploy(tempDir, configText) {
-        const yamlPath = path.join(tempDir, 'zarf.yaml');
+    resolveUnpackDir(tempDir) {
+        const rootDir = process.cwd();
+        const resolved = path.resolve(rootDir, String(tempDir || ''));
+        if (path.dirname(resolved) !== rootDir || !/^zarf-unpack-\d+$/.test(path.basename(resolved))) {
+            throw new Error('Invalid unpack directory');
+        }
+        return resolved;
+    }
+    rebuildDeploy(tempDir, configText) {
+        const unpackDir = this.resolveUnpackDir(tempDir);
+        const yamlPath = path.join(unpackDir, 'zarf.yaml');
         fs.writeFileSync(yamlPath, configText, 'utf8');
         const runScript = `
-            cd "${tempDir}"
+            cd "$1" || exit 1
             zarf package create --confirm
             PKG_FILE=$(ls zarf-package-*.tar.zst 2>/dev/null | head -n 1)
             if [ -z "$PKG_FILE" ]; then
@@ -208,33 +220,31 @@ class ZarfService {
             echo "Successfully created package: $PKG_FILE. Starting deployment..."
             zarf package deploy "$PKG_FILE" --confirm
             cd ..
-            rm -rf "${tempDir}"
+            rm -rf "$1"
         `;
-        return taskService.startTask('sh', ['-c', runScript]);
+        return taskService.startTask('sh', ['-c', runScript, 'sh', unpackDir]);
     }
     async listLocalPackages() {
         const rootDir = process.cwd();
         return new Promise((resolve, reject) => {
             fs.readdir(rootDir, (err, files) => {
-                if (err)
-                    return reject(err);
+                if (err) return reject(err);
                 const list = files
-                    .filter(f => !f.startsWith('.') && f !== 'node_modules' && f !== 'frontend')
-                    .map(f => {
-                    try {
-                        const stat = fs.statSync(path.join(rootDir, f));
-                        return {
-                            name: f,
-                            path: path.join(rootDir, f),
-                            isDir: stat.isDirectory(),
-                            size: stat.size,
-                            mtime: stat.mtime
-                        };
-                    }
-                    catch (statErr) {
-                        return null;
-                    }
-                })
+                    .filter((f) => !f.startsWith('.') && f !== 'node_modules' && f !== 'frontend')
+                    .map((f) => {
+                        try {
+                            const stat = fs.statSync(path.join(rootDir, f));
+                            return {
+                                name: f,
+                                path: path.join(rootDir, f),
+                                isDir: stat.isDirectory(),
+                                size: stat.size,
+                                mtime: stat.mtime,
+                            };
+                        } catch (statErr) {
+                            return null;
+                        }
+                    })
                     .filter(Boolean);
                 resolve(list);
             });
@@ -251,8 +261,7 @@ class ZarfService {
         if (fs.existsSync(targetPath)) {
             fs.rmSync(targetPath, { recursive: true, force: true });
             return { success: true };
-        }
-        else {
+        } else {
             throw new Error('File or folder not found');
         }
     }
@@ -269,6 +278,9 @@ class ZarfService {
         return taskService.startTask('zarf', ['tools', 'archiver', 'decompress', sourcePath, destPath]);
     }
     async inspectSbom(packageName) {
+        if (typeof packageName !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(packageName)) {
+            throw new Error('Invalid package name');
+        }
         const rootDir = process.cwd();
         const packagePath = path.join(rootDir, packageName);
         if (!fs.existsSync(packagePath)) {
@@ -282,17 +294,17 @@ class ZarfService {
         await run('zarf', ['package', 'inspect', 'sbom', packagePath, '--output', outDir]);
         const files = fs.readdirSync(outDir);
         const htmlFiles = files
-            .filter(f => f.endsWith('.html'))
-            .map(f => ({
-            name: f,
-            url: `/${staticSubdir}/${packageName}/${f}`
-        }));
+            .filter((f) => f.endsWith('.html'))
+            .map((f) => ({
+                name: f,
+                url: `/${staticSubdir}/${packageName}/${f}`,
+            }));
         return { success: true, files: htmlFiles };
     }
     async getPackage(name) {
         const secretName = `zarf-package-${name}`;
         const secret = await k8sService.core.readNamespacedSecret({ name: secretName, namespace: 'zarf' });
-        const secretBody = secret.body || secret;
+        const secretBody = secret;
         if (!secretBody || !secretBody.data || !secretBody.data.data) {
             throw new Error(`Zarf package secret '${secretName}' not found`);
         }
@@ -302,7 +314,7 @@ class ZarfService {
     }
     async getZarfState() {
         const secret = await k8sService.core.readNamespacedSecret({ name: 'zarf-state', namespace: 'zarf' });
-        const secretBody = secret.body || secret;
+        const secretBody = secret;
         if (!secretBody || !secretBody.data || !secretBody.data.state) {
             throw new Error("Zarf state secret 'zarf-state' not found in 'zarf' namespace");
         }
@@ -310,38 +322,37 @@ class ZarfService {
         const decodedString = Buffer.from(base64Data, 'base64').toString('utf8');
         const parsedJson = JSON.parse(decodedString);
         if (parsedJson.registryInfo) {
-            if (parsedJson.registryInfo.pushPassword)
-                parsedJson.registryInfo.pushPassword = '●●●●●●●●';
-            if (parsedJson.registryInfo.pullPassword)
-                parsedJson.registryInfo.pullPassword = '●●●●●●●●';
-            if (parsedJson.registryInfo.secret)
-                parsedJson.registryInfo.secret = '●●●●●●●●';
+            if (parsedJson.registryInfo.pushPassword) parsedJson.registryInfo.pushPassword = '●●●●●●●●';
+            if (parsedJson.registryInfo.pullPassword) parsedJson.registryInfo.pullPassword = '●●●●●●●●';
+            if (parsedJson.registryInfo.secret) parsedJson.registryInfo.secret = '●●●●●●●●';
         }
         if (parsedJson.gitServer) {
-            if (parsedJson.gitServer.pushPassword)
-                parsedJson.gitServer.pushPassword = '●●●●●●●●';
-            if (parsedJson.gitServer.pullPassword)
-                parsedJson.gitServer.pullPassword = '●●●●●●●●';
+            if (parsedJson.gitServer.pushPassword) parsedJson.gitServer.pushPassword = '●●●●●●●●';
+            if (parsedJson.gitServer.pullPassword) parsedJson.gitServer.pullPassword = '●●●●●●●●';
         }
         if (parsedJson.artifactServer) {
-            if (parsedJson.artifactServer.pushPassword)
-                parsedJson.artifactServer.pushPassword = '●●●●●●●●';
+            if (parsedJson.artifactServer.pushPassword) parsedJson.artifactServer.pushPassword = '●●●●●●●●';
         }
         if (parsedJson.agentTLS) {
-            if (parsedJson.agentTLS.key)
-                parsedJson.agentTLS.key = '●●●●●●●●';
+            if (parsedJson.agentTLS.key) parsedJson.agentTLS.key = '●●●●●●●●';
         }
         return parsedJson;
     }
     async getRegistryCatalog() {
         await this._ensureRegistryLogin();
         const { stdout } = await run('zarf', ['tools', 'registry', 'catalog', REGISTRY_URL]);
-        return stdout.split('\n').map(r => r.trim()).filter(Boolean);
+        return stdout
+            .split('\n')
+            .map((r) => r.trim())
+            .filter(Boolean);
     }
     async getRegistryRepositoryTags(repo) {
         await this._ensureRegistryLogin();
         const { stdout } = await run('zarf', ['tools', 'registry', 'ls', `${REGISTRY_URL}/${repo}`]);
-        return stdout.split('\n').map(t => t.trim()).filter(Boolean);
+        return stdout
+            .split('\n')
+            .map((t) => t.trim())
+            .filter(Boolean);
     }
     async deleteRegistryImage(imageRef) {
         await this._ensureRegistryLogin();
@@ -356,9 +367,7 @@ class ZarfService {
         await this._ensureRegistryLogin();
         const targetRef = target.includes(':') ? target : `${target}:latest`;
         const fullTarget = `${REGISTRY_URL}/${targetRef}`;
-        return taskService.startTask('zarf', [
-            'tools', 'registry', 'copy', source, fullTarget, '--insecure'
-        ]);
+        return taskService.startTask('zarf', ['tools', 'registry', 'copy', source, fullTarget, '--insecure']);
     }
     async downloadRegistryImage(imageRef) {
         const fullSource = imageRef.startsWith(REGISTRY_URL) ? imageRef : `${REGISTRY_URL}/${imageRef}`;
@@ -367,7 +376,12 @@ class ZarfService {
         const tempFilePath = path.join(os.tmpdir(), tempFileName);
         await this._ensureRegistryLogin();
         const taskId = taskService.startTask('zarf', [
-            'tools', 'registry', 'copy', fullSource, tempFilePath, '--insecure'
+            'tools',
+            'registry',
+            'copy',
+            fullSource,
+            tempFilePath,
+            '--insecure',
         ]);
         return { taskId, tempFileName };
     }
@@ -375,22 +389,22 @@ class ZarfService {
         const fullTarget = `${REGISTRY_URL}/${targetRef}`;
         try {
             await this._ensureRegistryLogin();
-        }
-        catch (err) {
+        } catch (err) {
             try {
                 fs.unlinkSync(tempFilePath);
-            }
-            catch (e) { }
+            } catch (e) {}
             throw err;
         }
-        return taskService.startTask('zarf', [
-            'tools', 'registry', 'copy', tempFilePath, fullTarget, '--insecure'
-        ], process.cwd(), () => {
-            try {
-                fs.unlinkSync(tempFilePath);
-            }
-            catch (e) { }
-        });
+        return taskService.startTask(
+            'zarf',
+            ['tools', 'registry', 'copy', tempFilePath, fullTarget, '--insecure'],
+            process.cwd(),
+            () => {
+                try {
+                    fs.unlinkSync(tempFilePath);
+                } catch (e) {}
+            },
+        );
     }
 }
 module.exports = new ZarfService();

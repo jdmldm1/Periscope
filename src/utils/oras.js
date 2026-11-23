@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const UPLOAD_DIR = path.join(os.tmpdir(), 'oras-uploads');
-// registry[:port]/repository[:tag|@digest]. Must start alphanumeric so it can never be parsed as a CLI flag.
+// Must start alphanumeric so it can never be parsed as a CLI flag.
 const OCI_REF = /^[a-zA-Z0-9][a-zA-Z0-9._\-:/@]*$/;
 class OrasInputError extends Error {
     constructor(message) {
@@ -17,16 +17,15 @@ function assertRef(ref) {
     }
     return ref;
 }
-// Reduce a client-supplied file name to a harmless single path segment.
 function safeUploadName(header) {
     const raw = Array.isArray(header) ? header[0] : header;
-    const base = path.basename(String(raw || ''))
+    const base = path
+        .basename(String(raw || ''))
         .replace(/[^A-Za-z0-9._-]/g, '_')
         .replace(/^[.-]+/, '')
         .slice(0, 128);
     return base || `oras-upload-${Date.now()}`;
 }
-// Only files inside the upload directory may be pushed (and deleted afterwards).
 function resolveUploadPath(filepath, uploadDir = UPLOAD_DIR) {
     if (typeof filepath !== 'string' || filepath.length === 0) {
         throw new OrasInputError('Invalid file path');

@@ -6,14 +6,13 @@ const diagnoseService = require('../services/diagnoseService');
 const logger = require('../utils/logger');
 const yaml = require('js-yaml');
 const { run } = require('../utils/exec');
-const { assertNamespace, assertName, assertKind } = require('../utils/validators');
+const { assertNamespace, assertName, assertKind, queryString } = require('../utils/validators');
 const { ensureTypeMeta } = require('../utils/k8sHelpers');
 router.param('namespace', (req, res, next, val) => {
     try {
         assertNamespace(val);
         next();
-    }
-    catch (e) {
+    } catch (e) {
         res.status(400).json({ error: e.message });
     }
 });
@@ -21,8 +20,7 @@ router.param('name', (req, res, next, val) => {
     try {
         assertName(val);
         next();
-    }
-    catch (e) {
+    } catch (e) {
         res.status(400).json({ error: e.message });
     }
 });
@@ -30,8 +28,7 @@ router.param('podName', (req, res, next, val) => {
     try {
         assertName(val, 'podName');
         next();
-    }
-    catch (e) {
+    } catch (e) {
         res.status(400).json({ error: e.message });
     }
 });
@@ -39,8 +36,7 @@ router.param('kind', (req, res, next, val) => {
     try {
         assertKind(val.replace(/^resource\//, ''));
         next();
-    }
-    catch (e) {
+    } catch (e) {
         res.status(400).json({ error: e.message });
     }
 });
@@ -48,8 +44,7 @@ router.get('/contexts', async (req, res) => {
     try {
         const data = await k8sService.getContexts();
         res.json(data);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -57,8 +52,7 @@ router.get('/namespaces', async (req, res) => {
     try {
         const namespaces = await k8sService.getNamespaces();
         res.json(namespaces);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -67,8 +61,7 @@ router.get('/resource/topology', async (req, res) => {
     try {
         const data = await k8sService.getTopologyData(namespace);
         res.json(data);
-    }
-    catch (err) {
+    } catch (err) {
         logger.error({ namespace, error: err.message }, 'Error getting topology data');
         res.status(500).json({ error: err.message });
     }
@@ -76,35 +69,29 @@ router.get('/resource/topology', async (req, res) => {
 const handleGenericResource = async (req, res) => {
     let { kind } = req.params;
     const { namespace } = req.query;
-    if (kind.startsWith('resource/'))
-        kind = kind.replace('resource/', '');
+    if (kind.startsWith('resource/')) kind = kind.replace('resource/', '');
     try {
         const resources = await k8sService.getResources(kind, namespace);
-        if (!resources)
-            return res.status(404).json({ error: `Kind ${kind} not found` });
+        if (!resources) return res.status(404).json({ error: `Kind ${kind} not found` });
         res.json(resources);
-    }
-    catch (err) {
+    } catch (err) {
         logger.error({ kind, namespace, error: err.message }, 'Error in handleGenericResource');
         res.status(500).json({ error: err.message });
     }
 };
 router.get('/resource/:kind', handleGenericResource);
 router.get('/:kind', (req, res, next) => {
-    if (['namespaces', 'contexts', 'resource', 'topology'].includes(req.params.kind))
-        return next();
+    if (['namespaces', 'contexts', 'resource', 'topology'].includes(req.params.kind)) return next();
     handleGenericResource(req, res);
 });
 router.get('/resource/:kind/:namespace/:name', async (req, res) => {
     const { kind, namespace, name } = req.params;
     try {
         const items = await k8sService.getResources(kind, namespace);
-        const item = items.find(i => i.metadata?.name === name);
-        if (!item)
-            return res.status(404).json({ error: 'Resource not found' });
+        const item = items.find((i) => i.metadata?.name === name);
+        if (!item) return res.status(404).json({ error: 'Resource not found' });
         res.json(item);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -112,27 +99,22 @@ router.get('/resource/:kind/:namespace/:name/yaml', async (req, res) => {
     const { kind, namespace, name } = req.params;
     try {
         const items = await k8sService.getResources(kind, namespace);
-        const item = items.find(i => i.metadata.name === name);
-        if (!item)
-            return res.status(404).json({ error: 'Resource not found' });
-        res.send(yaml.dump(ensureTypeMeta(item, kind)));
-    }
-    catch (err) {
+        const item = items.find((i) => i.metadata.name === name);
+        if (!item) return res.status(404).json({ error: 'Resource not found' });
+        res.type('text/plain').send(yaml.dump(ensureTypeMeta(item, kind)));
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 router.post('/resource/:kind/:namespace/:name/save', async (req, res) => {
     const { kind, namespace } = req.params;
     const { yaml: yamlContent } = req.body;
-    if (!yamlContent)
-        return res.status(400).json({ error: 'yaml content is required' });
+    if (!yamlContent) return res.status(400).json({ error: 'yaml content is required' });
     try {
         const { message } = await workloadService.applyYaml(kind, namespace, yamlContent);
         res.json({ success: true, message });
-    }
-    catch (err) {
-        if (!res.headersSent)
-            res.status(500).json({ error: err.message });
+    } catch (err) {
+        if (!res.headersSent) res.status(500).json({ error: err.message });
     }
 });
 router.put('/resource/deployments/:namespace/:name/restart', async (req, res) => {
@@ -140,8 +122,7 @@ router.put('/resource/deployments/:namespace/:name/restart', async (req, res) =>
     try {
         const { message } = await workloadService.restart(namespace, name);
         res.json({ success: true, message });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.stderr || err.message });
     }
 });
@@ -154,8 +135,7 @@ router.put('/resource/deployments/:namespace/:name/scale', async (req, res) => {
     try {
         const { message } = await workloadService.scale(namespace, name, replicas);
         res.json({ success: true, message });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.stderr || err.message });
     }
 });
@@ -164,8 +144,7 @@ router.put('/resource/deployments/:namespace/:name/stop', async (req, res) => {
     try {
         const { message, previousReplicas } = await workloadService.stop(namespace, name);
         res.json({ success: true, message, previousReplicas });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.stderr || err.message });
     }
 });
@@ -174,8 +153,7 @@ router.put('/resource/deployments/:namespace/:name/start', async (req, res) => {
     try {
         const { message, replicas } = await workloadService.start(namespace, name, req.body && req.body.replicas);
         res.json({ success: true, message, replicas });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.stderr || err.message });
     }
 });
@@ -184,28 +162,28 @@ router.delete('/resource/:kind/:namespace/:name', async (req, res) => {
     try {
         const { message } = await workloadService.deleteResource(kind, namespace, name);
         res.json({ success: true, message });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 router.get('/resource/:kind/:namespace/:name/events', async (req, res) => {
     const { namespace, name, kind } = req.params;
     try {
-        const ns = (namespace && namespace !== 'all') ? namespace : undefined;
+        const ns = namespace && namespace !== 'all' ? namespace : undefined;
         let events;
         if (ns) {
             events = await k8sService.core.listNamespacedEvent({ namespace: ns });
-        }
-        else {
+        } else {
             events = await k8sService.core.listEventForAllNamespaces();
         }
-        const rawItems = events.items || events.body?.items || [];
-        const filtered = rawItems.filter(e => e.involvedObject.name === name &&
-            (!kind || e.involvedObject.kind.toLowerCase() === kind.toLowerCase().replace(/s$/, '')));
+        const rawItems = events.items || [];
+        const filtered = rawItems.filter(
+            (e) =>
+                e.involvedObject.name === name &&
+                (!kind || e.involvedObject.kind.toLowerCase() === kind.toLowerCase().replace(/s$/, '')),
+        );
         res.json(filtered);
-    }
-    catch (err) {
+    } catch (err) {
         logger.error({ name, namespace, kind, error: err.message }, 'Error getting events');
         res.status(500).json({ error: err.message });
     }
@@ -214,8 +192,7 @@ router.get('/diagnose/:namespace/:podName', async (req, res) => {
     const { namespace, podName } = req.params;
     try {
         res.json(await diagnoseService.diagnosePod(namespace, podName));
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -223,8 +200,7 @@ router.get('/diagnose/:kind/:namespace/:name', async (req, res) => {
     const { kind, namespace, name } = req.params;
     try {
         res.json(await diagnoseService.diagnoseWorkload(kind, namespace, name));
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.stderr || err.message });
     }
 });
@@ -234,11 +210,9 @@ router.post('/resource/pods/:namespace/:name/remediate', async (req, res) => {
     try {
         const { message } = await diagnoseService.remediate(namespace, name, type, params);
         res.json({ success: true, message });
-    }
-    catch (err) {
+    } catch (err) {
         const status = err.statusCode || 500;
-        if (status === 500)
-            logger.error({ namespace, name, type, error: err.message }, 'Failed to apply remediation');
+        if (status === 500) logger.error({ namespace, name, type, error: err.message }, 'Failed to apply remediation');
         res.status(status).json({ error: err.message });
     }
 });
@@ -248,24 +222,24 @@ router.post('/resource/:kind/:namespace/:name/remediate', async (req, res) => {
     try {
         const { message } = await diagnoseService.remediate(namespace, name, type, params);
         res.json({ success: true, message });
-    }
-    catch (err) {
+    } catch (err) {
         const status = err.statusCode || 500;
-        if (status === 500)
-            logger.error({ namespace, name, type, error: err.message }, 'Failed to apply remediation');
+        if (status === 500) logger.error({ namespace, name, type, error: err.message }, 'Failed to apply remediation');
         res.status(status).json({ error: err.message });
     }
 });
 router.get('/resource/pods/:namespace/:name/logs', async (req, res) => {
     const { namespace, name } = req.params;
-    const { container } = req.query;
+    const container = queryString(req.query.container);
     try {
         const response = await k8sService.core.readNamespacedPodLog({
-            name, namespace, container: container || undefined, tailLines: 1000
+            name,
+            namespace,
+            container: container || undefined,
+            tailLines: 1000,
         });
-        res.send(response.body || response);
-    }
-    catch (err) {
+        res.type('text/plain').send(response);
+    } catch (err) {
         logger.error(err, 'Error reading pod logs');
         res.status(500).json({ error: err.message });
     }
@@ -276,24 +250,33 @@ router.post('/resource/pods/:namespace/:name/exec', async (req, res) => {
     try {
         const containerName = await k8sService.resolveContainerName(namespace, name, container);
         try {
-            const { stdout, stderr } = await run('kubectl', ['exec', '-n', namespace, name, '-c', containerName, '--', 'sh', '-c', String(command)]);
+            const { stdout, stderr } = await run('kubectl', [
+                'exec',
+                '-n',
+                namespace,
+                name,
+                '-c',
+                containerName,
+                '--',
+                'sh',
+                '-c',
+                String(command),
+            ]);
             res.json({ stdout, stderr });
-        }
-        catch (error) {
-            if (error.stdout)
-                return res.json({ stdout: error.stdout, stderr: error.stderr });
+        } catch (error) {
+            if (error.stdout) return res.json({ stdout: error.stdout, stderr: error.stderr });
             res.status(500).json({ error: error.stderr || error.message });
         }
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 router.get('/resource/pods/:namespace/:name/files/download', async (req, res) => {
     const { namespace, name } = req.params;
-    const { path: filePath, container, isDir } = req.query;
-    if (!filePath)
-        return res.status(400).json({ error: 'path is required' });
+    const filePath = queryString(req.query.path);
+    const container = queryString(req.query.container);
+    const isDir = queryString(req.query.isDir);
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
     try {
         const containerName = await k8sService.resolveContainerName(namespace, name, container);
         const { spawn } = require('child_process');
@@ -310,36 +293,34 @@ router.get('/resource/pods/:namespace/:name/files/download', async (req, res) =>
             res.setHeader('Content-Type', 'application/gzip');
             cp = spawn('kubectl', [
                 'exec',
-                '-n', namespace,
+                '-n',
+                namespace,
                 name,
-                '-c', containerName,
+                '-c',
+                containerName,
                 '--',
-                'tar', '-czf', '-', '-C', parentDir, folderName
+                'tar',
+                '-czf',
+                '-',
+                '-C',
+                parentDir,
+                folderName,
             ]);
-        }
-        else {
+        } else {
             const filename = filePath.split('/').pop() || 'file';
             res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
             res.setHeader('Content-Type', 'application/octet-stream');
-            cp = spawn('kubectl', [
-                'exec',
-                '-n', namespace,
-                name,
-                '-c', containerName,
-                '--',
-                'cat', filePath
-            ]);
+            cp = spawn('kubectl', ['exec', '-n', namespace, name, '-c', containerName, '--', 'cat', filePath]);
         }
         cp.stdout.pipe(res);
         let errData = '';
-        cp.stderr.on('data', chunk => errData += chunk.toString());
+        cp.stderr.on('data', (chunk) => (errData += chunk.toString()));
         cp.on('close', (code) => {
             if (code !== 0 && !res.headersSent) {
                 res.status(500).json({ error: errData || `Download failed with exit status ${code}` });
             }
         });
-    }
-    catch (err) {
+    } catch (err) {
         if (!res.headersSent) {
             res.status(500).json({ error: err.message });
         }
@@ -347,8 +328,9 @@ router.get('/resource/pods/:namespace/:name/files/download', async (req, res) =>
 });
 router.post('/resource/pods/:namespace/:name/files/upload', async (req, res) => {
     const { namespace, name } = req.params;
-    const { destDir, container } = req.query;
-    const filename = req.headers['x-file-name'];
+    const destDir = queryString(req.query.destDir);
+    const container = queryString(req.query.container);
+    const filename = queryString(req.headers['x-file-name']);
     if (!destDir || !filename) {
         return res.status(400).json({ error: 'destDir and x-file-name header are required' });
     }
@@ -356,25 +338,29 @@ router.post('/resource/pods/:namespace/:name/files/upload', async (req, res) => 
         const containerName = await k8sService.resolveContainerName(namespace, name, container);
         const dirPath = destDir.endsWith('/') ? destDir : destDir + '/';
         const destPath = dirPath + filename;
-        const cmd = `cat > "${destPath.replace(/"/g, '\\"')}"`;
         const { spawn } = require('child_process');
         const cp = spawn('kubectl', [
             'exec',
             '-i',
-            '-n', namespace,
+            '-n',
+            namespace,
             name,
-            '-c', containerName,
+            '-c',
+            containerName,
             '--',
-            'sh', '-c', cmd
+            'sh',
+            '-c',
+            'cat > "$1"',
+            'sh',
+            destPath,
         ]);
         req.pipe(cp.stdin);
         let errData = '';
-        cp.stderr.on('data', chunk => errData += chunk.toString());
+        cp.stderr.on('data', (chunk) => (errData += chunk.toString()));
         cp.on('close', (code) => {
             if (code === 0) {
                 res.json({ success: true, message: `File uploaded successfully to ${destPath}` });
-            }
-            else {
+            } else {
                 res.status(500).json({ error: errData || `Upload failed with exit code ${code}` });
             }
         });
@@ -383,8 +369,7 @@ router.post('/resource/pods/:namespace/:name/files/upload', async (req, res) => 
                 res.status(500).json({ error: err.message });
             }
         });
-    }
-    catch (err) {
+    } catch (err) {
         if (!res.headersSent) {
             res.status(500).json({ error: err.message });
         }
@@ -392,52 +377,62 @@ router.post('/resource/pods/:namespace/:name/files/upload', async (req, res) => 
 });
 router.get('/resource/pods/:namespace/:name/files/view', async (req, res) => {
     const { namespace, name } = req.params;
-    const { path: filePath, container } = req.query;
-    if (!filePath)
-        return res.status(400).json({ error: 'path is required' });
+    const filePath = queryString(req.query.path);
+    const container = queryString(req.query.container);
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
     try {
         const containerName = await k8sService.resolveContainerName(namespace, name, container);
         try {
-            const { stdout } = await run('kubectl', ['exec', '-n', namespace, name, '-c', containerName, '--', 'cat', filePath]);
+            const { stdout } = await run('kubectl', [
+                'exec',
+                '-n',
+                namespace,
+                name,
+                '-c',
+                containerName,
+                '--',
+                'cat',
+                filePath,
+            ]);
             res.json({ content: stdout });
-        }
-        catch (error) {
+        } catch (error) {
             res.status(500).json({ error: error.stderr || error.message });
         }
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 router.post('/resource/pods/:namespace/:name/files/save', async (req, res) => {
     const { namespace, name } = req.params;
     const { path: filePath, content, container } = req.body;
-    if (!filePath)
-        return res.status(400).json({ error: 'path is required' });
-    if (content === undefined)
-        return res.status(400).json({ error: 'content is required' });
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
+    if (content === undefined) return res.status(400).json({ error: 'content is required' });
     try {
         const containerName = await k8sService.resolveContainerName(namespace, name, container);
-        const cmd = `cat > "${filePath.replace(/"/g, '\\"')}"`;
         const { spawn } = require('child_process');
         const cp = spawn('kubectl', [
             'exec',
             '-i',
-            '-n', namespace,
+            '-n',
+            namespace,
             name,
-            '-c', containerName,
+            '-c',
+            containerName,
             '--',
-            'sh', '-c', cmd
+            'sh',
+            '-c',
+            'cat > "$1"',
+            'sh',
+            filePath,
         ]);
         cp.stdin.write(content);
         cp.stdin.end();
         let errData = '';
-        cp.stderr.on('data', chunk => errData += chunk.toString());
+        cp.stderr.on('data', (chunk) => (errData += chunk.toString()));
         cp.on('close', (code) => {
             if (code === 0) {
                 res.json({ success: true, message: 'File saved successfully' });
-            }
-            else {
+            } else {
                 res.status(500).json({ error: errData || `Failed to save file with exit code ${code}` });
             }
         });
@@ -446,8 +441,7 @@ router.post('/resource/pods/:namespace/:name/files/save', async (req, res) => {
                 res.status(500).json({ error: err.message });
             }
         });
-    }
-    catch (err) {
+    } catch (err) {
         if (!res.headersSent) {
             res.status(500).json({ error: err.message });
         }
@@ -455,20 +449,30 @@ router.post('/resource/pods/:namespace/:name/files/save', async (req, res) => {
 });
 router.delete('/resource/pods/:namespace/:name/files', async (req, res) => {
     const { namespace, name } = req.params;
-    const { path: filePath, container } = req.query;
-    if (!filePath)
-        return res.status(400).json({ error: 'path is required' });
+    const filePath = queryString(req.query.path);
+    const container = queryString(req.query.container);
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
     try {
         const containerName = await k8sService.resolveContainerName(namespace, name, container);
         try {
-            await run('kubectl', ['exec', '-n', namespace, name, '-c', containerName, '--', 'rm', '-rf', '--', filePath]);
+            await run('kubectl', [
+                'exec',
+                '-n',
+                namespace,
+                name,
+                '-c',
+                containerName,
+                '--',
+                'rm',
+                '-rf',
+                '--',
+                filePath,
+            ]);
             res.json({ success: true });
-        }
-        catch (error) {
+        } catch (error) {
             res.status(500).json({ error: error.stderr || error.message });
         }
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

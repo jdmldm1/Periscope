@@ -3,6 +3,7 @@ const router = express.Router();
 const k8s = require('@kubernetes/client-node');
 const k8sService = require('../services/k8sService');
 const pvcService = require('../services/pvcService');
+const { queryString } = require('../utils/validators');
 const logger = require('../utils/logger');
 router.get('/kube/contexts/comparison', async (req, res) => {
     try {
@@ -18,11 +19,11 @@ router.get('/kube/contexts/comparison', async (req, res) => {
                 const [nodesRes, podsRes, nsRes] = await Promise.all([
                     core.listNode(),
                     core.listPodForAllNamespaces(),
-                    core.listNamespace()
+                    core.listNamespace(),
                 ]);
-                const nodes = nodesRes.items || nodesRes.body?.items || [];
-                const pods = podsRes.items || podsRes.body?.items || [];
-                const namespaces = nsRes.items || nsRes.body?.items || [];
+                const nodes = nodesRes.items || [];
+                const pods = podsRes.items || [];
+                const namespaces = nsRes.items || [];
                 comparisonList.push({
                     name: ctx.name,
                     cluster: ctx.cluster,
@@ -31,10 +32,9 @@ router.get('/kube/contexts/comparison', async (req, res) => {
                     nodeCount: nodes.length,
                     podCount: pods.length,
                     namespaceCount: namespaces.length,
-                    isCurrent: ctx.name === currentContext
+                    isCurrent: ctx.name === currentContext,
                 });
-            }
-            catch (err) {
+            } catch (err) {
                 comparisonList.push({
                     name: ctx.name,
                     cluster: ctx.cluster,
@@ -44,47 +44,43 @@ router.get('/kube/contexts/comparison', async (req, res) => {
                     podCount: 0,
                     namespaceCount: 0,
                     isCurrent: ctx.name === currentContext,
-                    error: err.message
+                    error: err.message,
                 });
             }
         }
         res.json(comparisonList);
-    }
-    catch (err) {
+    } catch (err) {
         logger.error(err, 'Failed to compare cluster contexts');
         res.status(500).json({ error: err.message });
     }
 });
 router.get('/volumes/:namespace/:pvcName/browse', async (req, res) => {
     const { namespace, pvcName } = req.params;
-    const { path } = req.query;
+    const path = queryString(req.query.path);
     try {
         const files = await pvcService.listFiles(namespace, pvcName, path);
         res.json(files);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 router.get('/volumes/:namespace/:pvcName/view', async (req, res) => {
     const { namespace, pvcName } = req.params;
-    const { path } = req.query;
+    const path = queryString(req.query.path);
     try {
         const content = await pvcService.viewFile(namespace, pvcName, path);
         res.json({ content });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 router.delete('/volumes/:namespace/:pvcName/delete', async (req, res) => {
     const { namespace, pvcName } = req.params;
-    const { path } = req.query;
+    const path = queryString(req.query.path);
     try {
         await pvcService.deleteFile(namespace, pvcName, path);
         res.json({ success: true });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -93,8 +89,7 @@ router.post('/volumes/:namespace/:pvcName/cleanup', async (req, res) => {
     try {
         await pvcService.deleteHelperPod(namespace, pvcName);
         res.json({ success: true });
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

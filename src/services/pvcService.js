@@ -2,31 +2,38 @@ const k8sService = require('./k8sService');
 const logger = require('../utils/logger');
 const { run } = require('../utils/exec');
 const { getCaptureImage } = require('./podCaptureService');
+const posixPath = require('path').posix;
+function dataPath(requested) {
+    const resolved = posixPath.join('/data', posixPath.normalize(`/${String(requested || '')}`));
+    if (resolved !== '/data' && !resolved.startsWith('/data/')) {
+        throw new Error('Invalid path');
+    }
+    return resolved;
+}
 class PvcService {
     async getHelperPodName(pvcName) {
-        const sanitized = pvcName.toLowerCase().replace(/[^a-z0-9-]/g, '-').substring(0, 40);
+        const sanitized = pvcName
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, '-')
+            .substring(0, 40);
         return `periscope-pvc-browser-${sanitized}`;
     }
     async ensureHelperPod(namespace, pvcName) {
         const podName = await this.getHelperPodName(pvcName);
         try {
             const podRes = await k8sService.core.readNamespacedPod({ name: podName, namespace });
-            const pod = podRes.body || podRes;
+            const pod = podRes;
             if (pod.status?.phase === 'Running') {
                 return podName;
             }
             if (pod.status?.phase === 'Failed' || pod.status?.phase === 'Succeeded') {
                 await this.deleteHelperPod(namespace, pvcName);
             }
-        }
-        catch (err) {
-        }
+        } catch (err) {}
         let helperImage = 'alpine:latest';
         try {
             helperImage = await getCaptureImage();
-        }
-        catch (_) {
-        }
+        } catch (_) {}
         const podBody = {
             apiVersion: 'v1',
             kind: 'Pod',
@@ -35,41 +42,45 @@ class PvcService {
                 namespace,
                 labels: {
                     app: 'periscope-pvc-browser',
-                    pvc: pvcName
-                }
+                    pvc: pvcName,
+                },
             },
             spec: {
-                containers: [{
+                containers: [
+                    {
                         name: 'browser',
                         image: helperImage,
                         imagePullPolicy: 'IfNotPresent',
                         command: ['sleep', '3600'],
-                        volumeMounts: [{
+                        volumeMounts: [
+                            {
                                 name: 'vol',
-                                mountPath: '/data'
-                            }]
-                    }],
-                volumes: [{
+                                mountPath: '/data',
+                            },
+                        ],
+                    },
+                ],
+                volumes: [
+                    {
                         name: 'vol',
                         persistentVolumeClaim: {
-                            claimName: pvcName
-                        }
-                    }]
-            }
+                            claimName: pvcName,
+                        },
+                    },
+                ],
+            },
         };
         logger.info({ podName, namespace, pvcName }, 'Creating transient helper pod for PVC browsing');
         await k8sService.core.createNamespacedPod({ namespace, body: podBody });
         for (let i = 0; i < 60; i++) {
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise((resolve) => setTimeout(resolve, 500));
             try {
                 const podCheck = await k8sService.core.readNamespacedPod({ name: podName, namespace });
-                const phase = podCheck.body?.status?.phase || podCheck.status?.phase;
+                const phase = podCheck.status?.phase;
                 if (phase === 'Running') {
                     return podName;
                 }
-            }
-            catch (err) {
-            }
+            } catch (err) {}
         }
         throw new Error(`Timeout waiting for volume helper pod ${podName} to start running.`);
     }
@@ -79,37 +90,49 @@ class PvcService {
         try {
             await k8sService.core.deleteNamespacedPod({ name: podName, namespace });
             return true;
-        }
-        catch (err) {
+        } catch (err) {
             return false;
         }
     }
-    async execCommand(namespace, pvcName, command) {
+    async execCommand(namespace, pvcName, script, args = []) {
         const podName = await this.ensureHelperPod(namespace, pvcName);
         try {
             const { stdout, stderr } = await run('kubectl', [
-                'exec', '-n', namespace, podName, '-c', 'browser', '--', 'sh', '-c', command
+                'exec',
+                '-n',
+                namespace,
+                podName,
+                '-c',
+                'browser',
+                '--',
+                'sh',
+                '-c',
+                script,
+                'sh',
+                ...args,
             ]);
             return { stdout, stderr };
-        }
-        catch (error) {
+        } catch (error) {
             if (error.stdout) {
                 return { stdout: error.stdout, stderr: error.stderr };
             }
-            throw new Error(error.stderr || error.message);
+            throw new Error(error.stderr || error.message, { cause: error });
         }
     }
     async listFiles(namespace, pvcName, folderPath = '/') {
-        const path = folderPath.startsWith('/') ? folderPath : `/${folderPath}`;
-        const cmd = `find "/data${path}" -maxdepth 1 -exec stat -c "%n|%s|%F|%Y" {} + 2>/dev/null || true`;
+        const target = dataPath(folderPath);
         try {
-            const { stdout } = await this.execCommand(namespace, pvcName, cmd);
+            const { stdout } = await this.execCommand(
+                namespace,
+                pvcName,
+                'find "$1" -maxdepth 1 -exec stat -c "%n|%s|%F|%Y" {} + 2>/dev/null || true',
+                [target],
+            );
             const lines = stdout.split('\n').filter(Boolean);
             const items = [];
             for (const line of lines) {
                 const [fullPath, sizeStr, typeStr, modTimeStr] = line.split('|');
-                if (!fullPath || fullPath === `/data${path}` || fullPath === `/data${path}/`)
-                    continue;
+                if (!fullPath || fullPath === target || fullPath === `${target}/`) continue;
                 const name = fullPath.substring(fullPath.lastIndexOf('/') + 1);
                 const isDir = typeStr.toLowerCase().includes('directory');
                 const size = parseInt(sizeStr, 10) || 0;
@@ -117,33 +140,31 @@ class PvcService {
                 items.push({ name, size, isDir, mtime });
             }
             return items.sort((a, b) => b.isDir - a.isDir || a.name.localeCompare(b.name));
-        }
-        catch (err) {
+        } catch (err) {
             logger.error({ namespace, pvcName, folderPath, error: err.message }, 'Failed to list PVC files');
             throw err;
         }
     }
     async viewFile(namespace, pvcName, filePath) {
-        const path = filePath.startsWith('/') ? filePath : `/${filePath}`;
+        const target = dataPath(filePath);
         try {
-            const { stdout } = await this.execCommand(namespace, pvcName, `cat "/data${path}"`);
+            const { stdout } = await this.execCommand(namespace, pvcName, 'cat "$1"', [target]);
             return stdout;
-        }
-        catch (err) {
+        } catch (err) {
             logger.error({ namespace, pvcName, filePath, error: err.message }, 'Failed to view PVC file');
             throw err;
         }
     }
     async deleteFile(namespace, pvcName, filePath) {
-        const path = filePath.startsWith('/') ? filePath : `/${filePath}`;
+        const target = dataPath(filePath);
         try {
-            await this.execCommand(namespace, pvcName, `rm -rf "/data${path}"`);
+            await this.execCommand(namespace, pvcName, 'rm -rf "$1"', [target]);
             return true;
-        }
-        catch (err) {
+        } catch (err) {
             logger.error({ namespace, pvcName, filePath, error: err.message }, 'Failed to delete PVC file/folder');
             throw err;
         }
     }
 }
 module.exports = new PvcService();
+module.exports.dataPath = dataPath;

@@ -9,18 +9,18 @@ export const useClusterResources = (activeTab: string, selectedNs: string) => {
         if (resourcesData) {
             setResources(resourcesData);
             setLoading(false);
-        }
-        else if (isResourcesLoading) {
+        } else if (isResourcesLoading) {
             setLoading(true);
         }
     }, [resourcesData, isResourcesLoading]);
-    const filteredResources = resources.filter(r => {
-        if (!search)
-            return true;
+    const filteredResources = resources.filter((r) => {
+        if (!search) return true;
         const searchLower = search.toLowerCase();
-        return (r.metadata?.name?.toLowerCase().includes(searchLower) ||
+        return (
+            r.metadata?.name?.toLowerCase().includes(searchLower) ||
             r.metadata?.namespace?.toLowerCase().includes(searchLower) ||
-            Object.values(r.metadata?.labels || {}).some((l: any) => l.toLowerCase().includes(searchLower)));
+            Object.values(r.metadata?.labels || {}).some((l: any) => l.toLowerCase().includes(searchLower))
+        );
     });
     return {
         resources,

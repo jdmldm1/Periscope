@@ -9,7 +9,11 @@ if [ "$ARCH" = "x86_64" ]; then GOARCH="amd64"; else GOARCH="arm64"; fi
 
 if [ ! -x "$BIN_DIR/zarf" ]; then
     echo "[bin-bootstrap] Fetching zarf ${ZARF_VERSION}..."
-    curl -sL "https://github.com/zarf-dev/zarf/releases/download/${ZARF_VERSION}/zarf_${ZARF_VERSION}_Linux_${GOARCH}" -o "$BIN_DIR/zarf"
+    ZARF_FILE="zarf_${ZARF_VERSION}_Linux_${GOARCH}"
+    ZARF_URL="https://github.com/zarf-dev/zarf/releases/download/${ZARF_VERSION}"
+    curl -fsSL "$ZARF_URL/$ZARF_FILE" -o "$BIN_DIR/$ZARF_FILE"
+    curl -fsSL "$ZARF_URL/checksums.txt" | grep " ${ZARF_FILE}\$" | (cd "$BIN_DIR" && sha256sum -c -)
+    mv "$BIN_DIR/$ZARF_FILE" "$BIN_DIR/zarf"
     chmod +x "$BIN_DIR/zarf"
 fi
 

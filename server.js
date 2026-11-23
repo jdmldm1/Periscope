@@ -28,21 +28,28 @@ const authRoutes = require('./src/routes/authRoutes');
 const orasRoutes = require('./src/routes/orasRoutes');
 const networkRoutes = require('./src/routes/networkRoutes');
 const app = express();
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+});
 app.use(compression());
 const corsOrigins = (process.env.CORS_ORIGIN || '')
     .split(',')
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean);
 if (corsOrigins.length) {
-    app.use(cors({
-        origin: corsOrigins.includes('*') ? true : corsOrigins
-    }));
+    app.use(
+        cors({
+            origin: corsOrigins.includes('*') ? true : corsOrigins,
+        }),
+    );
 }
 app.use(express.json());
 app.use('/api', authMiddleware);
 const destructiveLimiter = createRateLimiter({
     windowMs: 60000,
-    maxRequests: 30
+    maxRequests: 30,
 });
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 app.use('/api', (req, res, next) => {
@@ -53,12 +60,15 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api', (req, res, next) => {
     if (MUTATING_METHODS.has(req.method)) {
-        logger.warn({
-            audit: true,
-            method: req.method,
-            url: req.url.split('?')[0],
-            ip: req.ip
-        }, 'Mutating API request');
+        logger.warn(
+            {
+                audit: true,
+                method: req.method,
+                url: req.url.split('?')[0],
+                ip: req.ip,
+            },
+            'Mutating API request',
+        );
     }
     next();
 });
@@ -80,12 +90,11 @@ app.get('/readyz', async (req, res) => {
     try {
         await k8sService.core.listNamespace({ limit: 1 });
         res.json({ status: 'ready' });
-    }
-    catch (err) {
+    } catch (err) {
         logger.warn({ error: err.message }, 'Readiness check failed: cannot reach Kubernetes API');
         res.status(503).json({
             status: 'not-ready',
-            error: 'Kubernetes API unreachable'
+            error: 'Kubernetes API unreachable',
         });
     }
 });
@@ -94,7 +103,7 @@ app.get('/api/config', (req, res) => {
     res.json({
         scanningEnabled: isScanningEnabled(),
         airgap: isAirgap(),
-        airgapLite: isAirgapLite()
+        airgapLite: isAirgapLite(),
     });
 });
 app.use('/api/kube', kubeRoutes);
@@ -124,8 +133,7 @@ app.get('/*path', (req, res) => {
     const distPath = path.join(__dirname, 'frontend/dist/index.html');
     if (fs.existsSync(distPath)) {
         res.sendFile(distPath);
-    }
-    else {
+    } else {
         res.status(404).send('Frontend not built');
     }
 });
@@ -137,7 +145,7 @@ const WEBSOCKET_PATHS = [
     '/api/cluster-terminal/ws',
     '/api/k9s/ws',
     '/api/network/sniff/ws',
-    '/api/resources/ws'
+    '/api/resources/ws',
 ];
 server.on('upgrade', (request, socket, head) => {
     const urlObj = new URL(request.url, `http://${request.headers.host}`);
@@ -151,8 +159,7 @@ server.on('upgrade', (request, socket, head) => {
         wss.handleUpgrade(request, socket, head, (ws) => {
             wss.emit('connection', ws, request);
         });
-    }
-    else {
+    } else {
         socket.destroy();
     }
 });

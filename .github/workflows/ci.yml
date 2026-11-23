@@ -2,52 +2,132 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
+    branches: [main]
+    tags: ['v*']
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: read
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/periscope
   ZARF_VERSION: v0.75.1
-  APP_VERSION: 1.3.6
+  ORAS_VERSION: 1.2.0
+  GRYPE_VERSION: v0.117.0
+  APP_VERSION: 1.3.7
+  LEFTHOOK: '0'
 
 jobs:
-  test-and-lint:
+  quality:
+    name: Quality gate (lint, security, tests)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+
+      - name: Run all quality, security and test checks
+        run: node scripts/check.mjs --ci
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            frontend/coverage/lcov.info
+          if-no-files-found: ignore
+
+  e2e:
+    name: End-to-end (kind, non-blocking)
+    needs: quality
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm --prefix frontend ci
+
+      - name: Build frontend
+        run: npm --prefix frontend run build
+
+      - name: Create kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: periscope-e2e
+
+      - name: Install Playwright browser
+        run: npx --prefix frontend playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npm --prefix frontend run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          if-no-files-found: ignore
+
+  binaries:
+    name: Standalone binaries
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-          cache: 'npm'
+          package-manager-cache: false
 
-      - name: Install backend dependencies
-        run: npm ci
-
-      - name: Run backend unit tests
-        run: npm test
-
-      - name: Install frontend dependencies
+      - name: Install dependencies
         run: |
-          cd frontend
           npm ci
+          npm --prefix frontend ci
 
-      - name: Run frontend unit tests
-        run: |
-          cd frontend
-          npm run test
-
-      - name: Build frontend to verify build sanity
-        run: |
-          cd frontend
-          npm run build
+      - name: Build frontend
+        run: npm --prefix frontend run build
 
       - name: Build standalone Linux & Windows binaries
         run: |
@@ -60,13 +140,12 @@ jobs:
         run: |
           PORT=13001 SCANNING_ENABLED=false dist/periscope-linux-amd64 &
           BIN_PID=$!
-          trap "kill $BIN_PID 2>/dev/null || true" EXIT
-          for i in $(seq 1 30); do
+          trap 'kill "$BIN_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:13001/healthz >/dev/null 2>&1; then
               echo "Health check passed"
               curl -fsS http://127.0.0.1:13001/ | grep -qi "html"
               echo "Frontend index.html served"
-              kill $BIN_PID 2>/dev/null || true
               exit 0
             fi
             sleep 1
@@ -87,35 +166,40 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --clobber
 
   build-and-push-oci:
-    needs: test-and-lint
+    needs: [quality, binaries]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Lowercase Repository and Owner Names
+        env:
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          echo "REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          echo "OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "REPO_LOWER=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          echo "OWNER_LOWER=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GitHub Container Registry (GHCR)
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Airgap Docker image to OCI
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: true
@@ -128,7 +212,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}
 
       - name: Build and push Airgap Lite Docker image to OCI
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: true
@@ -143,7 +227,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ github.sha }}-airgap-lite
 
       - name: Build and push Connected Docker image to OCI
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: true
@@ -163,19 +247,27 @@ jobs:
       packages: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Lowercase Repository and Owner Names
+        env:
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          echo "REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          echo "OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "REPO_LOWER=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          echo "OWNER_LOWER=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Set up Helm CLI
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
 
       - name: Log in to GHCR for Helm OCI
+        env:
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | helm registry login "$REGISTRY" --username "$GH_ACTOR" --password-stdin
 
       - name: Lint Helm Chart
         run: helm lint charts/periscope
@@ -185,7 +277,7 @@ jobs:
 
       - name: Push Helm Chart to OCI Registry
         run: |
-          helm push dist/periscope-*.tgz oci://${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/charts
+          helm push dist/periscope-*.tgz "oci://$REGISTRY/$OWNER_LOWER/charts"
 
       - name: Upload Helm Chart to GitHub Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -202,21 +294,32 @@ jobs:
       packages: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Lowercase Repository and Owner Names
+        env:
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          echo "REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-          echo "OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "REPO_LOWER=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          echo "OWNER_LOWER=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Set up Zarf CLI
         run: |
-          curl -sL "https://github.com/zarf-dev/zarf/releases/download/${{ env.ZARF_VERSION }}/zarf_${{ env.ZARF_VERSION }}_Linux_amd64" -o /usr/local/bin/zarf
-          chmod +x /usr/local/bin/zarf
+          file="zarf_${ZARF_VERSION}_Linux_amd64"
+          base="https://github.com/zarf-dev/zarf/releases/download/${ZARF_VERSION}"
+          curl -fsSL "$base/$file" -o "$file"
+          expected=$(curl -fsSL "$base/checksums.txt" | awk -v f="$file" '$2 == f { print $1 }')
+          test -n "$expected" || { echo "No checksum published for $file"; exit 1; }
+          echo "$expected  $file" | sha256sum -c -
+          sudo install -m 0755 "$file" /usr/local/bin/zarf
+          rm -f "$file"
           zarf version
 
       - name: Log in to GitHub Container Registry (GHCR)
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -224,86 +327,122 @@ jobs:
 
       - name: Pull Docker images to local daemon
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}-connected
-          docker pull ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}
-          docker pull ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:${{ env.APP_VERSION }}-airgap-lite
+          docker pull "$REGISTRY/$REPO_LOWER:$APP_VERSION-connected"
+          docker pull "$REGISTRY/$REPO_LOWER:$APP_VERSION"
+          docker pull "$REGISTRY/$REPO_LOWER:$APP_VERSION-airgap-lite"
 
       - name: Log in to GHCR for Zarf OCI
+        env:
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          zarf tools registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }}
+          zarf tools registry login "$REGISTRY" --username "$GH_ACTOR" --password "$GH_TOKEN"
 
       - name: Install ORAS CLI
         run: |
-          curl -LO https://github.com/oras-project/oras/releases/download/v1.2.0/oras_1.2.0_linux_amd64.tar.gz
-          tar -zxf oras_1.2.0_linux_amd64.tar.gz -C /usr/local/bin/ oras
-          rm oras_1.2.0_linux_amd64.tar.gz
+          tgz="oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}"
+          curl -fsSL "$base/$tgz" -o "$tgz"
+          expected=$(curl -fsSL "$base/oras_${ORAS_VERSION}_checksums.txt" | awk -v f="$tgz" '$2 == f { print $1 }')
+          test -n "$expected" || { echo "No checksum published for $tgz"; exit 1; }
+          echo "$expected  $tgz" | sha256sum -c -
+          sudo tar -zxf "$tgz" -C /usr/local/bin oras
+          rm -f "$tgz"
           oras version
 
       - name: Install Grype CLI
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          tgz="grype_${GRYPE_VERSION#v}_linux_amd64.tar.gz"
+          base="https://github.com/anchore/grype/releases/download/${GRYPE_VERSION}"
+          curl -fsSL "$base/$tgz" -o "$tgz"
+          expected=$(curl -fsSL "$base/grype_${GRYPE_VERSION#v}_checksums.txt" | awk -v f="$tgz" '$2 == f { print $1 }')
+          test -n "$expected" || { echo "No checksum published for $tgz"; exit 1; }
+          echo "$expected  $tgz" | sha256sum -c -
+          sudo tar -zxf "$tgz" -C /usr/local/bin grype
+          rm -f "$tgz"
           grype version
 
       - name: Create Zarf Packages and Export SBOMs
         run: |
           mkdir -p sbom-output
-          sed -i "s|jdmldm1/periscope|${{ env.REPO_LOWER }}|g" zarf.yaml
-          sed -i "s|jdmldm1/periscope|${{ env.REPO_LOWER }}|g" zarf-airgap.yaml
-          sed -i "s|jdmldm1/periscope|${{ env.REPO_LOWER }}|g" zarf-airgap-lite.yaml
-          
+          sed -i "s|jdmldm1/periscope|$REPO_LOWER|g" zarf.yaml zarf-airgap.yaml zarf-airgap-lite.yaml
+
           zarf package create --confirm --sbom-out ./sbom-output
-          
+
           mv zarf.yaml zarf-connected.tmp
           mv zarf-airgap.yaml zarf.yaml
           zarf package create --confirm --sbom-out ./sbom-output
-          
+
           mv zarf.yaml zarf-airgap.yaml
           mv zarf-airgap-lite.yaml zarf.yaml
           zarf package create --confirm --sbom-out ./sbom-output
-          
+
           mv zarf.yaml zarf-airgap-lite.yaml
           mv zarf-connected.tmp zarf.yaml
-          
+
           echo "Contents of sbom-output:"
           ls -R sbom-output
 
-      - name: Scan SBOMs with Grype
+      - name: Scan every SBOM with Grype
         run: |
-          SBOM_FILE=$(find ./sbom-output -name "*syft.json" -type f | head -n 1)
-          if [ -z "$SBOM_FILE" ]; then
-            echo "Warning: No Syft SBOM json file found with syft.json suffix, trying any json..."
-            SBOM_FILE=$(find ./sbom-output -name "*.json" -type f | head -n 1)
+          mapfile -t SBOMS < <(find ./sbom-output -name '*syft.json' -type f | sort)
+          if [ "${#SBOMS[@]}" -eq 0 ]; then
+            echo "No *syft.json SBOMs found, falling back to any json"
+            mapfile -t SBOMS < <(find ./sbom-output -name '*.json' -type f | sort)
           fi
-          
-          if [ -z "$SBOM_FILE" ]; then
+          if [ "${#SBOMS[@]}" -eq 0 ]; then
             echo "Error: No SBOM json file found in sbom-output!"
             exit 1
           fi
-          
-          echo "Found SBOM: $SBOM_FILE"
-          grype sbom:"$SBOM_FILE" --output json > vulnerability-report.json
-          echo "Vulnerability scan completed. Saved to vulnerability-report.json"
+
+          mkdir -p grype-scans
+          i=0
+          for sbom in "${SBOMS[@]}"; do
+            i=$((i + 1))
+            echo "Scanning $sbom"
+            grype "sbom:$sbom" --output json > "grype-scans/scan-$i.json"
+          done
+
+          # One report: the first scan's metadata with the matches of every scan.
+          jq -s '.[0] + {matches: (map(.matches) | add // [])}' grype-scans/scan-*.json > vulnerability-report.json
+          echo "Scanned ${#SBOMS[@]} SBOM(s); report saved to vulnerability-report.json"
+          printf '%s\n' "${SBOMS[0]}" > primary-sbom.txt
+
+      - name: Fail on critical vulnerabilities that have a fix
+        run: |
+          jq -r '.matches[]
+            | select(.vulnerability.severity == "Critical" and .vulnerability.fix.state == "fixed")
+            | "\(.vulnerability.id)  \(.artifact.name)@\(.artifact.version)  fixed in \(.vulnerability.fix.versions | join(", "))"' \
+            vulnerability-report.json | sort -u | tee critical-fixable.txt
+          if [ -s critical-fixable.txt ]; then
+            echo "Critical vulnerabilities with an available fix were found."
+            exit 1
+          fi
+          echo "No fixable critical vulnerabilities."
 
       - name: Log in to GHCR with ORAS
+        env:
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ${{ env.REGISTRY }} --username ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | oras login "$REGISTRY" --username "$GH_ACTOR" --password-stdin
 
       - name: Publish SBOM and Vulnerabilities to GHCR via ORAS
         run: |
-          SBOM_FILE=$(find ./sbom-output -name "*.json" -type f | head -n 1)
-          if [ -z "$SBOM_FILE" ]; then
+          SBOM_FILE=$(cat primary-sbom.txt)
+          if [ -z "$SBOM_FILE" ] || [ ! -f "$SBOM_FILE" ]; then
             echo "Error: No SBOM file to push!"
             exit 1
           fi
-          oras push ${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages/periscope-sbom:${{ env.APP_VERSION }} \
-            $SBOM_FILE:application/vnd.syft+json \
+          oras push "$REGISTRY/$OWNER_LOWER/packages/periscope-sbom:$APP_VERSION" \
+            "$SBOM_FILE:application/vnd.syft+json" \
             vulnerability-report.json:application/json
 
       - name: Publish Zarf Packages to OCI Registry
         run: |
           for pkg in zarf-package-periscope-*.tar.zst; do
             echo "Publishing package: $pkg"
-            zarf package publish "$pkg" oci://${{ env.REGISTRY }}/${{ env.OWNER_LOWER }}/packages
+            zarf package publish "$pkg" "oci://$REGISTRY/$OWNER_LOWER/packages"
           done
 
       - name: Upload Zarf Packages and Checksums to GitHub Release
@@ -331,7 +470,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Verify tag matches APP_VERSION
         run: |
@@ -345,7 +486,7 @@ jobs:
           helm upgrade --install periscope charts/periscope \
             --namespace periscope \
             -f deploy/shiloh/values.yaml \
-            --set image.tag=${{ github.sha }}-connected \
+            --set "image.tag=${GITHUB_SHA}-connected" \
             --atomic --wait --timeout 5m
 
       - name: Show rollout status

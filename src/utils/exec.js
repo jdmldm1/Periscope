@@ -6,8 +6,7 @@ function run(file, args = [], opts = {}) {
             if (error) {
                 error.stderr = stderr;
                 error.stdout = stdout;
-                if (!error.message && stderr)
-                    error.message = stderr;
+                if (!error.message && stderr) error.message = stderr;
                 return reject(error);
             }
             resolve({ stdout: stdout || '', stderr: stderr || '' });
@@ -18,7 +17,7 @@ async function runJson(file, args = [], opts = {}) {
     const { stdout } = await run(file, args, opts);
     return JSON.parse(stdout);
 }
-// Like run(), but writes `input` to the child's stdin (keeps secrets out of argv and `ps`).
+// Writes `input` to stdin so secrets stay out of argv and `ps`.
 function runWithStdin(file, args, input, opts = {}) {
     return new Promise((resolve, reject) => {
         const child = execFile(file, args, { maxBuffer: DEFAULT_MAX_BUFFER, ...opts }, (error, stdout, stderr) => {

@@ -73,6 +73,14 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     k8s-app: retina
+  annotations:
+    ignore-check.kube-linter.io/privileged-container: "eBPF programs and the bpffs mount require privileged mode"
+    ignore-check.kube-linter.io/privilege-escalation-container: "Privileged eBPF agent"
+    ignore-check.kube-linter.io/host-network: "Captures node network traffic"
+    ignore-check.kube-linter.io/run-as-non-root: "Loading eBPF programs requires root"
+    ignore-check.kube-linter.io/no-read-only-root-fs: "Upstream Retina image writes runtime state"
+    ignore-check.kube-linter.io/drop-net-raw-capability: "Privileged eBPF agent"
+    ignore-check.kube-linter.io/unset-memory-requirements: "Set retina.resources.limits per install"
 spec:
   selector:
     matchLabels:
@@ -95,6 +103,8 @@ spec:
           command: ["sh", "-c", "mkdir -p /sys/fs/bpf && mount -t bpf bpf /sys/fs/bpf"]
           securityContext:
             privileged: true
+          resources:
+            {{- toYaml .Values.retina.resources | nindent 12 }}
           volumeMounts:
             - name: bpf
               mountPath: /sys/fs/bpf
@@ -116,6 +126,8 @@ spec:
             privileged: true
             capabilities:
               add: ["SYS_ADMIN", "NET_ADMIN", "IPC_LOCK"]
+          resources:
+            {{- toYaml .Values.retina.resources | nindent 12 }}
           volumeMounts:
             - name: bpf
               mountPath: /sys/fs/bpf

@@ -16,7 +16,9 @@ function inClusterKubeconfigPath() {
     const target = '/app/.cache/incluster-kubeconfig.yaml';
     try {
         fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, `apiVersion: v1
+        fs.writeFileSync(
+            target,
+            `apiVersion: v1
 kind: Config
 clusters:
 - name: in-cluster
@@ -34,10 +36,10 @@ users:
 - name: in-cluster
   user:
     tokenFile: ${saDir}/token
-`);
+`,
+        );
         cachedKubeconfigPath = target;
-    }
-    catch (err) {
+    } catch (err) {
         logger.error(err, 'Failed to write in-cluster kubeconfig');
         cachedKubeconfigPath = '';
     }

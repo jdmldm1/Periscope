@@ -1,10 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-test('scanner and security services honor SCANNING_ENABLED=false', async (t) => {
+test('scanner and security services honor SCANNING_ENABLED=false', async () => {
     process.env.SCANNING_ENABLED = 'false';
 
-    // Clear require cache for isolated testing
     delete require.cache[require.resolve('../utils/featureFlags')];
     delete require.cache[require.resolve('./scannerService')];
     delete require.cache[require.resolve('./securityService')];
@@ -18,14 +17,8 @@ test('scanner and security services honor SCANNING_ENABLED=false', async (t) => 
     assert.deepStrictEqual(await scannerService.getAllScans(), {});
     assert.deepStrictEqual(await scannerService.getRunningImages(), []);
 
-    await assert.rejects(
-        () => scannerService.performSbomScan('alpine:latest'),
-        /disabled/i
-    );
-    await assert.rejects(
-        () => scannerService.performVulnsScan('alpine:latest'),
-        /disabled/i
-    );
+    await assert.rejects(() => scannerService.performSbomScan('alpine:latest'), /disabled/i);
+    await assert.rejects(() => scannerService.performVulnsScan('alpine:latest'), /disabled/i);
 
     assert.strictEqual(securityService.scanningEnabled, false);
     assert.strictEqual(await securityService.ensureKubescapeArtifacts(), false);
@@ -35,10 +28,7 @@ test('scanner and security services honor SCANNING_ENABLED=false', async (t) => 
     assert.strictEqual(secStatus.report, null);
     assert.strictEqual(securityService.getDbStatus().enabled, false);
 
-    await assert.rejects(
-        () => securityService.triggerScan(),
-        /disabled/i
-    );
+    await assert.rejects(() => securityService.triggerScan(), /disabled/i);
 
     delete process.env.SCANNING_ENABLED;
     delete require.cache[require.resolve('../utils/featureFlags')];
@@ -46,7 +36,7 @@ test('scanner and security services honor SCANNING_ENABLED=false', async (t) => 
     delete require.cache[require.resolve('./securityService')];
 });
 
-test('scanner and security services honor AIRGAP_LITE=true', async (t) => {
+test('scanner and security services honor AIRGAP_LITE=true', async () => {
     process.env.AIRGAP_LITE = 'true';
 
     delete require.cache[require.resolve('../utils/featureFlags')];

@@ -16,16 +16,14 @@ router.post('/sbom/scan', async (req, res) => {
         return res.status(403).json({ error: 'Image vulnerability scanning is disabled in this edition' });
     }
     const { imageRef, rescan } = req.body;
-    if (!imageRef)
-        return res.status(400).json({ error: 'imageRef is required' });
+    if (!imageRef) return res.status(400).json({ error: 'imageRef is required' });
     try {
         if (rescan) {
             scannerService.clearImageCache(imageRef);
         }
         const result = await scannerService.performSbomScan(imageRef);
         res.json(result);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -34,13 +32,11 @@ router.post('/sbom/vulnerabilities', async (req, res) => {
         return res.status(403).json({ error: 'Image vulnerability scanning is disabled in this edition' });
     }
     const { imageRef } = req.body;
-    if (!imageRef)
-        return res.status(400).json({ error: 'imageRef is required' });
+    if (!imageRef) return res.status(400).json({ error: 'imageRef is required' });
     try {
         const result = await scannerService.performVulnsScan(imageRef);
         res.json(result);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -48,8 +44,7 @@ router.get('/sbom/scans', async (req, res) => {
     try {
         const scans = await scannerService.getAllScans();
         res.json(scans);
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -58,14 +53,12 @@ router.get('/running-images', async (req, res) => {
     try {
         const pods = await k8sService.core.listPodForAllNamespaces();
         const images = new Set();
-        pods.items.forEach(pod => {
-            pod.spec.containers.forEach(c => images.add(c.image));
-            if (pod.spec.initContainers)
-                pod.spec.initContainers.forEach(c => images.add(c.image));
+        pods.items.forEach((pod) => {
+            pod.spec.containers.forEach((c) => images.add(c.image));
+            if (pod.spec.initContainers) pod.spec.initContainers.forEach((c) => images.add(c.image));
         });
         res.json(Array.from(images).sort());
-    }
-    catch (err) {
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -85,20 +78,18 @@ router.post('/config', (req, res) => {
     if (!hasScan && !hasAuto && !hasInterval) {
         return res.status(400).json({ error: 'No valid config fields provided' });
     }
-    if (dbUpdateIntervalHours !== undefined &&
-        (!Number.isFinite(Number(dbUpdateIntervalHours)) || Number(dbUpdateIntervalHours) <= 0)) {
+    if (
+        dbUpdateIntervalHours !== undefined &&
+        (!Number.isFinite(Number(dbUpdateIntervalHours)) || Number(dbUpdateIntervalHours) <= 0)
+    ) {
         return res.status(400).json({ error: 'dbUpdateIntervalHours must be a positive number' });
     }
-    if (hasScan)
-        scannerService.enableAutoScan = enableAutoScan;
+    if (hasScan) scannerService.enableAutoScan = enableAutoScan;
     const dbSettingsChanged = hasAuto || hasInterval;
-    if (hasAuto)
-        scannerService.autoUpdateDb = autoUpdateDb;
-    if (hasInterval)
-        scannerService.dbUpdateIntervalHours = Number(dbUpdateIntervalHours);
+    if (hasAuto) scannerService.autoUpdateDb = autoUpdateDb;
+    if (hasInterval) scannerService.dbUpdateIntervalHours = Number(dbUpdateIntervalHours);
     scannerService.saveScannerConfig();
-    if (dbSettingsChanged)
-        scannerService.startDbAutoUpdateLoop();
+    if (dbSettingsChanged) scannerService.startDbAutoUpdateLoop();
     res.json({
         success: true,
         enableAutoScan: scannerService.enableAutoScan,

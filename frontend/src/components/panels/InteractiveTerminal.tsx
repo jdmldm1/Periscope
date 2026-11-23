@@ -7,13 +7,12 @@ interface InteractiveTerminalProps {
     podName: string;
     containerName: string;
 }
-export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({ namespace, podName, containerName, }) => {
+export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({ namespace, podName, containerName }) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const termInstanceRef = useRef<Terminal | null>(null);
     const socketRef = useRef<WebSocket | null>(null);
     useEffect(() => {
-        if (!terminalRef.current)
-            return;
+        if (!terminalRef.current) return;
         const term = new Terminal({
             cursorBlink: true,
             fontSize: 13,
@@ -33,8 +32,7 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({ namesp
         setTimeout(() => {
             try {
                 fitAddon.fit();
-            }
-            catch (e) {
+            } catch (e) {
                 console.warn('Failed to fit terminal initially:', e);
             }
         }, 100);
@@ -51,8 +49,7 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({ namesp
                 if (socket.readyState === WebSocket.OPEN) {
                     socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
                 }
-            }
-            catch (err) {
+            } catch (err) {
                 console.warn('Resize error:', err);
             }
         };
@@ -63,8 +60,7 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({ namesp
         socket.onmessage = (event) => {
             if (typeof event.data === 'string') {
                 term.write(event.data);
-            }
-            else if (event.data instanceof ArrayBuffer) {
+            } else if (event.data instanceof ArrayBuffer) {
                 term.write(decoder.decode(event.data, { stream: true }));
             }
         };
@@ -93,8 +89,7 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({ namesp
             resizeTimer = setTimeout(sendResize, 80);
         };
         const resizeObserver = new ResizeObserver(scheduleResize);
-        if (terminalRef.current)
-            resizeObserver.observe(terminalRef.current);
+        if (terminalRef.current) resizeObserver.observe(terminalRef.current);
         window.addEventListener('resize', scheduleResize);
         return () => {
             clearTimeout(resizeTimer);
@@ -108,16 +103,20 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({ namesp
             }
         };
     }, [namespace, podName, containerName]);
-    return (<div style={{
-            width: '100%',
-            height: '420px',
-            background: '#040711',
-            border: '1px solid var(--border-color)',
-            borderRadius: 6,
-            padding: 8,
-            boxSizing: 'border-box',
-            overflow: 'hidden'
-        }}>
-      <div ref={terminalRef} style={{ width: '100%', height: '100%' }}/>
-    </div>);
+    return (
+        <div
+            style={{
+                width: '100%',
+                height: '420px',
+                background: '#040711',
+                border: '1px solid var(--border-color)',
+                borderRadius: 6,
+                padding: 8,
+                boxSizing: 'border-box',
+                overflow: 'hidden',
+            }}
+        >
+            <div ref={terminalRef} style={{ width: '100%', height: '100%' }} />
+        </div>
+    );
 };

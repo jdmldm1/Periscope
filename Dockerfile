@@ -4,11 +4,12 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY frontend/package*.json ./frontend/
-RUN cd frontend && npm ci
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
 
-COPY frontend ./frontend
-RUN cd frontend && npm run build
+COPY frontend ./
+RUN npm run build
 
 FROM alpine:3.24
 
@@ -16,9 +17,12 @@ ARG CACHE_GRYPE_DB=true
 ARG GRYPE_VERSION=v0.117.0
 ARG ZARF_VERSION=v0.83.0
 ARG KUBECTL_VERSION=v1.36.3
+ARG ORAS_VERSION=1.3.3
 ARG AIRGAP=false
 ARG AIRGAP_LITE=false
 ARG SCANNING_ENABLED=true
+
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
 WORKDIR /app
 
@@ -44,7 +48,7 @@ ENV NODE_ENV=production \
 COPY --chown=node:node docker/bin-bootstrap.sh /app/bin-bootstrap.sh
 RUN chmod +x /app/bin-bootstrap.sh
 
-USER node
+USER 1000:1000
 
 RUN if [ "$AIRGAP" = "true" ]; then \
         if [ "$AIRGAP_LITE" = "true" ] || [ "$SCANNING_ENABLED" = "false" ]; then \
@@ -60,12 +64,18 @@ RUN if [ "$AIRGAP" = "true" ]; then \
         fi && \
         ARCH=$(uname -m) && \
         if [ "$ARCH" = "x86_64" ]; then ORAS_ARCH="amd64"; else ORAS_ARCH="arm64"; fi && \
-        curl -sSL "https://github.com/oras-project/oras/releases/download/v1.3.3/oras_1.3.3_linux_${ORAS_ARCH}.tar.gz" -o /tmp/oras.tar.gz && \
-        tar -zxf /tmp/oras.tar.gz -C /app/bin oras && \
-        rm -f /tmp/oras.tar.gz && \
+        ORAS_TGZ="oras_${ORAS_VERSION}_linux_${ORAS_ARCH}.tar.gz" && \
+        ORAS_URL="https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}" && \
+        curl -fsSL "${ORAS_URL}/${ORAS_TGZ}" -o "/tmp/${ORAS_TGZ}" && \
+        ORAS_SHA=$(curl -fsSL "${ORAS_URL}/oras_${ORAS_VERSION}_checksums.txt" | grep " ${ORAS_TGZ}\$" | cut -d' ' -f1) && \
+        [ -n "${ORAS_SHA}" ] && \
+        echo "${ORAS_SHA}  /tmp/${ORAS_TGZ}" | sha256sum -c - && \
+        tar -zxf "/tmp/${ORAS_TGZ}" -C /app/bin oras && \
+        rm -f "/tmp/${ORAS_TGZ}" && \
         oras version; \
     fi
 
+WORKDIR /app
 COPY --chown=node:node package.json ./
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node server.js ./

@@ -32,8 +32,7 @@ function routeWebSocketConnection(ws, request) {
         if (ws.readyState === WebSocket.OPEN) {
             try {
                 ws.close(4000, 'Pod required');
-            }
-            catch (e) { }
+            } catch (e) {}
         }
         return;
     }

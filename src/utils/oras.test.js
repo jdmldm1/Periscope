@@ -13,7 +13,20 @@ test('assertRef accepts normal OCI references', () => {
 });
 
 test('assertRef rejects shell metacharacters, flags and non-strings', () => {
-    for (const ref of ['', '-o/etc', 'a b', 'a;rm -rf /', 'a$(id)', 'a`id`', 'a"b', "a'b", 'a\nb', 'x'.repeat(513), null, 42]) {
+    for (const ref of [
+        '',
+        '-o/etc',
+        'a b',
+        'a;rm -rf /',
+        'a$(id)',
+        'a`id`',
+        'a"b',
+        "a'b",
+        'a\nb',
+        'x'.repeat(513),
+        null,
+        42,
+    ]) {
         assert.throws(() => assertRef(ref), OrasInputError, String(ref));
     }
 });
@@ -35,15 +48,25 @@ test('resolveUploadPath only allows files directly inside the upload dir', () =>
         assert.throws(() => resolveUploadPath('/etc/passwd', dir), OrasInputError);
         assert.throws(() => resolveUploadPath(path.join(dir, '..', 'x'), dir), OrasInputError);
         assert.throws(() => resolveUploadPath('', dir), OrasInputError);
-        // A symlink inside the dir that points outside must not be followed.
-        const link = path.join(dir, 'link');
-        fs.symlinkSync('/etc/passwd', link);
-        assert.throws(() => resolveUploadPath(link, dir), OrasInputError);
-    }
-    finally {
+    } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test(
+    'resolveUploadPath does not follow a symlink that points outside the upload dir',
+    { skip: process.platform === 'win32' && 'symlinks need elevated rights on Windows' },
+    () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oras-test-'));
+        try {
+            const link = path.join(dir, 'link');
+            fs.symlinkSync('/etc/passwd', link);
+            assert.throws(() => resolveUploadPath(link, dir), OrasInputError);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    },
+);
 
 test('runWithStdin feeds input to the child without a shell', async () => {
     const secret = '$(touch /tmp/should-not-exist) `id`';
