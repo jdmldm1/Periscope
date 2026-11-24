@@ -41,7 +41,7 @@ describe('getFilteredVulnerabilities', () => {
     it('returns matches from successful scans, tagged with their image', () => {
         const vulns = getFilteredVulnerabilities(results, filters());
         expect(vulns.map((v) => v.vulnerability.id).sort()).toEqual(['CVE-1', 'CVE-2', 'CVE-3']);
-        expect(vulns.find((v) => v.vulnerability.id === 'CVE-1').imageRef).toBe('img-a:1');
+        expect(vulns.find((v) => v.vulnerability.id === 'CVE-1')?.imageRef).toBe('img-a:1');
     });
     it('excludes failed scans', () => {
         const ids = getFilteredVulnerabilities(results, filters()).map((v) => v.vulnerability.id);

@@ -189,21 +189,24 @@ function AppContent({ onLogout, onChangePassword }: { onLogout: () => void; onCh
     useKeyboardNavigation({ openCommandPalette });
     useEffect(() => {
         if (!podMetrics) return;
-        setPodMetricsHistory((prev) => {
-            const updated = { ...prev };
-            podMetrics.forEach((pm: any) => {
-                const key = `${pm.metadata.namespace}/${pm.metadata.name}`;
-                let cpu = 0;
-                let mem = 0;
-                pm.containers?.forEach((c: any) => {
-                    cpu += parseCpu(c.usage?.cpu || '0');
-                    mem += parseMem(c.usage?.memory || '0');
+        const timer = setTimeout(() => {
+            setPodMetricsHistory((prev) => {
+                const updated = { ...prev };
+                podMetrics.forEach((pm: any) => {
+                    const key = `${pm.metadata.namespace}/${pm.metadata.name}`;
+                    let cpu = 0;
+                    let mem = 0;
+                    pm.containers?.forEach((c: any) => {
+                        cpu += parseCpu(c.usage?.cpu || '0');
+                        mem += parseMem(c.usage?.memory || '0');
+                    });
+                    const existing = updated[key] || { cpu: [], mem: [] };
+                    updated[key] = { cpu: [...existing.cpu.slice(-14), cpu], mem: [...existing.mem.slice(-14), mem] };
                 });
-                const existing = updated[key] || { cpu: [], mem: [] };
-                updated[key] = { cpu: [...existing.cpu.slice(-14), cpu], mem: [...existing.mem.slice(-14), mem] };
+                return updated;
             });
-            return updated;
-        });
+        }, 0);
+        return () => clearTimeout(timer);
     }, [podMetrics]);
     const getNodeUsagePercent = (metric: any) => computeNodeUsagePercent(metric, filteredResources);
     const refreshResources = () => {

@@ -3,6 +3,7 @@ export interface ScanFilters {
     severity: string;
     search: string;
 }
+
 export interface RemediationItem {
     packageName: string;
     currentVersion: string;
@@ -13,8 +14,59 @@ export interface RemediationItem {
     }[];
     imageRef: string;
 }
-type ScanResults = Record<string, any>;
+
+export interface VulnerabilityMatch {
+    imageRef?: string;
+    vulnerability: {
+        id?: string;
+        severity?: string;
+        fix?: {
+            versions?: string[];
+            state?: string;
+        };
+        description?: string;
+        [key: string]: unknown;
+    };
+    artifact: {
+        name?: string;
+        version?: string;
+        type?: string;
+        locations?: Array<{ path?: string }>;
+        licenses?: Array<string | { value?: string }>;
+        language?: string;
+        [key: string]: unknown;
+    };
+    [key: string]: unknown;
+}
+
+export interface PackageArtifact {
+    imageRef?: string;
+    name?: string;
+    version?: string;
+    type?: string;
+    locations?: Array<{ path?: string }>;
+    licenses?: Array<string | { value?: string }>;
+    language?: string;
+    cpes?: string[];
+    purl?: string;
+    [key: string]: unknown;
+}
+
+interface ImageScanResult {
+    status?: string;
+    vulnerabilities?: {
+        matches?: VulnerabilityMatch[];
+    };
+    sbom?: {
+        artifacts?: PackageArtifact[];
+    };
+    [key: string]: unknown;
+}
+
+export type ScanResults = Record<string, ImageScanResult>;
+
 const SEVERITY_RANK: Record<string, number> = { critical: 5, high: 4, medium: 3, low: 2 };
+
 function highestSeverity(
     vulns: {
         severity: string;
@@ -22,22 +74,28 @@ function highestSeverity(
 ): number {
     return vulns.reduce((max, v) => Math.max(max, SEVERITY_RANK[v.severity.toLowerCase()] ?? 1), 0);
 }
-function forEachScannedImage(results: ScanResults, imageFilter: string, fn: (imgRef: string, res: any) => void) {
+
+function forEachScannedImage(
+    results: ScanResults,
+    imageFilter: string,
+    fn: (imgRef: string, res: ImageScanResult) => void,
+) {
     Object.keys(results).forEach((imgRef) => {
         if (imageFilter !== 'all' && imageFilter !== imgRef) return;
         const res = results[imgRef];
         if (res && res.status === 'success') fn(imgRef, res);
     });
 }
+
 export function getRemediationList(results: ScanResults, imageFilter: string): RemediationItem[] {
     const map = new Map<string, RemediationItem>();
     forEachScannedImage(results, imageFilter, (imgRef, res) => {
         if (!res.vulnerabilities?.matches) return;
-        res.vulnerabilities.matches.forEach((m: any) => {
+        res.vulnerabilities.matches.forEach((m) => {
             const vuln = m.vulnerability || {};
             const art = m.artifact || {};
             const fixVersions = vuln.fix?.versions || [];
-            if (fixVersions.length === 0) return;
+            if (fixVersions.length === 0 || !art.name || !art.version) return;
             const key = `${imgRef}::${art.name}::${art.version}`;
             if (!map.has(key)) {
                 map.set(key, {
@@ -49,7 +107,7 @@ export function getRemediationList(results: ScanResults, imageFilter: string): R
                 });
             }
             const item = map.get(key)!;
-            if (!item.vulnerabilities.some((v) => v.id === vuln.id)) {
+            if (vuln.id && !item.vulnerabilities.some((v) => v.id === vuln.id)) {
                 item.vulnerabilities.push({ id: vuln.id, severity: vuln.severity || 'Unknown' });
             }
             fixVersions.forEach((fv: string) => {
@@ -61,6 +119,7 @@ export function getRemediationList(results: ScanResults, imageFilter: string): R
         (a, b) => highestSeverity(b.vulnerabilities) - highestSeverity(a.vulnerabilities),
     );
 }
+
 export function getFilteredRemediations(results: ScanResults, filters: ScanFilters): RemediationItem[] {
     const q = filters.search.trim().toLowerCase();
     const list = getRemediationList(results, filters.image);
@@ -72,14 +131,15 @@ export function getFilteredRemediations(results: ScanResults, filters: ScanFilte
             item.vulnerabilities.some((v) => v.id.toLowerCase().includes(q)),
     );
 }
-export function getFilteredVulnerabilities(results: ScanResults, filters: ScanFilters): any[] {
-    const list: any[] = [];
+
+export function getFilteredVulnerabilities(results: ScanResults, filters: ScanFilters): VulnerabilityMatch[] {
+    const list: VulnerabilityMatch[] = [];
     forEachScannedImage(results, filters.image, (imgRef, res) => {
         if (!res.vulnerabilities?.matches) return;
-        res.vulnerabilities.matches.forEach((m: any) => list.push({ ...m, imageRef: imgRef }));
+        res.vulnerabilities.matches.forEach((m) => list.push({ ...m, imageRef: imgRef }));
     });
     const q = filters.search.trim().toLowerCase();
-    return list.filter((m: any) => {
+    return list.filter((m) => {
         const vuln = m.vulnerability || {};
         const art = m.artifact || {};
         const severity = vuln.severity || 'Unknown';
@@ -96,18 +156,19 @@ export function getFilteredVulnerabilities(results: ScanResults, filters: ScanFi
         );
     });
 }
-export function getFilteredPackages(results: ScanResults, filters: ScanFilters): any[] {
-    const list: any[] = [];
+
+export function getFilteredPackages(results: ScanResults, filters: ScanFilters): PackageArtifact[] {
+    const list: PackageArtifact[] = [];
     forEachScannedImage(results, filters.image, (imgRef, res) => {
         if (!res.sbom?.artifacts) return;
-        res.sbom.artifacts.forEach((art: any) => list.push({ ...art, imageRef: imgRef }));
+        res.sbom.artifacts.forEach((art) => list.push({ ...art, imageRef: imgRef }));
     });
     const q = filters.search.trim().toLowerCase();
     if (!q) return list;
-    return list.filter((art: any) => {
+    return list.filter((art) => {
         const licenses = Array.isArray(art.licenses)
             ? art.licenses
-                  .map((l: any) => (typeof l === 'string' ? l : l.value || ''))
+                  .map((l) => (typeof l === 'string' ? l : l?.value || ''))
                   .join(' ')
                   .toLowerCase()
             : '';
@@ -120,6 +181,7 @@ export function getFilteredPackages(results: ScanResults, filters: ScanFilters):
         );
     });
 }
+
 function triggerDownload(href: string, filename: string) {
     const anchor = document.createElement('a');
     anchor.setAttribute('href', href);
@@ -128,51 +190,66 @@ function triggerDownload(href: string, filename: string) {
     anchor.click();
     anchor.remove();
 }
+
 function reportName(prefix: string, imageFilter: string, ext: string): string {
     return `${prefix}-${imageFilter.replace(/[:/]/g, '-')}.${ext}`;
 }
+
 function downloadJson(data: unknown, filename: string) {
     const href = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(data, null, 2));
     triggerDownload(href, filename);
 }
+
 function downloadCsv(headers: string[], rows: string[][], filename: string) {
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
     triggerDownload(url, filename);
 }
+
 const csvCell = (val: unknown) => `"${val}"`;
+
 export function exportVulnerabilitiesJson(results: ScanResults, filters: ScanFilters) {
     downloadJson(
         getFilteredVulnerabilities(results, filters),
         reportName('security-vulnerabilities-report', filters.image, 'json'),
     );
 }
+
 export function exportVulnerabilitiesCsv(results: ScanResults, filters: ScanFilters) {
     const headers = ['Image', 'Vulnerability ID', 'Severity', 'Package', 'Installed Version', 'Fixed In'];
-    const rows = getFilteredVulnerabilities(results, filters).map((m: any) => {
+    const rows = getFilteredVulnerabilities(results, filters).map((m) => {
         const vuln = m.vulnerability || {};
         const art = m.artifact || {};
         return [
-            m.imageRef,
-            vuln.id,
-            vuln.severity,
-            art.name,
-            art.version,
+            m.imageRef || '',
+            vuln.id || '',
+            vuln.severity || '',
+            art.name || '',
+            art.version || '',
             vuln.fix?.versions?.join(', ') || 'Not Fixed',
         ].map(csvCell);
     });
     downloadCsv(headers, rows, reportName('security-vulnerabilities-report', filters.image, 'csv'));
 }
+
 export function exportPackagesJson(results: ScanResults, filters: ScanFilters) {
     downloadJson(getFilteredPackages(results, filters), reportName('security-packages-report', filters.image, 'json'));
 }
+
 export function exportPackagesCsv(results: ScanResults, filters: ScanFilters) {
     const headers = ['Image', 'Package Name', 'Version', 'Type', 'Licenses', 'Language'];
-    const rows = getFilteredPackages(results, filters).map((art: any) => {
+    const rows = getFilteredPackages(results, filters).map((art) => {
         const licenses = Array.isArray(art.licenses)
-            ? art.licenses.map((l: any) => (typeof l === 'string' ? l : l.value || '')).join(', ')
+            ? art.licenses.map((l) => (typeof l === 'string' ? l : l?.value || '')).join(', ')
             : '';
-        return [art.imageRef, art.name, art.version, art.type, licenses, art.language || 'N/A'].map(csvCell);
+        return [
+            art.imageRef || '',
+            art.name || '',
+            art.version || '',
+            art.type || '',
+            licenses,
+            art.language || 'N/A',
+        ].map(csvCell);
     });
     downloadCsv(headers, rows, reportName('security-packages-report', filters.image, 'csv'));
 }

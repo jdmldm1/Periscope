@@ -1,11 +1,11 @@
 const WebSocket = require('ws');
 const logger = require('../utils/logger');
 const k8sService = require('../services/k8sService');
+// eslint-disable-next-line security/detect-unsafe-regex -- runs on single tcpdump output lines
+const TCPDUMP_LINE_REGEX = /^(\d{2}:\d{2}:\d{2}\.\d+)\s+(?:.*\s+)?IP\s+([\d.]+)\.(\d+)\s+>\s+([\d.]+)\.(\d+):\s+(.*)/;
+
 function parsePacketLine(line, ipMap) {
-    // eslint-disable-next-line security/detect-unsafe-regex -- runs on single tcpdump output lines
-    const match = line.match(
-        /^(\d{2}:\d{2}:\d{2}\.\d+)\s+(?:.*\s+)?IP\s+([\d.]+)\.(\d+)\s+>\s+([\d.]+)\.(\d+):\s+(.*)/,
-    );
+    const match = line.match(TCPDUMP_LINE_REGEX);
     if (!match) return null;
     const [, timestamp, srcIp, srcPortStr, destIp, destPortStr, info] = match;
     const srcPort = parseInt(srcPortStr, 10);

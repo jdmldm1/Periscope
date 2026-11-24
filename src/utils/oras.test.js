@@ -70,6 +70,6 @@ test(
 
 test('runWithStdin feeds input to the child without a shell', async () => {
     const secret = '$(touch /tmp/should-not-exist) `id`';
-    const { stdout } = await runWithStdin('cat', [], secret);
+    const { stdout } = await runWithStdin(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], secret);
     assert.strictEqual(stdout, secret);
 });

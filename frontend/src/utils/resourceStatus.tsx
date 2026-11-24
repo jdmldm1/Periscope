@@ -1,12 +1,57 @@
 import type { ResourceKind } from '../contexts/AppContext';
-type BadgeType = 'success' | 'warning' | 'error' | 'info';
+
+export type BadgeType = 'success' | 'warning' | 'error' | 'info';
+
 const BADGE_COLORS: Record<BadgeType, string> = {
     success: 'var(--accent-success)',
     warning: 'var(--accent-warning)',
     error: 'var(--accent-error)',
     info: 'var(--accent-blue)',
 };
-function inferKind(res: any): string {
+
+export interface KubernetesResource {
+    metadata?: {
+        name?: string;
+        namespace?: string;
+        deletionTimestamp?: string | null;
+        creationTimestamp?: string;
+        uid?: string;
+        [key: string]: unknown;
+    };
+    spec?: {
+        replicas?: number;
+        template?: unknown;
+        containers?: unknown[];
+        backoffLimit?: number;
+        schedule?: string;
+        suspend?: boolean;
+        [key: string]: unknown;
+    };
+    status?: {
+        phase?: string;
+        readyReplicas?: number;
+        numberReady?: number;
+        replicas?: number;
+        desiredNumberScheduled?: number;
+        succeeded?: number;
+        failed?: number;
+        active?: unknown[] | number;
+        podIP?: string;
+        nodeInfo?: unknown;
+        conditions?: Array<{ type?: string; status?: string; [key: string]: unknown }>;
+        containerStatuses?: Array<{
+            name?: string;
+            state?: {
+                waiting?: { reason?: string; message?: string };
+                terminated?: { exitCode?: number; reason?: string };
+            };
+        }>;
+        [key: string]: unknown;
+    };
+    [key: string]: unknown;
+}
+
+export function inferKind(res: KubernetesResource): string {
     if (res.spec?.backoffLimit !== undefined || res.status?.succeeded !== undefined || res.status?.failed !== undefined)
         return 'jobs';
     if (res.spec?.schedule !== undefined) return 'cronjobs';
@@ -15,7 +60,8 @@ function inferKind(res: any): string {
     if (res.spec?.template !== undefined) return 'workloads';
     return '';
 }
-function podStatus(res: any): {
+
+export function podStatus(res: KubernetesResource): {
     status: string;
     type: BadgeType;
 } {
@@ -27,23 +73,26 @@ function podStatus(res: any): {
     if (status === 'Running') type = 'success';
     else if (status === 'Succeeded') type = 'info';
     else if (status === 'Failed') type = 'error';
-    const containerErrors = (res.status?.containerStatuses || []).filter((s: any) => {
+
+    const containerErrors = (res.status?.containerStatuses || []).filter((s) => {
         if (s.state?.waiting) {
             const transient = ['ContainerCreating', 'PodInitializing', 'AlwaysPullImages'].includes(
-                s.state.waiting.reason,
+                s.state.waiting.reason || '',
             );
             return !transient;
         }
         if (s.state?.terminated) return s.state.terminated.exitCode !== 0;
         return false;
     });
+
     if (containerErrors.length > 0) {
         status = containerErrors[0].state?.waiting?.reason || containerErrors[0].state?.terminated?.reason || 'Error';
         type = 'error';
     }
     return { status, type };
 }
-function workloadStatus(res: any): {
+
+export function workloadStatus(res: KubernetesResource): {
     status: string;
     type: BadgeType;
 } {
@@ -58,35 +107,38 @@ function workloadStatus(res: any): {
         type: ready === desired && desired > 0 ? 'success' : 'warning',
     };
 }
-function jobStatus(res: any): {
+
+export function jobStatus(res: KubernetesResource): {
     status: string;
     type: BadgeType;
 } {
     const succeeded = res.status?.succeeded || 0;
     const failed = res.status?.failed || 0;
-    const active = res.status?.active || 0;
+    const active = typeof res.status?.active === 'number' ? res.status.active : 0;
     const conditions = res.status?.conditions || [];
-    const isComplete = conditions.some((c: any) => c.type === 'Complete' && c.status === 'True');
-    const isFailed = conditions.some((c: any) => c.type === 'Failed' && c.status === 'True');
+    const isComplete = conditions.some((c) => c.type === 'Complete' && c.status === 'True');
+    const isFailed = conditions.some((c) => c.type === 'Failed' && c.status === 'True');
     if (isComplete || (succeeded > 0 && active === 0)) return { status: 'Succeeded', type: 'success' };
     if (isFailed || failed > 0) return { status: 'Failed', type: 'error' };
     if (active > 0) return { status: 'Running', type: 'info' };
     return { status: 'Completed', type: 'success' };
 }
-function cronJobStatus(res: any): {
+
+export function cronJobStatus(res: KubernetesResource): {
     status: string;
     type: BadgeType;
 } {
     if (res.spec?.suspend) return { status: 'Suspended', type: 'warning' };
-    const active = res.status?.active || [];
+    const active = Array.isArray(res.status?.active) ? res.status.active : [];
     return { status: active.length > 0 ? 'Running' : 'Active', type: 'success' };
 }
+
 export function resolveStatus(
-    res: any,
-    activeTab: any,
+    res: KubernetesResource,
+    activeTab: string,
 ): {
     status: string;
-    type: 'success' | 'warning' | 'error' | 'info';
+    type: BadgeType;
 } {
     const inferred = inferKind(res);
     const isJob = activeTab === 'jobs' || inferred === 'jobs';
@@ -94,10 +146,11 @@ export function resolveStatus(
     const isPod = activeTab === 'pods' || inferred === 'pods';
     const isNode = activeTab === 'nodes' || inferred === 'nodes';
     const isWorkload = ['deployments', 'statefulsets', 'daemonsets'].includes(activeTab) || inferred === 'workloads';
+
     if (isPod) return podStatus(res);
     if (isWorkload) return workloadStatus(res);
     if (isNode) {
-        const readyCond = (res.status?.conditions || []).find((c: any) => c.type === 'Ready');
+        const readyCond = (res.status?.conditions || []).find((c) => c.type === 'Ready');
         const ready = readyCond?.status === 'True';
         return { status: ready ? 'Ready' : 'NotReady', type: ready ? 'success' : 'error' };
     }
@@ -131,7 +184,8 @@ export function resolveStatus(
     }
     return { status: 'Unknown', type: 'warning' };
 }
-export function renderStatusBadge(res: any, activeTab: ResourceKind): React.ReactNode {
+
+export function renderStatusBadge(res: KubernetesResource, activeTab: ResourceKind): React.ReactNode {
     if (activeTab === 'events') return null;
     const { status, type } = resolveStatus(res, activeTab);
     const color = BADGE_COLORS[type] || 'var(--text-muted)';
@@ -141,6 +195,7 @@ export function renderStatusBadge(res: any, activeTab: ResourceKind): React.Reac
         </span>
     );
 }
+
 export function renderSparkline(points: number[], color: string): React.ReactNode | null {
     if (!points || points.length < 2) return null;
     const max = Math.max(...points, 1);
