@@ -33,7 +33,6 @@ async function resolveCredentials({ username, password, useZarfCreds }) {
     }
     return { user: username, pass: password };
 }
-// Log in using a private, per-request registry config. The password goes over stdin, never argv.
 async function login(binPath, configPath, ref, { user, pass }) {
     if (!user || !pass) {
         return '';
@@ -179,7 +178,6 @@ router.post('/oras/pull', async (req, res) => {
         args.push('-o', pullDir, ref);
         const pullRes = await run(binPath, args);
         logs += `${pullRes.stdout}\n${pullRes.stderr}\n`;
-        // The config file holds registry credentials: drop it before streaming anything back.
         removeQuietly(configPath);
         const files = fs.readdirSync(pullDir);
         if (files.length === 0) {

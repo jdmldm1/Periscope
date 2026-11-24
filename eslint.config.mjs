@@ -28,8 +28,6 @@ export default [
         },
     },
     {
-        // Reviewed: every fs path in these files is a fixed config/cache location or passes a validator
-        // (backupPath, safeUploadName, resolveUploadPath). New request-derived paths belong outside this list.
         files: [
             'src/services/authService.js',
             'src/services/backupService.js',

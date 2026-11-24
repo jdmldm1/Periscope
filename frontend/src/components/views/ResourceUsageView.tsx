@@ -38,7 +38,6 @@ interface UsageResponse {
 
 type Metric = 'cpu' | 'memory';
 
-// Utilisation of the pod's own budget: usage against its limit when set, otherwise its request.
 const utilisation = (a: Amounts): number | null => {
     const budget = a.limit || a.request;
     if (a.usage === null || !budget) return null;

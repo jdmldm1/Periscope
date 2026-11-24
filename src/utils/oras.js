@@ -2,7 +2,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const UPLOAD_DIR = path.join(os.tmpdir(), 'oras-uploads');
-// Must start alphanumeric so it can never be parsed as a CLI flag.
 const OCI_REF = /^[a-zA-Z0-9][a-zA-Z0-9._\-:/@]*$/;
 class OrasInputError extends Error {
     constructor(message) {
