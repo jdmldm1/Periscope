@@ -1,0 +1,22 @@
+suite: retina daemonset
+templates:
+  - templates/retina.yaml
+tests:
+  - it: uses the periscope image with root privileges for the bpf-mount initContainer
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: bpf-mount
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: ghcr.io/jdmldm1/periscope:1.4.0
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext.privileged
+          value: true
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/microsoft/retina/retina-agent:v0.0.2

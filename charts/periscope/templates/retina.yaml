@@ -98,11 +98,12 @@ spec:
         - operator: Exists
       initContainers:
         - name: bpf-mount
-          image: "{{ .Values.retina.image.repository }}:{{ .Values.retina.image.tag }}"
-          imagePullPolicy: {{ .Values.retina.image.pullPolicy }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["sh", "-c", "mkdir -p /sys/fs/bpf && mount -t bpf bpf /sys/fs/bpf"]
           securityContext:
             privileged: true
+            runAsUser: 0
           resources:
             {{- toYaml .Values.retina.resources | nindent 12 }}
           volumeMounts:
