@@ -134,7 +134,31 @@ const STEPS = [
         run: () => [docker(IMAGES.hadolint, 'hadolint', '--config', '.hadolint.yaml', 'Dockerfile')],
     },
     { id: 'helm-lint', section: 2, run: () => [docker(IMAGES.helm, 'lint', CHART)] },
-    { id: 'helm-unittest', section: 2, run: () => [docker(IMAGES.helmUnittest, CHART)] },
+    {
+        id: 'helm-unittest',
+        section: 2,
+        run: () => [
+            typeof process.getuid === 'function'
+                ? [
+                      'docker',
+                      [
+                          'run',
+                          '--rm',
+                          '--user',
+                          `${process.getuid()}:${process.getgid()}`,
+                          '-e',
+                          'HOME=/tmp',
+                          '-v',
+                          `${ROOT}:/src`,
+                          '-w',
+                          '/src',
+                          IMAGES.helmUnittest,
+                          CHART,
+                      ],
+                  ]
+                : docker(IMAGES.helmUnittest, CHART),
+        ],
+    },
     { id: 'kube-linter', section: 2, run: () => [docker(IMAGES.kubeLinter, 'lint', CHART)] },
     {
         id: 'kubeconform',
@@ -190,6 +214,7 @@ const STEPS = [
                     'node',
                     [
                         '--test',
+                        '--test-timeout=30000',
                         '--experimental-test-coverage',
                         '--test-reporter=spec',
                         '--test-reporter-destination=stdout',

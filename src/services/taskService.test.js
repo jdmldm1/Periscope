@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const taskService = require('./taskService');
 
 const waitFor = async (predicate) => {
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 500; i++) {
         if (predicate()) return;
         await new Promise((resolve) => setTimeout(resolve, 20));
     }

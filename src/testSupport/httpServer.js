@@ -10,6 +10,7 @@ async function withRouter(mountPath, router, fn) {
         const { port } = /** @type {import('net').AddressInfo} */ (server.address());
         await fn(`http://127.0.0.1:${port}${mountPath}`);
     } finally {
+        server.closeAllConnections?.();
         await new Promise((resolve) => server.close(resolve));
     }
 }
